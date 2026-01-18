@@ -78,13 +78,25 @@
   - Redis message broker
   - Real-time progress tracking
 
-### 🚧 In Progress / Planned
+- 📝 **Document Analysis** ✅
+  - Text extraction from PDFs, Word, and Excel documents
+  - AI-powered classification (product/service/hybrid) with confidence scoring
+  - CLIN extraction from documents (product/service details, quantities, part numbers)
+  - Deadline extraction from documents (complements page metadata)
+  - Optional spaCy NLP integration for advanced classification
 
-- 📝 **Document Analysis** (Phase 1 - Week 2-3)
-  - Text extraction from PDFs/Word/Excel
-  - AI-powered classification (product/service/hybrid)
-  - CLIN extraction from documents
-  - Additional deadline extraction
+- 📤 **File Upload** ✅
+  - Optional file upload with SAM.gov URL
+  - Supports PDF, Word, and Excel formats
+  - Uploaded files included in document analysis
+  - Secure file storage and management
+
+- 🗑️ **Data Cleanup** ✅
+  - Complete deletion of opportunities with all related files
+  - Automatic cleanup of documents, deadlines, and CLINs
+  - File system cleanup (documents and uploads directories)
+
+### 🚧 In Progress / Planned
 
 - 🔍 **Research Automation** (Phase 2)
   - Manufacturer website research
@@ -238,12 +250,13 @@ cd ..
 ```
 
 The script will:
-- ✅ Check prerequisites
+- ✅ Check prerequisites (venv, .env, PostgreSQL, Redis, Node.js)
+- ✅ Ensure data directories exist (data/documents, data/uploads, logs)
 - ✅ Verify database connection
 - ✅ Run migrations
 - ✅ Start backend server (port 8000)
+- ✅ Start Celery worker for background tasks
 - ✅ Start frontend dev server (port 5173)
-- ✅ Start Celery worker
 
 ### Option 2: Manual Start
 
@@ -303,7 +316,8 @@ sam-project/
 │   │   ├── services/         # Business logic
 │   │   │   ├── tasks.py      # Celery background tasks
 │   │   │   ├── sam_gov_scraper.py  # SAM.gov scraper
-│   │   │   └── document_downloader.py  # Document downloader
+│   │   │   ├── document_downloader.py  # Document downloader
+│   │   │   └── document_analyzer.py  # Document text/data extraction
 │   │   ├── utils/            # Utility functions
 │   │   │   └── sam_gov.py    # SAM.gov URL validation
 │   │   └── main.py           # FastAPI application entry
@@ -366,11 +380,15 @@ POST   /api/v1/auth/logout      # Logout (protected)
 #### Opportunities
 ```
 GET    /api/v1/opportunities                    # List all opportunities (protected)
-POST   /api/v1/opportunities                    # Create new opportunity (protected)
-GET    /api/v1/opportunities/{id}               # Get opportunity details (protected)
-DELETE /api/v1/opportunities/{id}               # Delete opportunity (protected)
+POST   /api/v1/opportunities                    # Create new opportunity (with optional file uploads)
+GET    /api/v1/opportunities/{id}               # Get opportunity details with CLINs (protected)
+DELETE /api/v1/opportunities/{id}               # Delete opportunity and all files (protected)
 GET    /api/v1/opportunities/{id}/documents/{doc_id}/view  # View document (protected)
 ```
+
+**Note**: The `POST /api/v1/opportunities` endpoint accepts `multipart/form-data`:
+- `sam_gov_url` (required): SAM.gov opportunity URL
+- `files[]` (optional): Array of uploaded PDF/Word/Excel files
 
 ### Example: Creating an Opportunity
 
@@ -383,10 +401,17 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 # Response: {"access_token": "eyJ...", "token_type": "bearer"}
 
 # 2. Create Opportunity (use token from step 1)
+# Without file upload:
 curl -X POST http://localhost:8000/api/v1/opportunities \
   -H "Authorization: Bearer eyJ..." \
-  -H "Content-Type: application/json" \
-  -d '{"sam_gov_url": "https://sam.gov/workspace/contract/opp/.../view"}'
+  -F "sam_gov_url=https://sam.gov/workspace/contract/opp/.../view"
+
+# With file upload:
+curl -X POST http://localhost:8000/api/v1/opportunities \
+  -H "Authorization: Bearer eyJ..." \
+  -F "sam_gov_url=https://sam.gov/workspace/contract/opp/.../view" \
+  -F "files=@/path/to/document1.pdf" \
+  -F "files=@/path/to/document2.docx"
 ```
 
 ---
@@ -463,7 +488,7 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 
 ## 📊 Project Status
 
-### Phase 1: Foundation & Core Scraping (In Progress)
+### Phase 1: Foundation & Core Scraping ✅ **COMPLETE**
 
 | Feature | Status |
 |---------|--------|
@@ -472,9 +497,23 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 | Document Downloads | ✅ Complete |
 | Contact Info Extraction | ✅ Complete |
 | Frontend UI | ✅ Complete |
-| Document Analysis | 🚧 In Progress |
-| CLIN Extraction | ⏳ Planned |
-| Deadline Extraction (from docs) | ⏳ Planned |
+| Document Analysis | ✅ Complete |
+| CLIN Extraction | ✅ Complete |
+| Deadline Extraction (from docs) | ✅ Complete |
+| File Upload | ✅ Complete |
+
+**Phase 1 Status**: ✅ **100% COMPLETE** - All MVP requirements met!
+
+The application now fully supports:
+- ✅ SAM.gov URL analysis with automatic document download
+- ✅ Optional file uploads (PDF, Word, Excel)
+- ✅ Document text extraction from all file types
+- ✅ AI-powered classification (Product/Service/Both)
+- ✅ CLIN extraction with product/service details
+- ✅ Deadline extraction from pages and documents
+- ✅ Contact information extraction
+- ✅ Complete data display in organized UI
+- ✅ File cleanup on opportunity deletion
 
 ### Phase 2: Research & Automation (Planned)
 
