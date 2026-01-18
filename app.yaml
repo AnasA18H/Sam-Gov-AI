@@ -1,0 +1,155 @@
+# Digital Ocean App Platform Configuration
+# This file defines the app spec for Digital Ocean App Platform
+
+name: samgov-ai
+region: nyc
+
+# Environment variables (set these in App Platform dashboard or via doctl)
+# All sensitive values should be set in App Platform, not here
+
+services:
+  # Backend API
+  - name: backend
+    github:
+      repo: YOUR_GITHUB_USERNAME/YOUR_REPO_NAME
+      branch: main
+      deploy_on_push: true
+    
+    source_dir: /
+    build_command: |
+      pip install --upgrade pip && \
+      pip install -r requirements.txt && \
+      alembic upgrade head
+    
+    run_command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8080 --workers 2
+    
+    environment_slug: python
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    
+    http_port: 8080
+    
+    routes:
+      - path: /api
+    
+    health_check:
+      http_path: /health
+    
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${db.DATABASE_URL}
+      
+      - key: REDIS_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${redis.REDIS_URL}
+      
+      - key: REDIS_CELERY_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${redis.REDIS_CELERY_URL}
+      
+      - key: SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+      
+      - key: JWT_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+      
+      - key: DEBUG
+        scope: RUN_TIME
+        value: "False"
+      
+      - key: CORS_ORIGINS
+        scope: RUN_TIME
+        value: ${_self_url},${frontend._url}
+
+  # Frontend
+  - name: frontend
+    github:
+      repo: YOUR_GITHUB_USERNAME/YOUR_REPO_NAME
+      branch: main
+      deploy_on_push: true
+    
+    source_dir: /frontend
+    build_command: npm ci && npm run build
+    
+    run_command: npm run preview
+    
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    
+    http_port: 4173
+    
+    routes:
+      - path: /
+    
+    envs:
+      - key: VITE_API_URL
+        scope: BUILD_TIME
+        value: ${backend._url}/api
+      
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+
+  # Celery Worker
+  - name: celery-worker
+    github:
+      repo: YOUR_GITHUB_USERNAME/YOUR_REPO_NAME
+      branch: main
+      deploy_on_push: true
+    
+    source_dir: /
+    build_command: |
+      pip install --upgrade pip && \
+      pip install -r requirements.txt
+    
+    run_command: celery -A backend.app.core.celery_app worker --loglevel=info
+    
+    environment_slug: python
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${db.DATABASE_URL}
+      
+      - key: REDIS_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${redis.REDIS_URL}
+      
+      - key: REDIS_CELERY_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${redis.REDIS_CELERY_URL}
+      
+      - key: SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+      
+      - key: JWT_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+databases:
+  # Managed PostgreSQL Database
+  - name: db
+    engine: PG
+    production: true
+    cluster_name: samgov-db
+    db_name: samgov_db
+    db_user: samgov_user
+
+  # Managed Redis
+  - name: redis
+    engine: REDIS
+    production: true
+    cluster_name: samgov-redis

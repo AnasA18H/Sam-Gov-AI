@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: samgov_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-samgov_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-samgov_password}
+      POSTGRES_DB: ${POSTGRES_DB:-samgov_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/data:/app/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-samgov_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - samgov_network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: samgov_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - samgov_network
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: samgov_backend
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-samgov_user}:${POSTGRES_PASSWORD:-samgov_password}@db:5432/${POSTGRES_DB:-samgov_db}
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_CELERY_URL=redis://redis:6379/1
+      - SECRET_KEY=${SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - DEBUG=False
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:80,http://localhost:3000}
+    volumes:
+      - ./backend/data:/app/data
+      - ./logs:/app/logs
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - samgov_network
+    restart: unless-stopped
+
+  # Celery Worker
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: samgov_celery
+    command: celery -A backend.app.core.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-samgov_user}:${POSTGRES_PASSWORD:-samgov_password}@db:5432/${POSTGRES_DB:-samgov_db}
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_CELERY_URL=redis://redis:6379/1
+      - SECRET_KEY=${SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    volumes:
+      - ./backend/data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - db
+      - redis
+      - backend
+    networks:
+      - samgov_network
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: samgov_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - samgov_network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy (optional - for production)
+  nginx:
+    image: nginx:alpine
+    container_name: samgov_nginx
+    ports:
+      - "443:443"
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - samgov_network
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  samgov_network:
+    driver: bridge

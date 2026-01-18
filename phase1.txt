@@ -1,0 +1,105 @@
+Week 1: Project Initialization & Authentication
+Goal: Create the foundational structure, database, and secure user system.
+
+Key Deliverables:
+
+Project Repository & Structure: Git repo with organized folders (frontend, backend, scrapers, database).
+
+Ubuntu Environment: All core software installed and configured (Python, Node.js, PostgreSQL, Redis, Nginx).
+
+Database Schema: PostgreSQL tables for Users, Sessions, and Opportunities created.
+
+Authentication System:
+
+Backend API endpoints for user registration (POST /api/auth/register) and login (POST /api/auth/login) using JWT (JSON Web Tokens).
+
+Protected routes that require a valid token.
+
+Frontend login and signup pages connected to the API.
+
+Basic Dashboard: A simple, protected member dashboard UI that the user lands on after login.
+
+Tools to Use: git, PostgreSQL, FastAPI/Express.js, React.js/Vue.js, JWT.
+
+Week 2: SAM.gov Scraping Engine
+Goal: Build the automated system to fetch and download data from SAM.gov URLs.
+
+Key Deliverables:
+
+URL Parser & Validator: Function to validate that the input is a correct SAM.gov opportunity URL.
+
+Headless Browser Scraper: Using Playwright or Puppeteer to:
+
+Navigate to the validated SAM.gov URL.
+
+Extract basic metadata (title, agency, opportunity ID, posting date).
+
+Locate and list all document attachments (PDF, DOC, XLS).
+
+Document Downloader: Service to download all found attachments and save them to cloud storage (e.g., AWS S3) or a local server directory, linking them to the opportunity in the database.
+
+Background Job Queue: Integration of Celery (Python) or Bull (Node.js) with Redis to handle scraping tasks asynchronously, so the web app doesn't freeze during long operations.
+
+Tools to Use: Playwright/Puppeteer, Celery/Bull, Redis, AWS S3 SDK/MinIO.
+
+Week 3: Data Extraction & MVP UI
+Goal: Extract key information from downloaded documents and present it in a functional interface.
+
+Key Deliverables:
+
+Document Text Extraction: Functions using pdfplumber (for PDFs) and python-docx/exceljs (for Word/Excel) to pull text from the downloaded solicitation documents.
+
+AI Classification Model: A trained NLP model (using spaCy or a similar library) to classify each solicitation as Product-based, Service-based, or Hybrid by analyzing the extracted text.
+
+Data Extraction Logic:
+
+Deadline Extractor: Regex-based pattern matching to find submission due dates and times.
+
+CLIN Extractor: Logic to parse Contract Line Item Numbers (CLINs) and their details (description, part number, quantity).
+
+Core Analysis Pipeline: A backend function that orchestrates the entire flow: URL → Scrape → Download → Extract Text → Classify → Extract Data → Save to DB.
+
+MVP User Interface:
+
+A clean input page with the primary SAM.gov URL field and optional file upload.
+
+An "Analyze" button that triggers the pipeline.
+
+A results page that displays the extracted information (deadline, CLINs, classification) in a clear, organized layout.
+
+Tools to Use: spaCy, pdfplumber, python-docx, openpyxl, Regex, React.js/Vue.js components.
+
+Phase 1 Final Deliverable
+At the end of 3 weeks, you will have a working Minimum Viable Product (MVP) where a logged-in user can:
+
+Paste a SAM.gov URL.
+
+Click "Analyze".
+
+See the system automatically download attachments, classify the opportunity, and display the extracted deadlines and CLINs on the screen.
+
+
+
+
+* Sam.gov website Overview
+I have examined SAM.gov. While you can manually search for opportunities and view details on the website, you cannot directly download the specific data your project needs through an official "download" button. The official way to get large amounts of structured data from SAM.gov is through Scheduled Data Extracts.
+
+Data Type	What It Contains	How to Access
+Opportunity Listings	Public information on solicitations, including basic titles, IDs, agencies, and posting dates.	These are the "Contract Opportunities" you browse on the SAM.gov website. While you can view them online, they are not packaged as a simple file you can download.
+Opportunity Attachments	The critical solicitation documents (PDFs, Word, Excel) with full specifications, CLINs, and deadlines.	Found on individual opportunity webpages (e.g., https://sam.gov/opp/[id]/view). There is no bulk download. A scraper would need to visit each page to locate and download these files.
+Entity/Registration Data	Information on vendors registered to do business with the government, like contact info and certifications.	Via Scheduled Data Extracts (monthly/daily files) available through an API or SFTP server.
+Exclusions List	List of entities barred from receiving federal contracts.	Also available as a daily data extract.
+To build your web app, you have two main technical paths, confirming your previous direction:
+
+Bulk Scraping Individual Pages: As previously discussed, this requires writing a bot (using a tool like Playwright) to programmatically visit each SAM.gov opportunity URL, parse the HTML to find attachments and data, and then download them. This is complex and must be done responsibly to avoid overloading the site.
+
+Using the Official SAM.gov API: SAM.gov provides an official API for accessing its data extracts (like the Entity and Exclusions data). However, this API appears to be for bulk vendor data, not for scraping individual opportunity pages and their attachments. You mentioned the public API can be "gimmicky," and based on the official documentation, it is not designed for the task of downloading solicitation attachments.
+
+⚠️ Critical Legal & Ethical Considerations
+Before building a scraper, you must check SAM.gov's robots.txt file (a standard at https://sam.gov/robots.txt) to see which parts of the site are disallowed for automated access. You must also:
+
+Review Terms of Service: Ensure your scraping activity does not violate the website's terms.
+
+Scrape Responsibly: Implement rate limiting (e.g., delays between requests), scrape during off-peak hours, and make your bot's identity clear to avoid disrupting the public service.
+
+
