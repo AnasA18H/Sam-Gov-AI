@@ -189,6 +189,7 @@ fi
 print_info "Ensuring data directories exist..."
 mkdir -p data/documents
 mkdir -p data/uploads
+mkdir -p data/debug_extracts
 mkdir -p logs
 print_success "Data directories ready"
 

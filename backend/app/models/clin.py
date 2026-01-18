@@ -17,6 +17,7 @@ class CLIN(Base):
     # CLIN identification
     clin_number = Column(String(50), nullable=False)  # e.g., "0001", "CLIN 1"
     clin_name = Column(String(500), nullable=True)
+    base_item_number = Column(String(50), nullable=True)  # e.g., "S01", supplementary reference code
     
     # Product details
     product_name = Column(String(500), nullable=True)
@@ -26,6 +27,8 @@ class CLIN(Base):
     model_number = Column(String(255), nullable=True)
     quantity = Column(Numeric(10, 2), nullable=True)
     unit_of_measure = Column(String(50), nullable=True)  # e.g., "each", "lot"
+    contract_type = Column(String(100), nullable=True)  # e.g., "Firm Fixed Price", "Cost Plus"
+    extended_price = Column(Numeric(12, 2), nullable=True)  # Extended price (quantity * unit price)
     
     # Service details
     service_description = Column(Text, nullable=True)

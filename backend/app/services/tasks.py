@@ -342,6 +342,7 @@ def analyze_documents(opportunity_id: int):
                     opportunity_id=opportunity.id,
                     clin_number=clin_data['clin_number'],
                     clin_name=clin_data.get('clin_name'),
+                    base_item_number=clin_data.get('base_item_number'),
                     product_name=clin_data.get('product_name'),
                     product_description=clin_data.get('product_description'),
                     manufacturer_name=clin_data.get('manufacturer_name'),
@@ -349,6 +350,8 @@ def analyze_documents(opportunity_id: int):
                     model_number=clin_data.get('model_number'),
                     quantity=clin_data.get('quantity'),
                     unit_of_measure=clin_data.get('unit_of_measure'),
+                    contract_type=clin_data.get('contract_type'),
+                    extended_price=clin_data.get('extended_price'),
                     service_description=clin_data.get('service_description'),
                     scope_of_work=clin_data.get('scope_of_work'),
                     timeline=clin_data.get('timeline'),
@@ -357,12 +360,18 @@ def analyze_documents(opportunity_id: int):
                 db.add(clin)
             else:
                 # Update existing CLIN if we have new information
+                if clin_data.get('base_item_number') and not existing_clin.base_item_number:
+                    existing_clin.base_item_number = clin_data['base_item_number']
                 if clin_data.get('product_name') and not existing_clin.product_name:
                     existing_clin.product_name = clin_data['product_name']
                 if clin_data.get('product_description') and not existing_clin.product_description:
                     existing_clin.product_description = clin_data['product_description']
                 if clin_data.get('manufacturer_name') and not existing_clin.manufacturer_name:
                     existing_clin.manufacturer_name = clin_data['manufacturer_name']
+                if clin_data.get('contract_type') and not existing_clin.contract_type:
+                    existing_clin.contract_type = clin_data['contract_type']
+                if clin_data.get('extended_price') and not existing_clin.extended_price:
+                    existing_clin.extended_price = clin_data['extended_price']
         
         # 4. Store additional deadlines from documents
         logger.info(f"Storing {len(deadlines_found)} deadlines from documents...")

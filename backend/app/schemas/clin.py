@@ -11,6 +11,7 @@ class CLINCreate(BaseModel):
     """Create CLIN schema"""
     clin_number: str
     clin_name: Optional[str] = None
+    base_item_number: Optional[str] = None
     product_name: Optional[str] = None
     product_description: Optional[str] = None
     manufacturer_name: Optional[str] = None
@@ -18,6 +19,8 @@ class CLINCreate(BaseModel):
     model_number: Optional[str] = None
     quantity: Optional[Decimal] = None
     unit_of_measure: Optional[str] = None
+    contract_type: Optional[str] = None
+    extended_price: Optional[Decimal] = None
     service_description: Optional[str] = None
     scope_of_work: Optional[str] = None
     timeline: Optional[str] = None
@@ -29,6 +32,7 @@ class CLINResponse(BaseModel):
     id: int
     clin_number: str
     clin_name: Optional[str]
+    base_item_number: Optional[str]
     product_name: Optional[str]
     product_description: Optional[str]
     manufacturer_name: Optional[str]
@@ -36,6 +40,8 @@ class CLINResponse(BaseModel):
     model_number: Optional[str]
     quantity: Optional[Decimal]
     unit_of_measure: Optional[str]
+    contract_type: Optional[str]
+    extended_price: Optional[Decimal]
     service_description: Optional[str]
     scope_of_work: Optional[str]
     timeline: Optional[str]

@@ -37,9 +37,22 @@ try:
     from langchain_groq import ChatGroq
     from langchain.chains import create_extraction_chain_pydantic
     from pydantic import BaseModel, Field
+    try:
+        from pydantic.v1 import BaseModel as V1BaseModel, Field as V1Field
+        PYDANTIC_V1_AVAILABLE = True
+    except ImportError:
+        # Fallback: use v1 directly if available
+        try:
+            import pydantic.v1 as pydantic_v1
+            V1BaseModel = pydantic_v1.BaseModel
+            V1Field = pydantic_v1.Field
+            PYDANTIC_V1_AVAILABLE = True
+        except ImportError:
+            PYDANTIC_V1_AVAILABLE = False
     LANGCHAIN_AVAILABLE = True
 except ImportError:
     LANGCHAIN_AVAILABLE = False
+    PYDANTIC_V1_AVAILABLE = False
     logging.warning("LangChain Groq not available. Using regex-based extraction only.")
 
 # NLP (optional - spaCy for advanced classification)
@@ -59,21 +72,48 @@ logger = logging.getLogger(__name__)
 
 
 # Pydantic schema for LLM extraction
-if LANGCHAIN_AVAILABLE:
-    class CLINItem(BaseModel):
-        """Pydantic schema for CLIN extraction using LLM"""
-        item_number: str = Field(description="The CLIN or line item number, e.g., '0001', '0001AA', '2', '3'")
-        description: str = Field(description="The description of the product or service")
-        quantity: Optional[int] = Field(None, description="The quantity required")
-        unit: Optional[str] = Field(None, description="The unit of measure, e.g., 'Each', 'Lot', 'Set'")
-        part_number: Optional[str] = Field(None, description="Part number if applicable")
-        model_number: Optional[str] = Field(None, description="Model number if applicable")
-        manufacturer: Optional[str] = Field(None, description="Manufacturer name if applicable")
-        product_name: Optional[str] = Field(None, description="Product name if applicable")
+# Note: LangChain's create_extraction_chain_pydantic uses Pydantic v1 internally
+# So we must use v1 BaseModel for compatibility
+if LANGCHAIN_AVAILABLE and PYDANTIC_V1_AVAILABLE:
+    class CLINItem(V1BaseModel):
+        """Pydantic v1 schema for CLIN extraction using LLM (v1 required for LangChain compatibility)"""
+        item_number: str = V1Field(description="The CLIN or line item number, e.g., '0001', '0001AA', '2', '3'")
+        base_item_number: Optional[str] = V1Field(None, description="Base item number or supplementary reference code, e.g., 'S01', 'AA'")
+        description: str = V1Field(description="The description of the product or service (Supplies/Services)")
+        quantity: Optional[int] = V1Field(None, description="The quantity required")
+        unit: Optional[str] = V1Field(None, description="The unit of measure, e.g., 'Each', 'Lot', 'Set'")
+        contract_type: Optional[str] = V1Field(None, description="Contract type, e.g., 'Firm Fixed Price', 'Cost Plus Fixed Fee'")
+        extended_price: Optional[float] = V1Field(None, description="Extended price (quantity * unit price) if available")
+        part_number: Optional[str] = V1Field(None, description="Part number if applicable")
+        model_number: Optional[str] = V1Field(None, description="Model number if applicable")
+        manufacturer: Optional[str] = V1Field(None, description="Manufacturer name if applicable")
+        product_name: Optional[str] = V1Field(None, description="Product name if applicable")
+elif LANGCHAIN_AVAILABLE:
+    # Fallback: define empty class if v1 not available
+    class CLINItem:
+        pass
 
 
 class DocumentAnalyzer:
     """Analyzer for extracting text and structured data from solicitation documents"""
+    
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        """
+        Clean extracted text by removing PDF encoding artifacts and other garbage
+        Removes (cid:XXX) patterns which are PDF character encoding artifacts
+        """
+        if not text:
+            return ""
+        
+        # Remove PDF encoding artifacts (cid:XXX) where XXX is any number
+        text = re.sub(r'\(cid:\d+\)', '', text)
+        
+        # Remove other common PDF artifacts
+        text = re.sub(r'[^\x20-\x7E\n\r\t]', '', text)  # Remove non-printable chars except newlines/tabs
+        text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
+        
+        return text.strip()
     
     # Product-related keywords
     PRODUCT_KEYWORDS = [
@@ -228,7 +268,10 @@ class DocumentAnalyzer:
                 for page in pdf.pages:
                     page_text = page.extract_text()
                     if page_text:
-                        text_parts.append(page_text)
+                        # Clean PDF encoding artifacts
+                        cleaned_text = self._clean_text(page_text)
+                        if cleaned_text:
+                            text_parts.append(cleaned_text)
             return "\n\n".join(text_parts)
         except Exception as e:
             logger.error(f"Error extracting text from PDF {file_path}: {str(e)}")
@@ -292,24 +335,67 @@ class DocumentAnalyzer:
                         # Check if first column looks like a CLIN number
                         first_cell = str(row.iloc[0]).strip() if len(row) > 0 else ""
                         if re.match(r'^\d+[A-Z]*$', first_cell):  # Simple CLIN pattern
+                            raw_description = str(row.iloc[1]) if len(row) > 1 else None
+                            cleaned_description = self._clean_text(raw_description) if raw_description else None
+                            
+                            # Skip CLINs with garbage descriptions (too short or no alphanumeric chars)
+                            if cleaned_description and (len(cleaned_description.strip()) < 3 or not any(c.isalnum() for c in cleaned_description)):
+                                continue
+                            
                             clin_data = {
                                 'clin_number': first_cell,
-                                'product_description': str(row.iloc[1]) if len(row) > 1 else None,
+                                'base_item_number': None,
+                                'product_description': cleaned_description,
                                 'quantity': None,
                                 'unit_of_measure': None,
+                                'contract_type': None,
+                                'extended_price': None,
                                 'part_number': None,
                                 'model_number': None,
                                 'manufacturer_name': None,
                             }
-                            # Try to extract quantity from other columns
-                            for col in df.columns:
-                                cell_value = str(row[col]).lower()
-                                qty_match = re.search(r'(\d+(?:\.\d+)?)', cell_value)
-                                if qty_match and not clin_data['quantity']:
-                                    try:
-                                        clin_data['quantity'] = float(qty_match.group(1))
-                                    except ValueError:
-                                        pass
+                            
+                            # Try to extract data from other columns
+                            for col_idx, col in enumerate(df.columns):
+                                cell_value = str(row[col]).strip() if col_idx < len(row) else ""
+                                cell_lower = cell_value.lower()
+                                
+                                # Extract quantity
+                                if not clin_data['quantity']:
+                                    qty_match = re.search(r'(\d+(?:\.\d+)?)', cell_lower)
+                                    if qty_match:
+                                        try:
+                                            clin_data['quantity'] = float(qty_match.group(1))
+                                        except ValueError:
+                                            pass
+                                
+                                # Extract unit of measure
+                                if not clin_data['unit_of_measure']:
+                                    unit_patterns = ['each', 'lot', 'set', 'unit', 'piece', 'ea', 'lot']
+                                    if any(unit in cell_lower for unit in unit_patterns):
+                                        clin_data['unit_of_measure'] = cell_value
+                                
+                                # Extract base item number (usually alphanumeric like S01, AA, etc.)
+                                if not clin_data['base_item_number']:
+                                    base_item_match = re.search(r'\b([A-Z]{1,3}\d{1,3}|[A-Z]{2,4})\b', cell_value)
+                                    if base_item_match and base_item_match.group(1) != first_cell:
+                                        clin_data['base_item_number'] = base_item_match.group(1)
+                                
+                                # Extract contract type
+                                if not clin_data['contract_type']:
+                                    contract_patterns = ['firm fixed price', 'cost plus', 'time and materials', 'fixed price', 'ffp', 'cpff']
+                                    if any(pattern in cell_lower for pattern in contract_patterns):
+                                        clin_data['contract_type'] = cell_value
+                                
+                                # Extract extended price (usually contains $ or currency symbols)
+                                if not clin_data['extended_price']:
+                                    price_match = re.search(r'[\$]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', cell_value)
+                                    if price_match:
+                                        try:
+                                            price_str = price_match.group(1).replace(',', '')
+                                            clin_data['extended_price'] = float(price_str)
+                                        except ValueError:
+                                            pass
                             
                             clins.append(clin_data)
             except Exception as e:
@@ -327,12 +413,63 @@ class DocumentAnalyzer:
                                     if row and len(row) > 0:
                                         first_cell = str(row[0]).strip() if row[0] else ""
                                         if re.match(r'^\d+[A-Z]*$', first_cell):
+                                            raw_description = str(row[1]) if len(row) > 1 else None
+                                            cleaned_description = self._clean_text(raw_description) if raw_description else None
+                                            
+                                            # Skip CLINs with garbage descriptions
+                                            if cleaned_description and (len(cleaned_description.strip()) < 3 or not any(c.isalnum() for c in cleaned_description)):
+                                                continue
+                                            
                                             clin_data = {
                                                 'clin_number': first_cell,
-                                                'product_description': str(row[1]) if len(row) > 1 else None,
+                                                'base_item_number': None,
+                                                'product_description': cleaned_description,
                                                 'quantity': None,
                                                 'unit_of_measure': None,
+                                                'contract_type': None,
+                                                'extended_price': None,
                                             }
+                                            
+                                            # Try to extract additional fields from other columns
+                                            for col_idx in range(2, len(row)):
+                                                cell_value = str(row[col_idx]).strip() if col_idx < len(row) and row[col_idx] else ""
+                                                cell_lower = cell_value.lower()
+                                                
+                                                # Extract quantity
+                                                if not clin_data['quantity']:
+                                                    qty_match = re.search(r'(\d+(?:\.\d+)?)', cell_lower)
+                                                    if qty_match:
+                                                        try:
+                                                            clin_data['quantity'] = float(qty_match.group(1))
+                                                        except ValueError:
+                                                            pass
+                                                
+                                                # Extract unit
+                                                if not clin_data['unit_of_measure']:
+                                                    if any(unit in cell_lower for unit in ['each', 'lot', 'set', 'unit', 'ea']):
+                                                        clin_data['unit_of_measure'] = cell_value
+                                                
+                                                # Extract base item number
+                                                if not clin_data['base_item_number']:
+                                                    base_match = re.search(r'\b([A-Z]{1,3}\d{1,3}|[A-Z]{2,4})\b', cell_value)
+                                                    if base_match and base_match.group(1) != first_cell:
+                                                        clin_data['base_item_number'] = base_match.group(1)
+                                                
+                                                # Extract contract type
+                                                if not clin_data['contract_type']:
+                                                    if any(pattern in cell_lower for pattern in ['firm fixed price', 'cost plus', 'ffp']):
+                                                        clin_data['contract_type'] = cell_value
+                                                
+                                                # Extract extended price
+                                                if not clin_data['extended_price']:
+                                                    price_match = re.search(r'[\$]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', cell_value)
+                                                    if price_match:
+                                                        try:
+                                                            price_str = price_match.group(1).replace(',', '')
+                                                            clin_data['extended_price'] = float(price_str)
+                                                        except ValueError:
+                                                            pass
+                                            
                                             clins.append(clin_data)
             except Exception as e:
                 logger.warning(f"pdfplumber table extraction failed: {str(e)}")
@@ -347,7 +484,9 @@ class DocumentAnalyzer:
         Returns:
             List of CLIN dictionaries
         """
-        if not self.llm or not LANGCHAIN_AVAILABLE:
+        if not self.llm or not LANGCHAIN_AVAILABLE or not PYDANTIC_V1_AVAILABLE:
+            if not PYDANTIC_V1_AVAILABLE:
+                logger.warning("Pydantic v1 not available. LLM extraction requires Pydantic v1 for LangChain compatibility.")
             return []
         
         try:
@@ -358,26 +497,64 @@ class DocumentAnalyzer:
                 logger.debug("Skipping LLM extraction from Q&A document")
                 return []
             
-            # Limit text length for LLM (keep first 8000 chars for context)
-            text_for_llm = text[:8000]
+            # Clean text before LLM processing
+            cleaned_text = self._clean_text(text)
+            
+            # Limit text length for LLM (keep first 6000 chars for context to avoid API limits)
+            text_for_llm = cleaned_text[:6000]
+            
+            if not text_for_llm.strip():
+                logger.debug("Cleaned text is empty, skipping LLM extraction")
+                return []
             
             # Create extraction chain
             chain = create_extraction_chain_pydantic(pydantic_schema=CLINItem, llm=self.llm)
             
-            # Extract CLINs
-            results = chain.run(text_for_llm)
+            # Extract CLINs - use invoke() instead of deprecated run()
+            try:
+                result = chain.invoke({"input": text_for_llm})
+                # LangChain extraction chain returns a list directly or wrapped in dict
+                if isinstance(result, list):
+                    results = result
+                elif isinstance(result, dict) and "text" in result:
+                    # Some versions return dict with "text" key containing the list
+                    results = result.get("text", []) if isinstance(result.get("text"), list) else []
+                else:
+                    results = []
+            except (AttributeError, TypeError) as e:
+                # Fallback for older LangChain versions that still use run()
+                try:
+                    results = chain.run(text_for_llm)
+                    if not isinstance(results, list):
+                        results = []
+                except Exception as run_error:
+                    logger.warning(f"Both invoke() and run() failed: {str(run_error)}")
+                    results = []
             
             # Convert to our format
             clins = []
             if isinstance(results, list):
                 for item in results:
                     if isinstance(item, CLINItem):
+                        # Clean and validate data before storing
+                        description = self._clean_text(item.description) if item.description else None
+                        product_name = self._clean_text(item.product_name) if item.product_name else None
+                        
+                        # Skip CLINs with only garbage/encoded text (very short or only special chars)
+                        if description and len(description.strip()) < 3:
+                            continue
+                        if description and not any(c.isalnum() for c in description):
+                            continue
+                        
                         clin_data = {
                             'clin_number': item.item_number,
-                            'product_description': item.description if item.description else None,
-                            'product_name': item.product_name,
+                            'base_item_number': item.base_item_number if hasattr(item, 'base_item_number') else None,
+                            'product_description': description,
+                            'product_name': product_name,
                             'quantity': float(item.quantity) if item.quantity else None,
                             'unit_of_measure': item.unit,
+                            'contract_type': item.contract_type if hasattr(item, 'contract_type') else None,
+                            'extended_price': float(item.extended_price) if hasattr(item, 'extended_price') and item.extended_price else None,
                             'part_number': item.part_number,
                             'model_number': item.model_number,
                             'manufacturer_name': item.manufacturer,
@@ -479,11 +656,14 @@ class DocumentAnalyzer:
             # Extract CLIN details using regex
             clin_data = {
                 'clin_number': clin_num,
+                'base_item_number': None,
                 'product_name': None,
                 'product_description': None,
                 'manufacturer_name': None,
                 'part_number': None,
                 'model_number': None,
+                'contract_type': None,
+                'extended_price': None,
                 'quantity': None,
                 'unit_of_measure': None,
                 'service_description': None,
@@ -496,6 +676,45 @@ class DocumentAnalyzer:
                 if match:
                     try:
                         clin_data['quantity'] = float(match.group(1))
+                    except ValueError:
+                        pass
+                    break
+            
+            # Extract unit of measure
+            unit_patterns = [r'unit[:\s]+([A-Za-z]+)', r'uom[:\s]+([A-Za-z]+)', r'\b(each|lot|set|unit|piece|ea)\b']
+            for pattern in unit_patterns:
+                match = re.search(pattern, clin_text, re.IGNORECASE)
+                if match:
+                    clin_data['unit_of_measure'] = match.group(1).capitalize()
+                    break
+            
+            # Extract base item number
+            base_item_match = re.search(r'base\s+item[:\s]+([A-Z]{1,3}\d{1,3}|[A-Z]{2,4})', clin_text, re.IGNORECASE)
+            if base_item_match:
+                clin_data['base_item_number'] = base_item_match.group(1)
+            
+            # Extract contract type
+            contract_patterns = [
+                r'contract\s+type[:\s]+([^,\n]+)',
+                r'(firm\s+fixed\s+price|cost\s+plus|time\s+and\s+materials|fixed\s+price|ffp|cpff)',
+            ]
+            for pattern in contract_patterns:
+                match = re.search(pattern, clin_text, re.IGNORECASE)
+                if match:
+                    clin_data['contract_type'] = match.group(1).strip()
+                    break
+            
+            # Extract extended price
+            price_patterns = [
+                r'extended\s+price[:\s]*[\$]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)',
+                r'total[:\s]*[\$]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)',
+            ]
+            for pattern in price_patterns:
+                match = re.search(pattern, clin_text, re.IGNORECASE)
+                if match:
+                    try:
+                        price_str = match.group(1).replace(',', '')
+                        clin_data['extended_price'] = float(price_str)
                     except ValueError:
                         pass
                     break

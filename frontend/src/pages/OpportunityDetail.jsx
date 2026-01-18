@@ -468,6 +468,40 @@ const OpportunityDetail = () => {
                 )}
 
                 {/* CLINs - Contract Line Items */}
+                {/* Loading State for CLINs - Show whenever CLINs are not available yet */}
+                {(!opportunity.clins || opportunity.clins.length === 0) && opportunity.status !== 'failed' && (
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
+                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
+                        Contract Line Items (CLINs)
+                      </h2>
+                    </div>
+                    <div className="p-4 space-y-4">
+                      {/* Heart beating animation loader */}
+                      <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                        <div className="relative flex items-center justify-center">
+                          <svg 
+                            className="w-16 h-16 text-red-500" 
+                            fill="currentColor" 
+                            viewBox="0 0 24 24"
+                            style={{
+                              animation: 'heartbeat 1.5s ease-in-out infinite'
+                            }}
+                          >
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                          </svg>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-sm font-medium text-gray-700 mb-1">Extracting CLINs from documents...</p>
+                          <p className="text-xs text-gray-500">Analyzing tables and text content</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CLINs - Contract Line Items (when data is available) */}
                 {opportunity.clins && opportunity.clins.length > 0 && (
                   <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
                     <div className="px-4 py-3 border-b border-gray-200">
@@ -483,10 +517,15 @@ const OpportunityDetail = () => {
                           className="p-4 bg-gray-50 rounded-lg border-2 border-gray-200 hover:border-blue-300 transition-colors"
                         >
                           <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center space-x-2">
+                            <div className="flex items-center space-x-2 flex-wrap">
                               <h3 className="text-sm font-semibold text-gray-900">
                                 CLIN {clin.clin_number}
                               </h3>
+                              {clin.base_item_number && (
+                                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                                  Base Item: {clin.base_item_number}
+                                </span>
+                              )}
                               {clin.clin_name && (
                                 <span className="text-xs text-gray-600">- {clin.clin_name}</span>
                               )}
@@ -495,7 +534,7 @@ const OpportunityDetail = () => {
 
                           <div className="space-y-3">
                             {/* Product Details */}
-                            {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity) && (
+                            {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity || clin.contract_type || clin.extended_price) && (
                               <div className="space-y-2">
                                 <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Product Details</h4>
                                 <div className="pl-2 space-y-1.5 text-sm text-gray-700">
@@ -503,7 +542,7 @@ const OpportunityDetail = () => {
                                     <div><span className="font-medium">Name:</span> {clin.product_name}</div>
                                   )}
                                   {clin.product_description && (
-                                    <div className="text-xs text-gray-600 whitespace-pre-wrap">{clin.product_description}</div>
+                                    <div className="text-xs text-gray-600 whitespace-pre-wrap"><span className="font-medium">Supplies/Services:</span> {clin.product_description}</div>
                                   )}
                                   {clin.manufacturer_name && (
                                     <div><span className="font-medium">Manufacturer:</span> {clin.manufacturer_name}</div>
@@ -522,6 +561,16 @@ const OpportunityDetail = () => {
                                     <div>
                                       <span className="font-medium">Quantity:</span> {clin.quantity}
                                       {clin.unit_of_measure && ` ${clin.unit_of_measure}`}
+                                    </div>
+                                  )}
+                                  {clin.contract_type && (
+                                    <div>
+                                      <span className="font-medium">Contract Type:</span> {clin.contract_type}
+                                    </div>
+                                  )}
+                                  {clin.extended_price && (
+                                    <div>
+                                      <span className="font-medium">Extended Price:</span> ${clin.extended_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </div>
                                   )}
                                 </div>
