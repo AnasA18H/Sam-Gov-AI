@@ -251,11 +251,48 @@ def analyze_documents(opportunity_id: int):
                     all_text.append(text)
                     logger.info(f"Extracted {len(text)} characters from {doc.file_name}")
                     
+                    # DEBUG: Save extracted text to file for debugging
+                    try:
+                        debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
+                        debug_dir.mkdir(parents=True, exist_ok=True)
+                        debug_file = debug_dir / f"{doc.id}_{doc.file_name}_extracted.txt"
+                        with open(debug_file, 'w', encoding='utf-8') as f:
+                            f.write(f"Document: {doc.file_name}\n")
+                            f.write(f"File Path: {doc.file_path}\n")
+                            f.write(f"Document Type: {doc.file_type}\n")
+                            f.write(f"Source: {doc.source}\n")
+                            f.write(f"Size: {doc.file_size} bytes\n")
+                            f.write("=" * 80 + "\n")
+                            f.write("EXTRACTED TEXT:\n")
+                            f.write("=" * 80 + "\n")
+                            f.write(text)
+                        logger.info(f"DEBUG: Saved extracted text to {debug_file}")
+                    except Exception as debug_error:
+                        logger.warning(f"Failed to save debug extract: {str(debug_error)}")
+                    
                     # Only extract CLINs from non-Q&A documents (solicitation, SOW, technical docs)
                     if not is_qa_document:
                         # Use hybrid extraction (table parsing + LLM + regex fallback)
                         doc_clins = analyzer.extract_clins(text, file_path=doc_file_path if doc.file_type == DocumentType.PDF else None)
                         clins_found.extend(doc_clins)
+                        
+                        # DEBUG: Save CLIN extraction results
+                        if doc_clins:
+                            try:
+                                clin_debug_file = debug_dir / f"{doc.id}_{doc.file_name}_clins.txt"
+                                with open(clin_debug_file, 'w', encoding='utf-8') as f:
+                                    f.write(f"CLINs Extracted from: {doc.file_name}\n")
+                                    f.write(f"Total CLINs: {len(doc_clins)}\n")
+                                    f.write("=" * 80 + "\n")
+                                    for i, clin in enumerate(doc_clins, 1):
+                                        f.write(f"\nCLIN {i}:\n")
+                                        f.write("-" * 80 + "\n")
+                                        for key, value in clin.items():
+                                            if value:
+                                                f.write(f"{key}: {value}\n")
+                                logger.info(f"DEBUG: Saved CLIN extraction results to {clin_debug_file}")
+                            except Exception as clin_debug_error:
+                                logger.warning(f"Failed to save CLIN debug extract: {str(clin_debug_error)}")
                     else:
                         logger.info(f"Skipping CLIN extraction from Q&A document: {doc.file_name}")
                     
@@ -354,6 +391,40 @@ def analyze_documents(opportunity_id: int):
         
         # Commit all changes
         db.commit()
+        
+        # DEBUG: Save analysis summary to file
+        try:
+            debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            summary_file = debug_dir / "analysis_summary.txt"
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write(f"Opportunity Analysis Summary - ID: {opportunity_id}\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(f"Title: {opportunity.title}\n")
+                f.write(f"Notice ID: {opportunity.notice_id}\n")
+                f.write(f"Status: {opportunity.status}\n")
+                f.write(f"Documents Analyzed: {len(documents)}\n")
+                f.write(f"Classification: {classification.value}\n")
+                f.write(f"Confidence: {confidence:.2f}\n")
+                f.write(f"CLINs Extracted: {len(clins_found)}\n")
+                f.write(f"Deadlines Extracted: {len(deadlines_found)}\n")
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("DOCUMENTS:\n")
+                f.write("=" * 80 + "\n")
+                for doc in documents:
+                    f.write(f"\n- {doc.file_name} ({doc.file_type}, {doc.file_size} bytes)\n")
+                f.write("\n" + "=" * 80 + "\n")
+                f.write(f"ALL CLINs EXTRACTED ({len(clins_found)}):\n")
+                f.write("=" * 80 + "\n")
+                for i, clin in enumerate(clins_found, 1):
+                    f.write(f"\nCLIN {i}:\n")
+                    f.write("-" * 80 + "\n")
+                    for key, value in clin.items():
+                        if value:
+                            f.write(f"  {key}: {value}\n")
+            logger.info(f"DEBUG: Saved analysis summary to {summary_file}")
+        except Exception as summary_error:
+            logger.warning(f"Failed to save analysis summary: {str(summary_error)}")
         
         logger.info(f"Successfully analyzed documents for opportunity {opportunity_id}")
         logger.info(f"  - Classification: {classification.value} (confidence: {confidence:.2f})")

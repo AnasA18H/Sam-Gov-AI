@@ -91,6 +91,7 @@ frontend/.svelte-kit/
 data/
 backend/data/documents/
 backend/data/uploads/
+data/debug_extracts/
 
 # Testing
 .pytest_cache/
