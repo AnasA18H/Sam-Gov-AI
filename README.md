@@ -1,4 +1,4 @@
-# 🚀 SAM.gov AI - Government Contract Analysis Platform
+# SAM.gov AI
 
 <div align="center">
 
@@ -6,171 +6,191 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)
 ![React](https://img.shields.io/badge/React-18+-61dafb.svg)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-336791.svg)
-![License](https://img.shields.io/badge/License-Proprietary-red.svg)
+![Groq](https://img.shields.io/badge/Groq-Llama_3.1-8B-orange.svg)
 
-**AI-powered web application for automating US Government contract solicitation analysis from SAM.gov**
+**AI-Powered Government Contract Analysis Platform**
 
-[Features](#-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [API Documentation](#-api-documentation) • [Tech Stack](#-tech-stack)
+*Automating US Government contract solicitation analysis from SAM.gov*
+
+[Features](#features) • [Quick Start](#quick-start) • [Documentation](#api-documentation) • [Deployment](#deployment)
 
 </div>
 
 ---
 
-## 📋 Table of Contents
-
-- [Overview](#-overview)
-- [Features](#-features)
-- [Tech Stack](#-tech-stack)
-- [Installation](#-installation)
-- [Quick Start](#-quick-start)
-- [Project Structure](#-project-structure)
-- [API Documentation](#-api-documentation)
-- [Development](#-development)
-- [Deployment](#-deployment)
-- [Status](#-project-status)
-
----
-
-## 🎯 Overview
+## Overview
 
 **SAM.gov AI** is an intelligent web application that automates the analysis of US Government contract solicitations from [SAM.gov](https://sam.gov). The platform streamlines the bid preparation process by automatically extracting critical information from solicitation documents, classifying opportunities, and providing actionable insights.
 
-### Key Capabilities
+### Core Capabilities
 
-- 🔍 **Automated Scraping**: Extracts data directly from SAM.gov opportunity pages
-- 📄 **Document Processing**: Analyzes PDF, Word, and Excel attachments
-- 🤖 **AI Classification**: Automatically classifies solicitations as product/service/hybrid
-- ⏰ **Deadline Tracking**: Extracts and tracks submission deadlines with timezone support
-- 📊 **CLIN Extraction**: Parses Contract Line Item Numbers with full details
-- 👥 **Contact Information**: Captures primary and alternative contacts automatically
-
----
-
-## ✨ Features
-
-### ✅ Phase 1 - Completed
-
-- 🔐 **User Authentication**
-  - Secure registration and login with JWT tokens
-  - Session management and protected routes
-  - Password hashing with bcrypt
-
-- 🌐 **SAM.gov Integration**
-  - URL validation and opportunity ID extraction
-  - Playwright-based web scraping
-  - Automated attachment downloads (PDF, Word, Excel)
-  - Contact information extraction
-
-- 📦 **Document Management**
-  - Local file storage with organized structure
-  - Document metadata tracking (size, type, URLs)
-  - Secure document viewing/downloading
-  - Support for ZIP file extraction from "Download All" button
-
-- 🎨 **Modern Frontend**
-  - React 18 with Vite
-  - TailwindCSS for styling
-  - Responsive design
-  - Real-time status updates
-
-- 🔄 **Background Processing**
-  - Celery task queue for async operations
-  - Redis message broker
-  - Real-time progress tracking
-
-- 📝 **Document Analysis** ✅
-  - Text extraction from PDFs, Word, and Excel documents
-  - AI-powered classification (product/service/hybrid) with confidence scoring
-  - CLIN extraction from documents (product/service details, quantities, part numbers)
-  - Deadline extraction from documents (complements page metadata)
-  - Optional spaCy NLP integration for advanced classification
-
-- 📤 **File Upload** ✅
-  - Optional file upload with SAM.gov URL
-  - Supports PDF, Word, and Excel formats
-  - Uploaded files included in document analysis
-  - Secure file storage and management
-
-- 🗑️ **Data Cleanup** ✅
-  - Complete deletion of opportunities with all related files
-  - Automatic cleanup of documents, deadlines, and CLINs
-  - File system cleanup (documents and uploads directories)
-
-### 🚧 In Progress / Planned
-
-- 🔍 **Research Automation** (Phase 2)
-  - Manufacturer website research
-  - Sales contact discovery
-  - Dealer/distributor information
-  - Pricing data collection
-
-- 📧 **Email Integration** (Phase 2)
-  - Gmail and Outlook integration
-  - Automated quote inquiry email generation
-  - Template editing and review
-
-- 📅 **Calendar Integration** (Phase 2)
-  - Google Calendar, iCal, Outlook
-  - Automatic deadline event creation
-  - Reminder notifications
-
-- 📄 **Form Automation** (Phase 3)
-  - PDF form autofill (e.g., SF1449)
-  - Adobe Acrobat equivalent functionality
+| Capability | Description |
+|------------|-------------|
+| **Automated Scraping** | Extracts data directly from SAM.gov opportunity pages using Playwright |
+| **Hybrid Document Analysis** | Table parsing for structured forms (SF1449, SF30) + LLM extraction for unstructured text (SOW, amendments) |
+| **AI Classification** | Groq-powered Llama models classify solicitations as Product/Service/Both with confidence scores |
+| **CLIN Extraction** | Intelligent extraction of Contract Line Item Numbers with full product/service details |
+| **Deadline Tracking** | Automated deadline extraction with timezone support from pages and documents |
+| **Contact Management** | Automatic extraction and display of primary/alternative contacts |
 
 ---
 
-## 🛠 Tech Stack
+## Features
 
-### Backend
-- **Framework**: [FastAPI](https://fastapi.tiangolo.com/) - Modern, fast web framework
-- **Database**: [PostgreSQL](https://www.postgresql.org/) - Relational database
-- **ORM**: [SQLAlchemy](https://www.sqlalchemy.org/) - Database toolkit and ORM
-- **Migrations**: [Alembic](https://alembic.sqlalchemy.org/) - Database migration tool
-- **Authentication**: JWT (python-jose) + bcrypt
-- **Task Queue**: [Celery](https://docs.celeryq.dev/) - Distributed task queue
-- **Cache**: [Redis](https://redis.io/) - In-memory data store
+### Phase 1 - Complete ✓
 
-### Web Scraping & Processing
-- **Browser Automation**: [Playwright](https://playwright.dev/) - Reliable web scraping
-- **PDF Processing**: [pdfplumber](https://github.com/jsvine/pdfplumber) - PDF text extraction
-- **Word Processing**: [python-docx](https://python-docx.readthedocs.io/) - Word document parsing
-- **Excel Processing**: [openpyxl](https://openpyxl.readthedocs.io/) - Excel file handling
+<details>
+<summary><strong>User Authentication & Security</strong></summary>
 
-### AI & NLP
-- **NLP**: [spaCy](https://spacy.io/) - Natural language processing
-- **ML**: [scikit-learn](https://scikit-learn.org/) - Machine learning library
-- **Transformers**: [Hugging Face Transformers](https://huggingface.co/docs/transformers) - Pre-trained models
-- **Deep Learning**: [PyTorch](https://pytorch.org/) - Neural network framework
+- Secure JWT-based authentication
+- Password hashing with bcrypt
+- Session management
+- Protected routes and API endpoints
 
-### Frontend
-- **Framework**: [React](https://react.dev/) - UI library
-- **Build Tool**: [Vite](https://vitejs.dev/) - Fast frontend build tool
-- **Styling**: [TailwindCSS](https://tailwindcss.com/) - Utility-first CSS framework
-- **Routing**: [React Router](https://reactrouter.com/) - Client-side routing
-- **HTTP Client**: [Axios](https://axios-http.com/) - API requests
+</details>
 
-### DevOps & Deployment
-- **Containerization**: [Docker](https://www.docker.com/) - Application containers
-- **Orchestration**: [Docker Compose](https://docs.docker.com/compose/) - Multi-container apps
-- **Web Server**: [Nginx](https://nginx.org/) - Reverse proxy and static serving
-- **Deployment**: [Digital Ocean App Platform](https://www.digitalocean.com/products/app-platform)
+<details>
+<summary><strong>SAM.gov Integration</strong></summary>
+
+- URL validation and opportunity ID extraction
+- Playwright-based web scraping
+- Automated attachment downloads (PDF, Word, Excel, ZIP)
+- Contact information extraction (names, emails, phone numbers)
+- Contracting office address capture
+
+</details>
+
+<details>
+<summary><strong>Advanced Document Analysis</strong></summary>
+
+- **Hybrid Extraction Approach**:
+  - Table parsing for structured forms (SF1449, SF30) using camelot-py/pdfplumber
+  - LLM-powered extraction using Groq (Llama 3.1-8B) for unstructured text (SOW, amendments)
+  - Regex fallback for edge cases
+- Text extraction from PDF, Word, and Excel documents
+- AI-powered classification (Product/Service/Both) with confidence scoring
+- CLIN extraction with product/service details, quantities, part numbers
+- Deadline extraction from documents (complements page metadata)
+- Optional file uploads with SAM.gov URL analysis
+
+</details>
+
+<details>
+<summary><strong>Modern Frontend</strong></summary>
+
+- React 18 with Vite
+- TailwindCSS for professional styling
+- Responsive, mobile-friendly design
+- Real-time status updates with polling
+- Intuitive UI with icon-based navigation
+
+</details>
+
+<details>
+<summary><strong>Background Processing</strong></summary>
+
+- Celery task queue for async operations
+- Redis message broker
+- Real-time progress tracking
+- Automatic retry on failures
+
+</details>
+
+<details>
+<summary><strong>Data Management</strong></summary>
+
+- Organized file storage (documents/uploads)
+- Secure document viewing/downloading
+- Complete data cleanup on opportunity deletion
+- Debug extraction files for troubleshooting (`data/debug_extracts/`)
+
+</details>
+
+### Phase 2 - Planned
+
+- Research automation (manufacturer websites, sales contacts, pricing)
+- Email integration (Gmail, Outlook) with automated quote inquiries
+- Calendar integration (Google Calendar, iCal, Outlook) with automatic deadline events
+- Quote generation and review system
+
+### Phase 3 - Planned
+
+- PDF form automation (SF1449 autofill)
+- Advanced reporting dashboard
+- Multi-opportunity batch processing
 
 ---
 
-## 📦 Installation
+## Tech Stack
+
+<details>
+<summary><strong>Backend Technologies</strong></summary>
+
+| Technology | Purpose |
+|------------|---------|
+| **FastAPI** | Modern, fast web framework |
+| **PostgreSQL** | Relational database |
+| **SQLAlchemy** | ORM for database operations |
+| **Alembic** | Database migrations |
+| **Celery** | Distributed task queue |
+| **Redis** | Message broker and cache |
+| **Playwright** | Web scraping and automation |
+
+</details>
+
+<details>
+<summary><strong>Document Processing</strong></summary>
+
+| Library | Purpose |
+|---------|---------|
+| **pdfplumber** | PDF text extraction |
+| **camelot-py** | Table extraction from PDFs |
+| **python-docx** | Word document parsing |
+| **openpyxl** | Excel file handling |
+
+</details>
+
+<details>
+<summary><strong>AI & Machine Learning</strong></summary>
+
+| Technology | Purpose |
+|------------|---------|
+| **Groq + LangChain** | LLM-powered extraction (Llama 3.1-8B) |
+| **spaCy** | NLP for classification |
+| **scikit-learn** | Machine learning algorithms |
+| **Transformers** | Pre-trained NLP models |
+
+</details>
+
+<details>
+<summary><strong>Frontend Technologies</strong></summary>
+
+| Technology | Purpose |
+|------------|---------|
+| **React 18** | UI library |
+| **Vite** | Build tool and dev server |
+| **TailwindCSS** | Utility-first CSS framework |
+| **React Router** | Client-side routing |
+| **Axios** | HTTP client for API calls |
+
+</details>
+
+---
+
+## Installation
 
 ### Prerequisites
 
-Ensure you have the following installed:
+```bash
+# Required Software
+- Python 3.12+
+- Node.js 18.x+
+- PostgreSQL 14+
+- Redis 6+
+- Git
+```
 
-- **Python** 3.12 or higher
-- **Node.js** 18.x or higher
-- **PostgreSQL** 14+ (or use managed database)
-- **Redis** 6+ (or use managed Redis)
-- **Git** for version control
-
-### Step 1: Clone the Repository
+### Step 1: Clone Repository
 
 ```bash
 git clone <repository-url>
@@ -180,54 +200,53 @@ cd sam-project
 ### Step 2: Backend Setup
 
 ```bash
-# Create and activate virtual environment
+# Create virtual environment
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install Python dependencies
+# Install dependencies
 pip install -r requirements.txt
 
-# Install Playwright browsers (for web scraping)
+# Install Playwright browsers
 playwright install chromium
 ```
 
 ### Step 3: Database Setup
 
 ```bash
-# Run the database setup script
+# Automated setup (recommended)
 ./scripts/setup_database.sh
 
-# Or manually:
-# Install PostgreSQL, create database and user
-# Update .env file with DATABASE_URL
+# Or manual setup:
+# 1. Install PostgreSQL
+# 2. Create database and user
+# 3. Update .env with DATABASE_URL
 ```
 
 ### Step 4: Environment Configuration
 
-```bash
-# Copy example environment file (if needed)
-cp .env.example .env
+Create `.env` file with required variables:
 
-# Edit .env with your configuration
-nano .env  # or use your preferred editor
-```
-
-**Required Environment Variables:**
 ```env
+# Database
 DATABASE_URL=postgresql://user:password@localhost:5432/samgov_db
+
+# Redis
 REDIS_URL=redis://localhost:6379/0
+
+# JWT Authentication
 JWT_SECRET_KEY=your-secret-key-here
 SECRET_KEY=your-app-secret-key
+
+# Groq API (Optional - for LLM extraction)
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=llama-3.1-8b-instant
 ```
 
-### Step 5: Database Migrations
+### Step 5: Run Migrations
 
 ```bash
-# Run Alembic migrations
 ./scripts/run_migrations.sh
-
-# Or manually:
-alembic upgrade head
 ```
 
 ### Step 6: Frontend Setup
@@ -240,48 +259,49 @@ cd ..
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### Option 1: Use the Start Script (Recommended)
+### Automated Start (Recommended)
 
 ```bash
 # Start all services (backend, frontend, Celery worker)
 ./start.sh
 ```
 
-The script will:
-- ✅ Check prerequisites (venv, .env, PostgreSQL, Redis, Node.js)
-- ✅ Ensure data directories exist (data/documents, data/uploads, logs)
-- ✅ Verify database connection
-- ✅ Run migrations
-- ✅ Start backend server (port 8000)
-- ✅ Start Celery worker for background tasks
-- ✅ Start frontend dev server (port 5173)
+The script automatically:
+- ✓ Checks prerequisites
+- ✓ Ensures data directories exist
+- ✓ Verifies database connection
+- ✓ Runs migrations
+- ✓ Starts all required services
 
-### Option 2: Manual Start
+### Manual Start
 
 ```bash
-# Terminal 1: Start Backend
+# Terminal 1: Backend
 source venv/bin/activate
 uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Terminal 2: Start Celery Worker
+# Terminal 2: Celery Worker
 source venv/bin/activate
 celery -A backend.app.core.celery_app worker --loglevel=info
 
-# Terminal 3: Start Frontend
+# Terminal 3: Frontend
 cd frontend
 npm run dev
 ```
 
-### Access the Application
+### Access Application
 
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:8000
-- **API Docs (Swagger)**: http://localhost:8000/docs
-- **API Docs (ReDoc)**: http://localhost:8000/redoc
+| Service | URL |
+|---------|-----|
+| **Frontend** | http://localhost:5173 |
+| **Backend API** | http://localhost:8000 |
+| **API Docs (Swagger)** | http://localhost:8000/docs |
+| **API Docs (ReDoc)** | http://localhost:8000/redoc |
+| **Health Check** | http://localhost:8000/health |
 
-### Stop All Services
+### Stop Services
 
 ```bash
 ./stop.sh
@@ -289,124 +309,99 @@ npm run dev
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 sam-project/
 ├── backend/
 │   ├── app/
-│   │   ├── api/              # API route handlers
-│   │   │   ├── auth.py       # Authentication endpoints
-│   │   │   ├── opportunities.py  # Opportunity management
-│   │   │   └── router.py     # Main API router
-│   │   ├── core/             # Core configuration
-│   │   │   ├── config.py     # Settings and environment
-│   │   │   ├── database.py   # Database connection
-│   │   │   ├── security.py   # JWT and password hashing
-│   │   │   ├── dependencies.py  # FastAPI dependencies
-│   │   │   └── celery_app.py # Celery configuration
-│   │   ├── models/           # SQLAlchemy database models
-│   │   │   ├── user.py
-│   │   │   ├── opportunity.py
-│   │   │   ├── document.py
-│   │   │   ├── clin.py
-│   │   │   ├── deadline.py
-│   │   │   └── session.py
-│   │   ├── schemas/          # Pydantic request/response schemas
+│   │   ├── api/              # API endpoints
+│   │   │   ├── auth.py       # Authentication
+│   │   │   ├── opportunities.py
+│   │   │   └── router.py
+│   │   ├── core/             # Configuration
+│   │   │   ├── config.py
+│   │   │   ├── database.py
+│   │   │   ├── security.py
+│   │   │   └── celery_app.py
+│   │   ├── models/           # Database models
+│   │   ├── schemas/          # Pydantic schemas
 │   │   ├── services/         # Business logic
-│   │   │   ├── tasks.py      # Celery background tasks
-│   │   │   ├── sam_gov_scraper.py  # SAM.gov scraper
-│   │   │   ├── document_downloader.py  # Document downloader
-│   │   │   └── document_analyzer.py  # Document text/data extraction
-│   │   ├── utils/            # Utility functions
-│   │   │   └── sam_gov.py    # SAM.gov URL validation
-│   │   └── main.py           # FastAPI application entry
-│   ├── migrations/           # Alembic database migrations
-│   └── data/                 # Local file storage
-│       ├── documents/        # Downloaded documents
-│       └── uploads/          # User uploaded files
+│   │   │   ├── tasks.py
+│   │   │   ├── sam_gov_scraper.py
+│   │   │   ├── document_downloader.py
+│   │   │   └── document_analyzer.py  # Hybrid extraction
+│   │   └── utils/
+│   └── migrations/           # Alembic migrations
 ├── frontend/
 │   ├── src/
-│   │   ├── components/       # React components
-│   │   ├── contexts/         # React contexts (Auth)
 │   │   ├── pages/            # Page components
-│   │   │   ├── Login.jsx
-│   │   │   ├── Signup.jsx
-│   │   │   ├── Dashboard.jsx
-│   │   │   ├── Analyze.jsx
-│   │   │   └── OpportunityDetail.jsx
-│   │   ├── utils/            # Utility functions
-│   │   │   └── api.js        # API client
-│   │   └── styles/           # CSS files
-│   └── public/               # Static assets
-├── scripts/                  # Setup and utility scripts
-│   ├── setup_database.sh
-│   ├── run_migrations.sh
-│   └── set_db_password.sh
+│   │   ├── components/       # Reusable components
+│   │   ├── contexts/         # React contexts
+│   │   └── utils/            # Utilities
+│   └── public/
+├── data/
+│   ├── documents/            # Downloaded documents
+│   ├── uploads/              # User uploads
+│   └── debug_extracts/       # Debug extraction files
+├── scripts/                  # Setup scripts
 ├── logs/                     # Application logs
-├── requirements.txt          # Python dependencies
-├── start.sh                  # Start all services
-├── stop.sh                   # Stop all services
-└── .env                      # Environment variables (not in git)
+├── start.sh                  # Start script
+└── stop.sh                   # Stop script
 ```
 
 ---
 
-## 📚 API Documentation
+## API Documentation
 
-### Interactive API Docs
+### Interactive Documentation
 
-Once the backend is running, access the interactive API documentation:
+Once the backend is running:
 
 - **Swagger UI**: http://localhost:8000/docs
-  - Interactive API explorer with "Try it out" functionality
+  - Interactive API explorer
+  - Try endpoints directly
   - Full request/response schemas
-  - Authentication testing
 
 - **ReDoc**: http://localhost:8000/redoc
-  - Beautiful, responsive documentation
   - Clean, readable format
+  - Searchable documentation
 
-### Main Endpoints
+### Core Endpoints
 
 #### Authentication
+
 ```
 POST   /api/v1/auth/register    # User registration
-POST   /api/v1/auth/login       # User login (returns JWT)
-GET    /api/v1/auth/me          # Get current user (protected)
+POST   /api/v1/auth/login       # Login (returns JWT)
+GET    /api/v1/auth/me          # Current user (protected)
 POST   /api/v1/auth/logout      # Logout (protected)
 ```
 
 #### Opportunities
+
 ```
-GET    /api/v1/opportunities                    # List all opportunities (protected)
-POST   /api/v1/opportunities                    # Create new opportunity (with optional file uploads)
-GET    /api/v1/opportunities/{id}               # Get opportunity details with CLINs (protected)
-DELETE /api/v1/opportunities/{id}               # Delete opportunity and all files (protected)
-GET    /api/v1/opportunities/{id}/documents/{doc_id}/view  # View document (protected)
+GET    /api/v1/opportunities                    # List opportunities
+POST   /api/v1/opportunities                    # Create opportunity (with optional file uploads)
+GET    /api/v1/opportunities/{id}               # Get details with CLINs
+DELETE /api/v1/opportunities/{id}               # Delete opportunity and files
+GET    /api/v1/opportunities/{id}/documents/{doc_id}/view  # View document
 ```
 
-**Note**: The `POST /api/v1/opportunities` endpoint accepts `multipart/form-data`:
-- `sam_gov_url` (required): SAM.gov opportunity URL
-- `files[]` (optional): Array of uploaded PDF/Word/Excel files
+### Example Usage
 
-### Example: Creating an Opportunity
+<details>
+<summary><strong>Create Opportunity with File Upload</strong></summary>
 
 ```bash
 # 1. Login
 curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "password": "yourpassword"}'
+  -d '{"email": "user@example.com", "password": "password"}'
 
 # Response: {"access_token": "eyJ...", "token_type": "bearer"}
 
-# 2. Create Opportunity (use token from step 1)
-# Without file upload:
-curl -X POST http://localhost:8000/api/v1/opportunities \
-  -H "Authorization: Bearer eyJ..." \
-  -F "sam_gov_url=https://sam.gov/workspace/contract/opp/.../view"
-
-# With file upload:
+# 2. Create Opportunity with Files
 curl -X POST http://localhost:8000/api/v1/opportunities \
   -H "Authorization: Bearer eyJ..." \
   -F "sam_gov_url=https://sam.gov/workspace/contract/opp/.../view" \
@@ -414,114 +409,95 @@ curl -X POST http://localhost:8000/api/v1/opportunities \
   -F "files=@/path/to/document2.docx"
 ```
 
+</details>
+
 ---
 
-## 💻 Development
-
-### Running Tests
-
-```bash
-# Backend tests (when implemented)
-pytest backend/tests/
-
-# Frontend tests (when implemented)
-cd frontend
-npm test
-```
-
-### Code Style
-
-```bash
-# Python formatting with black (if configured)
-black backend/
-
-# Python linting with flake8 (if configured)
-flake8 backend/
-```
+## Development
 
 ### Database Migrations
 
 ```bash
-# Create a new migration
-alembic revision --autogenerate -m "Description of changes"
+# Create migration
+alembic revision --autogenerate -m "Description"
 
 # Apply migrations
 alembic upgrade head
 
-# Rollback one migration
+# Rollback
 alembic downgrade -1
 ```
 
-### Debugging
+### Logs
 
-- **Backend logs**: Check `logs/backend.log`
-- **Celery logs**: Check `logs/celery.log`
-- **Frontend logs**: Check `logs/frontend.log`
+| Service | Log File |
+|---------|----------|
+| Backend | `logs/backend.log` |
+| Celery | `logs/celery.log` |
+| Frontend | `logs/frontend.log` |
+
+### Debug Extracts
+
+Extracted text and analysis results are saved to:
+
+```
+data/debug_extracts/opportunity_{id}/
+  ├── {doc_id}_{filename}_extracted.txt
+  ├── {doc_id}_{filename}_clins.txt
+  └── analysis_summary.txt
+```
 
 ---
 
-## 🚢 Deployment
+## Deployment
 
 ### Digital Ocean App Platform
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
-
-**Quick Deploy:**
-
-1. Push code to your Git repository
+1. Push code to Git repository
 2. Connect repository to Digital Ocean App Platform
-3. Configure environment variables in App Platform dashboard
-4. Deploy!
+3. Configure environment variables
+4. Deploy
 
-### Docker Deployment
+See `DEPLOYMENT.md` for detailed instructions.
+
+### Docker
 
 ```bash
-# Build and run with Docker Compose
+# Build and run
 docker-compose up -d
 
-# Or build individual services
+# Or build individually
 docker build -f Dockerfile.backend -t samgov-backend .
 docker build -f Dockerfile.frontend -t samgov-frontend .
 ```
 
 ---
 
-## 📊 Project Status
+## Project Status
 
-### Phase 1: Foundation & Core Scraping ✅ **COMPLETE**
+### Phase 1: Foundation & Core Scraping ✓ **COMPLETE**
 
 | Feature | Status |
 |---------|--------|
-| User Authentication | ✅ Complete |
-| SAM.gov Scraping | ✅ Complete |
-| Document Downloads | ✅ Complete |
-| Contact Info Extraction | ✅ Complete |
-| Frontend UI | ✅ Complete |
-| Document Analysis | ✅ Complete |
-| CLIN Extraction | ✅ Complete |
-| Deadline Extraction (from docs) | ✅ Complete |
-| File Upload | ✅ Complete |
+| User Authentication | ✓ |
+| SAM.gov Scraping | ✓ |
+| Document Downloads | ✓ |
+| Contact Info Extraction | ✓ |
+| Document Analysis | ✓ |
+| CLIN Extraction (Hybrid) | ✓ |
+| Deadline Extraction | ✓ |
+| File Upload | ✓ |
+| Frontend UI | ✓ |
 
-**Phase 1 Status**: ✅ **100% COMPLETE** - All MVP requirements met!
+**Phase 1 is 100% complete** - All MVP requirements met!
 
-The application now fully supports:
-- ✅ SAM.gov URL analysis with automatic document download
-- ✅ Optional file uploads (PDF, Word, Excel)
-- ✅ Document text extraction from all file types
-- ✅ AI-powered classification (Product/Service/Both)
-- ✅ CLIN extraction with product/service details
-- ✅ Deadline extraction from pages and documents
-- ✅ Contact information extraction
-- ✅ Complete data display in organized UI
-- ✅ File cleanup on opportunity deletion
-
-### Phase 2: Research & Automation (Planned)
+### Phase 2: Research & Automation
 
 - Manufacturer research
 - Email integration
 - Calendar integration
 
-### Phase 3: Advanced Features (Planned)
+### Phase 3: Advanced Features
 
 - Form automation
 - Quote generation
@@ -529,33 +505,52 @@ The application now fully supports:
 
 ---
 
-## 🤝 Contributing
+## How It Works
 
-This is a private project. For internal contributors:
+<details>
+<summary><strong>Analysis Pipeline</strong></summary>
 
-1. Create a feature branch from `main`
-2. Make your changes
-3. Test thoroughly
-4. Submit a pull request
+1. **Input**: User provides SAM.gov URL (+ optional files)
+2. **Scraping**: Playwright extracts metadata and downloads attachments
+3. **Document Classification**: Documents routed by type (SF1449, SF30, SOW, etc.)
+4. **Extraction**:
+   - Structured forms → Table parsing (camelot/pdfplumber)
+   - Unstructured text → LLM extraction (Groq + Llama)
+   - Fallback → Regex extraction
+5. **Classification**: AI determines Product/Service/Both
+6. **Storage**: All data saved to database and displayed in UI
+
+</details>
+
+<details>
+<summary><strong>CLIN Extraction Methods</strong></summary>
+
+**For Structured Forms (SF1449, SF30):**
+- Uses `camelot-py` or `pdfplumber` to extract tables
+- Directly parses CLIN table rows and columns
+
+**For Unstructured Documents (SOW, Amendments):**
+- Uses Groq LLM (Llama 3.1-8B) with LangChain
+- Pydantic schemas ensure structured output
+- Extracts: CLIN numbers, descriptions, quantities, part numbers, manufacturers
+
+**Fallback:**
+- Regex-based pattern matching if other methods fail
+
+</details>
 
 ---
 
-## 📝 License
+## License
 
 Proprietary - All rights reserved
 
 ---
 
-## 📞 Support
-
-For issues, questions, or feature requests, please contact the development team.
-
----
-
 <div align="center">
 
-**Built with ❤️ for Government Contractors**
+**Built for Government Contractors**
 
-[Back to Top](#-samgov-ai---government-contract-analysis-platform)
+[Back to Top](#samgov-ai)
 
 </div>
