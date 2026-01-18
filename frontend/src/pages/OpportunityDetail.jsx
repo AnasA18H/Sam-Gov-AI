@@ -132,8 +132,19 @@ const OpportunityDetail = () => {
       opportunitiesAPI.get(id)
         .then(response => {
           setOpportunity(response.data);
-          // Stop polling when done
+          // Stop polling when done (completed or failed)
+          // But do one more fetch to ensure we have the latest data
           if (response.data.status !== 'processing' && response.data.status !== 'pending') {
+            // Fetch one more time after a short delay to ensure analysis results are loaded
+            setTimeout(() => {
+              opportunitiesAPI.get(id)
+                .then(finalResponse => {
+                  setOpportunity(finalResponse.data);
+                })
+                .catch(err => {
+                  console.error('Final fetch error:', err);
+                });
+            }, 1000);
             stopPolling();
           }
         })
@@ -549,45 +560,6 @@ const OpportunityDetail = () => {
                     </div>
                   </div>
                 )}
-
-                {/* Documents - PRIMARY DATA SOURCE */}
-                {opportunity.documents && opportunity.documents.length > 0 && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
-                        <HiOutlinePaperClip className="w-5 h-5 mr-2 text-gray-600" />
-                        Attachments ({opportunity.documents.length})
-                      </h2>
-                    </div>
-                    <div className="p-4 space-y-2">
-                      {opportunity.documents.map((doc) => (
-                        <div
-                          key={doc.id}
-                          className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border-2 border-gray-200 hover:bg-gray-100 transition-colors group"
-                        >
-                          <div className="flex items-center space-x-2.5 min-w-0 flex-1">
-                            {getFileIcon(doc.file_type)}
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
-                              <div className="flex items-center space-x-2 text-xs text-gray-500 mt-0.5">
-                                <span>{formatFileSize(doc.file_size)}</span>
-                                <span>•</span>
-                                <span className="capitalize">{doc.source.replace('_', ' ')}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleViewDocument(doc.id, doc.file_type)}
-                            className="ml-3 p-2 text-[#14B8A6] bg-white border-2 border-[#14B8A6] rounded-lg hover:bg-teal-50 transition-colors flex-shrink-0"
-                            title="View Document"
-                          >
-                            <HiOutlineDocumentText className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Sidebar */}
@@ -655,6 +627,45 @@ const OpportunityDetail = () => {
                     </div>
                   </dl>
                 </div>
+
+                {/* Documents - Attachments */}
+                {opportunity.documents && opportunity.documents.length > 0 && (
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
+                        <HiOutlinePaperClip className="w-5 h-5 mr-2 text-gray-600" />
+                        Attachments ({opportunity.documents.length})
+                      </h2>
+                    </div>
+                    <div className="p-4 space-y-2">
+                      {opportunity.documents.map((doc) => (
+                        <div
+                          key={doc.id}
+                          className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border-2 border-gray-200 hover:bg-gray-100 transition-colors group"
+                        >
+                          <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                            {getFileIcon(doc.file_type)}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
+                              <div className="flex items-center space-x-2 text-xs text-gray-500 mt-0.5">
+                                <span>{formatFileSize(doc.file_size)}</span>
+                                <span>•</span>
+                                <span className="capitalize">{doc.source.replace('_', ' ')}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleViewDocument(doc.id, doc.file_type)}
+                            className="ml-3 p-2 text-[#14B8A6] bg-white border-2 border-[#14B8A6] rounded-lg hover:bg-teal-50 transition-colors flex-shrink-0"
+                            title="View Document"
+                          >
+                            <HiOutlineDocumentText className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Contact Information */}
                 {(opportunity.primary_contact || opportunity.alternative_contact || opportunity.contracting_office_address) && (

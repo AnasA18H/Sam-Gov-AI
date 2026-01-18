@@ -1,6 +1,7 @@
 """
 Celery background tasks
 """
+from pathlib import Path
 from ..core.celery_app import celery_app
 from ..core.database import SessionLocal
 from ..core.config import settings
@@ -169,13 +170,13 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             else:
                 logger.warning(f"DEBUG: No attachments to download - attachments list was empty or None!")
             
-            # Update status to completed
-            opportunity.status = "completed"
+            # Keep status as "processing" - will be set to "completed" after analysis finishes
+            # Don't set to completed here - let analyze_documents set it after analysis
             db.commit()
             
             logger.info(f"Successfully scraped opportunity {opportunity_id}")
             
-            # Trigger document analysis
+            # Trigger document analysis (will set status to "completed" when done)
             analyze_documents.delay(opportunity_id)
             
             return {
@@ -234,16 +235,29 @@ def analyze_documents(opportunity_id: int):
                 logger.debug(f"Skipping document {doc.id} - unsupported type: {doc.file_type}")
                 continue
             
+            # Skip Q&A documents and similar files for CLIN extraction
+            doc_name_lower = doc.file_name.lower()
+            is_qa_document = any(keyword in doc_name_lower for keyword in ['question', 'q&a', 'qa', 'inquiry', 'clarification'])
+            
             logger.info(f"Extracting text from document: {doc.file_name}")
             try:
+                # Get absolute file path
+                doc_file_path = Path(doc.file_path)
+                if not doc_file_path.is_absolute():
+                    doc_file_path = Path(settings.PROJECT_ROOT) / doc.file_path
+                
                 text = analyzer.extract_text(doc.file_path)
                 if text:
                     all_text.append(text)
                     logger.info(f"Extracted {len(text)} characters from {doc.file_name}")
                     
-                    # Extract CLINs from this document
-                    doc_clins = analyzer.extract_clins(text)
-                    clins_found.extend(doc_clins)
+                    # Only extract CLINs from non-Q&A documents (solicitation, SOW, technical docs)
+                    if not is_qa_document:
+                        # Use hybrid extraction (table parsing + LLM + regex fallback)
+                        doc_clins = analyzer.extract_clins(text, file_path=doc_file_path if doc.file_type == DocumentType.PDF else None)
+                        clins_found.extend(doc_clins)
+                    else:
+                        logger.info(f"Skipping CLIN extraction from Q&A document: {doc.file_name}")
                     
                     # Extract deadlines from this document
                     doc_deadlines = analyzer.extract_deadlines(text)
@@ -334,6 +348,9 @@ def analyze_documents(opportunity_id: int):
                     is_primary=deadline_data.get('is_primary', False)
                 )
                 db.add(deadline)
+        
+        # Update status to completed AFTER analysis is done
+        opportunity.status = "completed"
         
         # Commit all changes
         db.commit()
