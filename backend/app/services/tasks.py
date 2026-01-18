@@ -7,8 +7,10 @@ from ..core.config import settings
 from ..models.opportunity import Opportunity
 from ..models.document import Document, DocumentType, DocumentSource
 from ..models.deadline import Deadline
+from ..models.clin import CLIN
 from .sam_gov_scraper import SAMGovScraper
 from .document_downloader import DocumentDownloader
+from .document_analyzer import DocumentAnalyzer
 from datetime import datetime
 from dateutil import parser as dateutil_parser
 import logging
@@ -218,24 +220,145 @@ def analyze_documents(opportunity_id: int):
         
         logger.info(f"Starting document analysis for opportunity {opportunity_id} ({len(documents)} documents)")
         
-        # TODO: Implement document analysis
-        # 1. Extract text from PDFs/Word docs
-        # 2. Classify solicitation type (product/service/hybrid)
-        # 3. Extract CLINs from documents
-        # 4. Extract additional deadlines
-        # 5. Store extracted data in database
+        # Initialize document analyzer
+        analyzer = DocumentAnalyzer()
         
-        # Placeholder - analysis will be implemented in next phase
-        logger.info(f"Document analysis placeholder for opportunity {opportunity_id}")
+        # Combine all extracted text from all documents
+        all_text = []
+        clins_found = []
+        deadlines_found = []
+        
+        # 1. Extract text from all documents
+        for doc in documents:
+            if doc.file_type not in [DocumentType.PDF, DocumentType.WORD, DocumentType.EXCEL]:
+                logger.debug(f"Skipping document {doc.id} - unsupported type: {doc.file_type}")
+                continue
+            
+            logger.info(f"Extracting text from document: {doc.file_name}")
+            try:
+                text = analyzer.extract_text(doc.file_path)
+                if text:
+                    all_text.append(text)
+                    logger.info(f"Extracted {len(text)} characters from {doc.file_name}")
+                    
+                    # Extract CLINs from this document
+                    doc_clins = analyzer.extract_clins(text)
+                    clins_found.extend(doc_clins)
+                    
+                    # Extract deadlines from this document
+                    doc_deadlines = analyzer.extract_deadlines(text)
+                    deadlines_found.extend(doc_deadlines)
+                else:
+                    logger.warning(f"No text extracted from {doc.file_name}")
+            except Exception as e:
+                logger.error(f"Error extracting text from {doc.file_name}: {str(e)}", exc_info=True)
+                continue
+        
+        combined_text = "\n\n".join(all_text)
+        
+        if not combined_text:
+            logger.warning(f"No text extracted from any documents for opportunity {opportunity_id}")
+            return {
+                "status": "success",
+                "opportunity_id": opportunity_id,
+                "documents_analyzed": len(documents),
+                "message": "No text extracted from documents"
+            }
+        
+        # 2. Classify solicitation type (product/service/hybrid)
+        logger.info("Classifying solicitation type...")
+        classification, confidence = analyzer.classify_solicitation_type(
+            text=combined_text,
+            title=opportunity.title,
+            description=opportunity.description
+        )
+        
+        opportunity.solicitation_type = classification
+        opportunity.classification_confidence = f"{confidence:.2f}"
+        logger.info(f"Classification: {classification.value}, confidence: {confidence:.2f}")
+        
+        # 3. Store CLINs in database
+        logger.info(f"Storing {len(clins_found)} CLINs...")
+        for clin_data in clins_found:
+            # Check if CLIN already exists for this opportunity
+            existing_clin = db.query(CLIN).filter(
+                CLIN.opportunity_id == opportunity_id,
+                CLIN.clin_number == clin_data['clin_number']
+            ).first()
+            
+            if not existing_clin:
+                clin = CLIN(
+                    opportunity_id=opportunity.id,
+                    clin_number=clin_data['clin_number'],
+                    clin_name=clin_data.get('clin_name'),
+                    product_name=clin_data.get('product_name'),
+                    product_description=clin_data.get('product_description'),
+                    manufacturer_name=clin_data.get('manufacturer_name'),
+                    part_number=clin_data.get('part_number'),
+                    model_number=clin_data.get('model_number'),
+                    quantity=clin_data.get('quantity'),
+                    unit_of_measure=clin_data.get('unit_of_measure'),
+                    service_description=clin_data.get('service_description'),
+                    scope_of_work=clin_data.get('scope_of_work'),
+                    timeline=clin_data.get('timeline'),
+                    service_requirements=clin_data.get('service_requirements'),
+                )
+                db.add(clin)
+            else:
+                # Update existing CLIN if we have new information
+                if clin_data.get('product_name') and not existing_clin.product_name:
+                    existing_clin.product_name = clin_data['product_name']
+                if clin_data.get('product_description') and not existing_clin.product_description:
+                    existing_clin.product_description = clin_data['product_description']
+                if clin_data.get('manufacturer_name') and not existing_clin.manufacturer_name:
+                    existing_clin.manufacturer_name = clin_data['manufacturer_name']
+        
+        # 4. Store additional deadlines from documents
+        logger.info(f"Storing {len(deadlines_found)} deadlines from documents...")
+        for deadline_data in deadlines_found:
+            # Check if similar deadline already exists (avoid duplicates)
+            existing_deadline = db.query(Deadline).filter(
+                Deadline.opportunity_id == opportunity_id,
+                Deadline.due_date == deadline_data['due_date'],
+                Deadline.deadline_type == deadline_data.get('deadline_type')
+            ).first()
+            
+            if not existing_deadline:
+                deadline = Deadline(
+                    opportunity_id=opportunity.id,
+                    due_date=deadline_data['due_date'],
+                    due_time=deadline_data.get('due_time'),
+                    timezone=deadline_data.get('timezone'),
+                    deadline_type=deadline_data.get('deadline_type'),
+                    description=deadline_data.get('description'),
+                    is_primary=deadline_data.get('is_primary', False)
+                )
+                db.add(deadline)
+        
+        # Commit all changes
+        db.commit()
+        
+        logger.info(f"Successfully analyzed documents for opportunity {opportunity_id}")
+        logger.info(f"  - Classification: {classification.value} (confidence: {confidence:.2f})")
+        logger.info(f"  - CLINs extracted: {len(clins_found)}")
+        logger.info(f"  - Deadlines extracted: {len(deadlines_found)}")
         
         return {
             "status": "success",
             "opportunity_id": opportunity_id,
-            "documents_analyzed": len(documents)
+            "documents_analyzed": len(documents),
+            "classification": classification.value,
+            "confidence": confidence,
+            "clins_extracted": len(clins_found),
+            "deadlines_extracted": len(deadlines_found)
         }
         
     except Exception as e:
         logger.error(f"Error analyzing documents for opportunity {opportunity_id}: {str(e)}", exc_info=True)
+        if opportunity:
+            opportunity.status = "failed"
+            opportunity.error_message = f"Document analysis failed: {str(e)}"
+            db.commit()
         return {"status": "error", "message": str(e)}
     finally:
         db.close()

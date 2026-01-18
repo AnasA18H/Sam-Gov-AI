@@ -45,15 +45,42 @@ const Analyze = () => {
     }
 
     try {
-      const response = await opportunitiesAPI.create({
-        sam_gov_url: samGovUrl,
+      // Create FormData for multipart/form-data request (to support file uploads)
+      const formData = new FormData();
+      formData.append('sam_gov_url', samGovUrl);
+      
+      // Add files if any selected
+      if (files && files.length > 0) {
+        files.forEach((file) => {
+          formData.append('files', file);
+        });
+      }
+
+      // Send request with FormData
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('access_token');
+      
+      const response = await fetch(`${API_BASE_URL}/api/v1/opportunities`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          // Don't set Content-Type - let browser set it with boundary for FormData
+        },
+        body: formData,
       });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to create opportunity');
+      }
+
+      const data = await response.json();
+
       // Navigate to opportunity details page
-      navigate(`/opportunities/${response.data.id}`);
+      navigate(`/opportunities/${data.id}`);
     } catch (error) {
       setError(
-        error.response?.data?.detail || 'Failed to create opportunity. Please try again.'
+        error.message || 'Failed to create opportunity. Please try again.'
       );
     } finally {
       setLoading(false);

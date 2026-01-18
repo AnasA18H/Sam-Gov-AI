@@ -1,34 +1,41 @@
 """
 Opportunities API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 import os
+import mimetypes
+import shutil
+import logging
 from ..core.database import get_db
 from ..core.dependencies import get_current_active_user
+from ..core.config import settings
 from ..models.user import User
 from ..models.opportunity import Opportunity
-from ..models.document import Document
+from ..models.document import Document, DocumentType, DocumentSource
 from ..schemas.opportunity import OpportunityCreate, OpportunityResponse, OpportunityDetailResponse, OpportunityList
 from sqlalchemy.orm import joinedload
 from ..services.tasks import scrape_sam_gov_opportunity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/opportunities", tags=["opportunities"])
 
 
 @router.post("", response_model=OpportunityResponse, status_code=status.HTTP_201_CREATED)
 async def create_opportunity(
-    opportunity_data: OpportunityCreate,
+    sam_gov_url: str = Form(..., description="SAM.gov opportunity URL"),
+    files: Optional[List[UploadFile]] = File(None, description="Optional additional documents"),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new opportunity from SAM.gov URL"""
+    """Create a new opportunity from SAM.gov URL with optional file uploads"""
     # Check if opportunity already exists
     existing = db.query(Opportunity).filter(
-        Opportunity.sam_gov_url == str(opportunity_data.sam_gov_url)
+        Opportunity.sam_gov_url == sam_gov_url
     ).first()
     
     if existing:
@@ -40,7 +47,7 @@ async def create_opportunity(
     # Create new opportunity
     new_opportunity = Opportunity(
         user_id=current_user.id,
-        sam_gov_url=str(opportunity_data.sam_gov_url),
+        sam_gov_url=sam_gov_url,
         status="pending"
     )
     
@@ -48,7 +55,62 @@ async def create_opportunity(
     db.commit()
     db.refresh(new_opportunity)
     
-    # Trigger background task to scrape SAM.gov and analyze documents
+    # Save uploaded files if provided
+    uploaded_files = []
+    if files:
+        # Create opportunity-specific upload directory
+        upload_dir = settings.UPLOADS_DIR / str(new_opportunity.id)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        
+        for file in files:
+            if file.filename:
+                try:
+                    # Determine file type
+                    file_ext = Path(file.filename).suffix.lower()
+                    if file_ext == '.pdf':
+                        doc_type = DocumentType.PDF
+                    elif file_ext in ['.doc', '.docx']:
+                        doc_type = DocumentType.WORD
+                    elif file_ext in ['.xls', '.xlsx']:
+                        doc_type = DocumentType.EXCEL
+                    else:
+                        doc_type = DocumentType.OTHER
+                    
+                    # Sanitize filename
+                    safe_filename = file.filename.replace('/', '_').replace('\\', '_')
+                    file_path = upload_dir / safe_filename
+                    
+                    # Save file
+                    with open(file_path, "wb") as buffer:
+                        shutil.copyfileobj(file.file, buffer)
+                    
+                    file_size = file_path.stat().st_size
+                    mime_type, _ = mimetypes.guess_type(file.filename)
+                    
+                    # Create document record
+                    doc = Document(
+                        opportunity_id=new_opportunity.id,
+                        file_name=safe_filename,
+                        original_file_name=file.filename,
+                        file_path=str(file_path.relative_to(settings.PROJECT_ROOT)),
+                        file_size=file_size,
+                        file_type=doc_type,
+                        mime_type=mime_type,
+                        source=DocumentSource.USER_UPLOAD,
+                        storage_type="local"
+                    )
+                    db.add(doc)
+                    uploaded_files.append(doc)
+                    
+                except Exception as e:
+                    # Log error but continue processing other files
+                    logger.error(f"Error saving uploaded file {file.filename}: {str(e)}")
+        
+        # Commit uploaded file records
+        if uploaded_files:
+            db.commit()
+    
+    # Trigger background task to scrape SAM.gov and analyze documents (including uploaded files)
     scrape_sam_gov_opportunity.delay(new_opportunity.id)
     
     return new_opportunity
@@ -82,10 +144,11 @@ async def get_opportunity(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get a specific opportunity by ID with documents and deadlines"""
+    """Get a specific opportunity by ID with documents, deadlines, and CLINs"""
     opportunity = db.query(Opportunity).options(
         joinedload(Opportunity.documents),
-        joinedload(Opportunity.deadlines)
+        joinedload(Opportunity.deadlines),
+        joinedload(Opportunity.clins)
     ).filter(
         Opportunity.id == opportunity_id,
         Opportunity.user_id == current_user.id
@@ -106,7 +169,7 @@ async def delete_opportunity(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Delete an opportunity and all related data (documents, deadlines, CLINs)"""
+    """Delete an opportunity and all related data (documents, deadlines, CLINs) and files"""
     opportunity = db.query(Opportunity).filter(
         Opportunity.id == opportunity_id,
         Opportunity.user_id == current_user.id
@@ -118,7 +181,55 @@ async def delete_opportunity(
             detail="Opportunity not found"
         )
     
-    # Delete opportunity (cascade will handle related records)
+    # Get all documents before deletion to delete files from disk
+    documents = db.query(Document).filter(Document.opportunity_id == opportunity_id).all()
+    
+    # Delete individual files from disk
+    for doc in documents:
+        try:
+            # Resolve file path
+            file_path = Path(doc.file_path)
+            
+            # Handle relative paths
+            if not file_path.is_absolute():
+                # Try relative to project root
+                abs_path = settings.PROJECT_ROOT / file_path
+                if not abs_path.exists():
+                    # Try relative to storage base path
+                    if hasattr(settings, 'STORAGE_BASE_PATH'):
+                        storage_base = Path(settings.STORAGE_BASE_PATH)
+                        abs_path = storage_base.parent / file_path if 'backend/data' in str(file_path) else storage_base / file_path
+                file_path = abs_path
+            
+            # Delete file if it exists
+            if file_path.exists() and file_path.is_file():
+                file_path.unlink()
+                logger.info(f"Deleted file: {file_path}")
+            elif file_path.exists() and file_path.is_dir():
+                # If it's a directory, remove it recursively
+                shutil.rmtree(file_path)
+                logger.info(f"Deleted directory: {file_path}")
+        except Exception as e:
+            logger.warning(f"Error deleting file {doc.file_path}: {str(e)}")
+            # Continue deleting other files even if one fails
+    
+    # Delete opportunity directories (documents and uploads) - this will catch any remaining files
+    try:
+        # Delete documents directory
+        documents_dir = settings.DOCUMENTS_DIR / str(opportunity_id)
+        if documents_dir.exists() and documents_dir.is_dir():
+            shutil.rmtree(documents_dir)
+            logger.info(f"Deleted documents directory: {documents_dir}")
+        
+        # Delete uploads directory
+        uploads_dir = settings.UPLOADS_DIR / str(opportunity_id)
+        if uploads_dir.exists() and uploads_dir.is_dir():
+            shutil.rmtree(uploads_dir)
+            logger.info(f"Deleted uploads directory: {uploads_dir}")
+    except Exception as e:
+        logger.warning(f"Error deleting opportunity directories: {str(e)}")
+    
+    # Delete the opportunity (CASCADE will delete related database records)
     db.delete(opportunity)
     db.commit()
     

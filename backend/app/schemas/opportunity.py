@@ -40,6 +40,7 @@ class OpportunityDetailResponse(OpportunityResponse):
     """Extended opportunity response with relationships"""
     documents: List["DocumentResponse"] = []
     deadlines: List["DeadlineResponse"] = []
+    clins: List["CLINResponse"] = []
     
     class Config:
         from_attributes = True
@@ -54,5 +55,6 @@ class OpportunityList(BaseModel):
 # Forward references to avoid circular imports
 from ..schemas.document import DocumentResponse
 from ..schemas.deadline import DeadlineResponse
+from ..schemas.clin import CLINResponse
 
 OpportunityDetailResponse.model_rebuild()

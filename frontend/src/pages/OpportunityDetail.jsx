@@ -456,6 +456,100 @@ const OpportunityDetail = () => {
                   </div>
                 )}
 
+                {/* CLINs - Contract Line Items */}
+                {opportunity.clins && opportunity.clins.length > 0 && (
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
+                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
+                        Contract Line Items (CLINs) ({opportunity.clins.length})
+                      </h2>
+                    </div>
+                    <div className="p-4 space-y-4">
+                      {opportunity.clins.map((clin) => (
+                        <div
+                          key={clin.id}
+                          className="p-4 bg-gray-50 rounded-lg border-2 border-gray-200 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center space-x-2">
+                              <h3 className="text-sm font-semibold text-gray-900">
+                                CLIN {clin.clin_number}
+                              </h3>
+                              {clin.clin_name && (
+                                <span className="text-xs text-gray-600">- {clin.clin_name}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            {/* Product Details */}
+                            {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity) && (
+                              <div className="space-y-2">
+                                <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Product Details</h4>
+                                <div className="pl-2 space-y-1.5 text-sm text-gray-700">
+                                  {clin.product_name && (
+                                    <div><span className="font-medium">Name:</span> {clin.product_name}</div>
+                                  )}
+                                  {clin.product_description && (
+                                    <div className="text-xs text-gray-600 whitespace-pre-wrap">{clin.product_description}</div>
+                                  )}
+                                  {clin.manufacturer_name && (
+                                    <div><span className="font-medium">Manufacturer:</span> {clin.manufacturer_name}</div>
+                                  )}
+                                  {(clin.part_number || clin.model_number) && (
+                                    <div className="flex items-center space-x-3">
+                                      {clin.part_number && (
+                                        <span><span className="font-medium">Part #:</span> {clin.part_number}</span>
+                                      )}
+                                      {clin.model_number && (
+                                        <span><span className="font-medium">Model #:</span> {clin.model_number}</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {clin.quantity && (
+                                    <div>
+                                      <span className="font-medium">Quantity:</span> {clin.quantity}
+                                      {clin.unit_of_measure && ` ${clin.unit_of_measure}`}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Service Details */}
+                            {(clin.service_description || clin.scope_of_work || clin.timeline || clin.service_requirements) && (
+                              <div className="space-y-2">
+                                <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Service Details</h4>
+                                <div className="pl-2 space-y-1.5 text-sm text-gray-700">
+                                  {clin.service_description && (
+                                    <div className="text-xs text-gray-600 whitespace-pre-wrap">{clin.service_description}</div>
+                                  )}
+                                  {clin.scope_of_work && (
+                                    <div>
+                                      <span className="font-medium">Scope:</span> 
+                                      <div className="text-xs text-gray-600 whitespace-pre-wrap mt-0.5">{clin.scope_of_work}</div>
+                                    </div>
+                                  )}
+                                  {clin.timeline && (
+                                    <div><span className="font-medium">Timeline:</span> {clin.timeline}</div>
+                                  )}
+                                  {clin.service_requirements && (
+                                    <div>
+                                      <span className="font-medium">Requirements:</span>
+                                      <div className="text-xs text-gray-600 whitespace-pre-wrap mt-0.5">{clin.service_requirements}</div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Documents - PRIMARY DATA SOURCE */}
                 {opportunity.documents && opportunity.documents.length > 0 && (
                   <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -645,14 +739,6 @@ const OpportunityDetail = () => {
                   </div>
                 )}
 
-                {/* Placeholder for CLINs */}
-                {opportunity.status === 'completed' && (
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                    <p className="text-xs text-gray-600">
-                      <strong>Note:</strong> CLIN extraction will be available after document analysis is complete.
-                    </p>
-                  </div>
-                )}
               </div>
             </div>
           </div>

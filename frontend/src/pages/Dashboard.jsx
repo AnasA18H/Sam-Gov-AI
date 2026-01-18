@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { opportunitiesAPI } from '../utils/api';
 import ProtectedRoute from '../components/ProtectedRoute';
-import { HiOutlineTrash, HiOutlinePlus, HiOutlineLogout, HiOutlineDocumentText, HiOutlineClock, HiOutlineChevronRight } from 'react-icons/hi';
+import { HiOutlineTrash, HiOutlinePlus, HiOutlineLogout, HiOutlineDocumentText, HiOutlineClock, HiOutlineChevronRight, HiOutlineArrowLeft } from 'react-icons/hi';
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -14,6 +14,8 @@ const Dashboard = () => {
   const [opportunities, setOpportunities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [opportunityToDelete, setOpportunityToDelete] = useState(null);
 
   useEffect(() => {
     fetchOpportunities();
@@ -35,16 +37,20 @@ const Dashboard = () => {
     navigate('/login');
   };
 
-  const handleDelete = async (e, opportunityId) => {
+  const handleDeleteClick = (e, opportunityId) => {
     e.stopPropagation(); // Prevent navigation to detail page
-    
-    if (!window.confirm('Are you sure you want to delete this opportunity? This action cannot be undone.')) {
-      return;
-    }
+    setOpportunityToDelete(opportunityId);
+    setShowDeleteConfirm(true);
+  };
 
-    setDeletingId(opportunityId);
+  const handleDeleteConfirm = async () => {
+    if (!opportunityToDelete) return;
+    
+    setDeletingId(opportunityToDelete);
+    setShowDeleteConfirm(false);
+    
     try {
-      await opportunitiesAPI.delete(opportunityId);
+      await opportunitiesAPI.delete(opportunityToDelete);
       // Refresh the list
       await fetchOpportunities();
     } catch (error) {
@@ -52,7 +58,13 @@ const Dashboard = () => {
       alert(error.response?.data?.detail || 'Failed to delete opportunity. Please try again.');
     } finally {
       setDeletingId(null);
+      setOpportunityToDelete(null);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirm(false);
+    setOpportunityToDelete(null);
   };
 
   return (
@@ -160,7 +172,7 @@ const Dashboard = () => {
                         </div>
                         <div className="flex items-center space-x-2 ml-4">
                           <button
-                            onClick={(e) => handleDelete(e, opp.id)}
+                            onClick={(e) => handleDeleteClick(e, opp.id)}
                             disabled={deletingId === opp.id}
                             className="p-1.5 text-gray-400 hover:text-red-600 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             title="Delete opportunity"
@@ -181,6 +193,47 @@ const Dashboard = () => {
             </div>
           </div>
         </main>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-base font-semibold text-gray-900">Delete Opportunity</h3>
+              </div>
+              <div className="px-6 py-4">
+                <p className="text-sm text-gray-600">
+                  Are you sure you want to delete this opportunity? This action cannot be undone and will permanently delete all related documents, deadlines, and CLINs.
+                </p>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-2">
+                <button
+                  onClick={handleDeleteCancel}
+                  className="p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={deletingId !== null}
+                  title="Cancel"
+                >
+                  <HiOutlineArrowLeft className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  className="p-2 text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={deletingId !== null}
+                  title={deletingId !== null ? 'Deleting...' : 'Delete'}
+                >
+                  {deletingId !== null ? (
+                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <HiOutlineTrash className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </ProtectedRoute>
   );
