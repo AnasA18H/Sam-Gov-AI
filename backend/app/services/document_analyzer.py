@@ -76,18 +76,23 @@ logger = logging.getLogger(__name__)
 # So we must use v1 BaseModel for compatibility
 if LANGCHAIN_AVAILABLE and PYDANTIC_V1_AVAILABLE:
     class CLINItem(V1BaseModel):
-        """Pydantic v1 schema for CLIN extraction using LLM (v1 required for LangChain compatibility)"""
-        item_number: str = V1Field(description="The CLIN or line item number, e.g., '0001', '0001AA', '2', '3'")
-        base_item_number: Optional[str] = V1Field(None, description="Base item number or supplementary reference code, e.g., 'S01', 'AA'")
-        description: str = V1Field(description="The description of the product or service (Supplies/Services)")
-        quantity: Optional[int] = V1Field(None, description="The quantity required")
-        unit: Optional[str] = V1Field(None, description="The unit of measure, e.g., 'Each', 'Lot', 'Set'")
-        contract_type: Optional[str] = V1Field(None, description="Contract type, e.g., 'Firm Fixed Price', 'Cost Plus Fixed Fee'")
-        extended_price: Optional[float] = V1Field(None, description="Extended price (quantity * unit price) if available")
-        part_number: Optional[str] = V1Field(None, description="Part number if applicable")
-        model_number: Optional[str] = V1Field(None, description="Model number if applicable")
-        manufacturer: Optional[str] = V1Field(None, description="Manufacturer name if applicable")
-        product_name: Optional[str] = V1Field(None, description="Product name if applicable")
+        """
+        Pydantic v1 schema for CLIN extraction using LLM.
+        
+        Extract Contract Line Item Numbers (CLINs) from government solicitation documents.
+        Look for structured tables with item numbers, descriptions, quantities, and pricing information.
+        """
+        item_number: str = V1Field(description="The CLIN or line item number. This is the primary identifier, typically numeric like '0001', '0002', or alphanumeric like '0001AA'. Extract exactly as written in the document.")
+        base_item_number: Optional[str] = V1Field(None, description="Base item number or supplementary reference code, often found in adjacent columns. Examples: 'S01', 'AA', 'BASE001'. Only extract if clearly labeled as base item or supplementary code.")
+        description: str = V1Field(description="The full description of the product or service. This field is labeled 'Supplies/Services' in many forms. Extract the complete text description, including all details about what is being procured.")
+        quantity: Optional[int] = V1Field(None, description="The quantity required as an integer. Extract numeric values only (e.g., 250, 2, 100). Do not include units or text.")
+        unit: Optional[str] = V1Field(None, description="The unit of measure for the quantity. Common values: 'Each', 'Lot', 'Set', 'Unit', 'EA'. Extract exactly as written in the document.")
+        contract_type: Optional[str] = V1Field(None, description="Contract type or pricing arrangement. Examples: 'Firm Fixed Price', 'Cost Plus Fixed Fee', 'FFP', 'CPFF'. Extract if clearly stated in the CLIN row or table.")
+        extended_price: Optional[float] = V1Field(None, description="Extended price or total price for the line item. This may be calculated (quantity × unit price) or explicitly stated. Extract as a numeric value without currency symbols (e.g., 150.00, 18750.00).")
+        part_number: Optional[str] = V1Field(None, description="Manufacturer part number if specified. Extract if present in the item details.")
+        model_number: Optional[str] = V1Field(None, description="Product model number if specified. Extract if present in the item details.")
+        manufacturer: Optional[str] = V1Field(None, description="Manufacturer name if specified. Extract company or brand name if mentioned for this specific CLIN.")
+        product_name: Optional[str] = V1Field(None, description="Short product name or title. This is often a condensed version of the description (e.g., 'Stack and Rack Carts', 'Desktop Computers'). Extract if clearly distinguishable from the full description.")
 elif LANGCHAIN_AVAILABLE:
     # Fallback: define empty class if v1 not available
     class CLINItem:
@@ -500,66 +505,159 @@ class DocumentAnalyzer:
             # Clean text before LLM processing
             cleaned_text = self._clean_text(text)
             
-            # Limit text length for LLM (keep first 6000 chars for context to avoid API limits)
-            text_for_llm = cleaned_text[:6000]
+            # Limit text length for LLM (keep first 4000 chars for context after adding prompt)
+            # Reserve space for the instruction prompt
+            document_text = cleaned_text[:4000]
             
-            if not text_for_llm.strip():
+            if not document_text.strip():
                 logger.debug("Cleaned text is empty, skipping LLM extraction")
                 return []
+            
+            # Create concise instruction prompt for the LLM with database mapping format
+            system_instruction = """Extract all CLINs (Contract Line Item Numbers) from this US Government procurement document.
+
+EXTRACT THESE FIELDS for each CLIN (use null if not found):
+- item_number (REQUIRED): CLIN identifier exactly as written (e.g., "0001", "0001AA")
+- base_item_number: Supplementary codes like "S01", "AA" from adjacent columns
+- description (REQUIRED): Full "Supplies/Services" description text
+- quantity: Numeric only (e.g., 250) - no units or text
+- unit: Unit of measure exactly as written (e.g., "Each", "Lot")
+- contract_type: Pricing type (e.g., "Firm Fixed Price", "FFP")
+- extended_price: Numeric price without $ or commas (e.g., 25000.00)
+- product_name: Short name if distinct from description
+- manufacturer: Company/brand name if specified
+- part_number: Part number if mentioned
+- model_number: Model number if mentioned
+
+RULES:
+• Find CLINs in tables (each row = one CLIN) or text patterns ("CLIN 0001", "Item 0002")
+• Extract: quantity=250, unit="Each" from "250 Each"
+• Extract: extended_price=25000.00 from "$25,000.00" or "$25,000"
+• Skip: Q&A sections, headers, totals, summaries
+
+RETURN FORMAT: Structured list matching the field names above. Map directly to database:
+  item_number → clin_number
+  description → product_description
+  quantity → quantity
+  unit → unit_of_measure
+  manufacturer → manufacturer_name
+  (all other fields map directly)
+
+DOCUMENT TEXT:
+"""
+            
+            # Combine instruction with document text
+            text_for_llm = system_instruction + document_text
             
             # Create extraction chain
             chain = create_extraction_chain_pydantic(pydantic_schema=CLINItem, llm=self.llm)
             
-            # Extract CLINs - use invoke() instead of deprecated run()
+            # Extract CLINs - try different input formats for compatibility
+            results = []
             try:
-                result = chain.invoke({"input": text_for_llm})
-                # LangChain extraction chain returns a list directly or wrapped in dict
-                if isinstance(result, list):
-                    results = result
-                elif isinstance(result, dict) and "text" in result:
-                    # Some versions return dict with "text" key containing the list
-                    results = result.get("text", []) if isinstance(result.get("text"), list) else []
-                else:
-                    results = []
-            except (AttributeError, TypeError) as e:
-                # Fallback for older LangChain versions that still use run()
+                # Try invoke() with dict input (newer LangChain versions)
                 try:
-                    results = chain.run(text_for_llm)
-                    if not isinstance(results, list):
-                        results = []
-                except Exception as run_error:
-                    logger.warning(f"Both invoke() and run() failed: {str(run_error)}")
-                    results = []
+                    result = chain.invoke({"input": text_for_llm})
+                    # Handle different return formats
+                    if isinstance(result, list):
+                        results = result
+                    elif isinstance(result, dict):
+                        # Check common keys: "text", "output", or schema name
+                        if "text" in result and isinstance(result["text"], list):
+                            results = result["text"]
+                        elif "output" in result and isinstance(result["output"], list):
+                            results = result["output"]
+                        else:
+                            # Try to find list in dict values
+                            for value in result.values():
+                                if isinstance(value, list):
+                                    results = value
+                                    break
+                except (TypeError, KeyError, AttributeError) as invoke_error:
+                    # Try invoke() with string input (alternative format)
+                    try:
+                        result = chain.invoke(text_for_llm)
+                        if isinstance(result, list):
+                            results = result
+                        elif isinstance(result, dict):
+                            for value in result.values():
+                                if isinstance(value, list):
+                                    results = value
+                                    break
+                    except Exception as invoke_str_error:
+                        # Fallback to run() method (deprecated but still works)
+                        logger.debug(f"invoke() failed, trying run(): {str(invoke_str_error)}")
+                        results = chain.run(text_for_llm)
+                        if not isinstance(results, list):
+                            results = []
+            except Exception as e:
+                logger.error(f"LLM chain execution failed: {str(e)}")
+                logger.debug(f"Error details: {type(e).__name__}", exc_info=True)
+                results = []
             
             # Convert to our format
             clins = []
             if isinstance(results, list):
                 for item in results:
-                    if isinstance(item, CLINItem):
-                        # Clean and validate data before storing
-                        description = self._clean_text(item.description) if item.description else None
-                        product_name = self._clean_text(item.product_name) if item.product_name else None
+                    try:
+                        # Handle both CLINItem objects and dicts
+                        if isinstance(item, CLINItem):
+                            # Extract from Pydantic model
+                            item_number = item.item_number
+                            description = self._clean_text(item.description) if item.description else None
+                            product_name = self._clean_text(item.product_name) if item.product_name else None
+                            quantity = float(item.quantity) if item.quantity else None
+                            unit = item.unit
+                            base_item_number = getattr(item, 'base_item_number', None)
+                            contract_type = getattr(item, 'contract_type', None)
+                            extended_price = float(item.extended_price) if getattr(item, 'extended_price', None) else None
+                            part_number = item.part_number
+                            model_number = item.model_number
+                            manufacturer = item.manufacturer
+                        elif isinstance(item, dict):
+                            # Extract from dict (in case LLM returns dict instead of model)
+                            item_number = item.get('item_number', '')
+                            description = self._clean_text(item.get('description', '')) if item.get('description') else None
+                            product_name = self._clean_text(item.get('product_name', '')) if item.get('product_name') else None
+                            quantity = float(item['quantity']) if item.get('quantity') else None
+                            unit = item.get('unit')
+                            base_item_number = item.get('base_item_number')
+                            contract_type = item.get('contract_type')
+                            extended_price = float(item['extended_price']) if item.get('extended_price') else None
+                            part_number = item.get('part_number')
+                            model_number = item.get('model_number')
+                            manufacturer = item.get('manufacturer')
+                        else:
+                            logger.warning(f"Unexpected item type in LLM results: {type(item)}")
+                            continue
                         
-                        # Skip CLINs with only garbage/encoded text (very short or only special chars)
+                        # Validate required fields
+                        if not item_number or not item_number.strip():
+                            continue
+                        
+                        # Skip CLINs with only garbage/encoded text (very short or no alphanumeric chars)
                         if description and len(description.strip()) < 3:
                             continue
                         if description and not any(c.isalnum() for c in description):
                             continue
                         
                         clin_data = {
-                            'clin_number': item.item_number,
-                            'base_item_number': item.base_item_number if hasattr(item, 'base_item_number') else None,
+                            'clin_number': str(item_number).strip(),
+                            'base_item_number': str(base_item_number).strip() if base_item_number else None,
                             'product_description': description,
                             'product_name': product_name,
-                            'quantity': float(item.quantity) if item.quantity else None,
-                            'unit_of_measure': item.unit,
-                            'contract_type': item.contract_type if hasattr(item, 'contract_type') else None,
-                            'extended_price': float(item.extended_price) if hasattr(item, 'extended_price') and item.extended_price else None,
-                            'part_number': item.part_number,
-                            'model_number': item.model_number,
-                            'manufacturer_name': item.manufacturer,
+                            'quantity': quantity,
+                            'unit_of_measure': str(unit).strip() if unit else None,
+                            'contract_type': str(contract_type).strip() if contract_type else None,
+                            'extended_price': extended_price,
+                            'part_number': str(part_number).strip() if part_number else None,
+                            'model_number': str(model_number).strip() if model_number else None,
+                            'manufacturer_name': str(manufacturer).strip() if manufacturer else None,
                         }
                         clins.append(clin_data)
+                    except Exception as item_error:
+                        logger.warning(f"Error processing LLM result item: {str(item_error)}")
+                        continue
             
             logger.info(f"LLM extracted {len(clins)} CLINs")
             return clins
