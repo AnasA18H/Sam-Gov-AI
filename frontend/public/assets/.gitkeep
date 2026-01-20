@@ -1,0 +1,5 @@
+# Assets Directory
+# Place static images and assets here
+# Files in this directory will be served at /assets/ path
+# 
+# Example: frontend/public/assets/Login.jpg will be accessible at /assets/Login.jpg

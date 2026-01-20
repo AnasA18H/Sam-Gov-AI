@@ -88,10 +88,9 @@ frontend/.svelte-kit/
 *.db
 *.sqlite
 *.sqlite3
-data/
 backend/data/documents/
 backend/data/uploads/
-data/debug_extracts/
+backend/data/debug_extracts/
 
 # Testing
 .pytest_cache/
@@ -138,8 +137,12 @@ Desktop.ini
 # Project specific
 SAM.gov_files/
 SAM.gov.html
+
+# Images (root level - ignore, but allow in frontend/public/assets/)
 cover.png
 Login.jpg
+!/frontend/public/assets/
+!/frontend/public/assets/**
 
 # Monitoring (optional - uncomment if you don't want to commit monitoring configs)
 # monitoring/

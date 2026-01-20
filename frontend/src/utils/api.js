@@ -54,6 +54,7 @@ export const opportunitiesAPI = {
   list: (params = {}) => api.get('/api/v1/opportunities', { params }),
   get: (id) => api.get(`/api/v1/opportunities/${id}`),
   delete: (id) => api.delete(`/api/v1/opportunities/${id}`),
+  extract: (id) => api.post(`/api/v1/opportunities/${id}/extract`),
 };
 
 export default api;

@@ -25,22 +25,3 @@
     @apply bg-white rounded-lg shadow-md p-6;
   }
 }
-
-/* Heartbeat animation for CLINs loading */
-@keyframes heartbeat {
-  0% {
-    transform: scale(1);
-  }
-  14% {
-    transform: scale(1.15);
-  }
-  28% {
-    transform: scale(1);
-  }
-  42% {
-    transform: scale(1.15);
-  }
-  70% {
-    transform: scale(1);
-  }
-}

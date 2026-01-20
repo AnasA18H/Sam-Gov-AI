@@ -90,6 +90,8 @@ const OpportunityDetail = () => {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [extractionMessage, setExtractionMessage] = useState('');
   const pollIntervalRef = useRef(null);
 
   useEffect(() => {
@@ -135,7 +137,7 @@ const OpportunityDetail = () => {
           // Stop polling when done (completed or failed)
           // But do one more fetch to ensure we have the latest data
           if (response.data.status !== 'processing' && response.data.status !== 'pending') {
-            // Fetch one more time after a short delay to ensure analysis results are loaded
+            // Fetch one more time after a short delay to ensure all data is loaded
             setTimeout(() => {
               opportunitiesAPI.get(id)
                 .then(finalResponse => {
@@ -174,6 +176,33 @@ const OpportunityDetail = () => {
       setError(error.response?.data?.detail || 'Failed to delete opportunity. Please try again.');
       setDeleteLoading(false);
       setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleExtractDocuments = async () => {
+    if (!opportunity || !opportunity.documents || opportunity.documents.length === 0) {
+      setExtractionMessage('No documents available to extract');
+      return;
+    }
+
+    setExtracting(true);
+    setExtractionMessage('');
+    setError('');
+
+    try {
+      const response = await opportunitiesAPI.extract(id);
+      const { message, document_count } = response.data;
+      setExtractionMessage(`${message}. Extraction is running in the background. Check debug extracts for results.`);
+      
+      // Refresh opportunity data after a delay to see updates
+      setTimeout(() => {
+        fetchOpportunity();
+      }, 2000);
+    } catch (error) {
+      setError(error.response?.data?.detail || 'Failed to start text extraction. Please try again.');
+      setExtractionMessage('');
+    } finally {
+      setExtracting(false);
     }
   };
 
@@ -291,7 +320,7 @@ const OpportunityDetail = () => {
                 <div className="flex justify-between items-start">
                   <div className="flex-1 min-w-0">
                     <h1 className="text-xl font-semibold text-gray-900 mb-1.5 truncate">
-                      {opportunity.title || (opportunity.status === 'processing' ? 'Analyzing Opportunity...' : 'Untitled Opportunity')}
+                      {opportunity.title || (opportunity.status === 'processing' ? 'Processing Opportunity...' : 'Untitled Opportunity')}
                     </h1>
                     {opportunity.notice_id && (
                       <div className="flex items-center space-x-2 text-xs text-gray-600">
@@ -318,7 +347,7 @@ const OpportunityDetail = () => {
                     <div className="flex items-start space-x-3">
                       <HiOutlineExclamationCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                       <div className="flex-1">
-                        <h3 className="text-sm font-semibold text-gray-900 mb-1">Waiting to Start Analysis</h3>
+                        <h3 className="text-sm font-semibold text-gray-900 mb-1">Waiting to Start</h3>
                         <p className="text-sm text-gray-600">
                           Your request is queued and will begin processing shortly.
                         </p>
@@ -335,7 +364,7 @@ const OpportunityDetail = () => {
                       </div>
                       <div className="flex-1 space-y-3">
                         <div>
-                          <h3 className="text-sm font-semibold text-gray-900 mb-2">Analysis in Progress</h3>
+                          <h3 className="text-sm font-semibold text-gray-900 mb-2">Processing in Progress</h3>
                           <div className="space-y-2.5">
                             <div className="flex items-center space-x-2 text-sm text-gray-700">
                               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
@@ -347,11 +376,7 @@ const OpportunityDetail = () => {
                             </div>
                             <div className="flex items-center space-x-2 text-sm text-gray-700">
                               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-                              <span>Extracting deadlines, contacts, and classification codes...</span>
-                            </div>
-                            <div className="flex items-center space-x-2 text-sm text-gray-600">
-                              <HiOutlineDownload className="w-4 h-4 text-gray-400" />
-                              <span>Processing documents for analysis...</span>
+                              <span>Extracting deadlines and contact information...</span>
                             </div>
                           </div>
                         </div>
@@ -372,6 +397,16 @@ const OpportunityDetail = () => {
                     <div>
                       <p className="text-sm font-medium text-red-800">Error:</p>
                       <p className="text-sm text-red-700 mt-1">{opportunity.error_message}</p>
+                    </div>
+                  </div>
+                )}
+
+                {extractionMessage && (
+                  <div className="flex items-start space-x-2 bg-blue-50 border border-blue-200 rounded-md p-3">
+                    <HiOutlineCheckCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-blue-800">Extraction Started:</p>
+                      <p className="text-sm text-blue-700 mt-1">{extractionMessage}</p>
                     </div>
                   </div>
                 )}
@@ -467,148 +502,6 @@ const OpportunityDetail = () => {
                   </div>
                 )}
 
-                {/* CLINs - Contract Line Items */}
-                {/* Loading State for CLINs - Show whenever CLINs are not available yet */}
-                {(!opportunity.clins || opportunity.clins.length === 0) && opportunity.status !== 'failed' && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
-                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
-                        Contract Line Items (CLINs)
-                      </h2>
-                    </div>
-                    <div className="p-4 space-y-4">
-                      {/* Heart beating animation loader */}
-                      <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                        <div className="relative flex items-center justify-center">
-                          <svg 
-                            className="w-16 h-16 text-red-500" 
-                            fill="currentColor" 
-                            viewBox="0 0 24 24"
-                            style={{
-                              animation: 'heartbeat 1.5s ease-in-out infinite'
-                            }}
-                          >
-                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                          </svg>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-sm font-medium text-gray-700 mb-1">Extracting CLINs from documents...</p>
-                          <p className="text-xs text-gray-500">Analyzing tables and text content</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* CLINs - Contract Line Items (when data is available) */}
-                {opportunity.clins && opportunity.clins.length > 0 && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
-                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
-                        Contract Line Items (CLINs) ({opportunity.clins.length})
-                      </h2>
-                    </div>
-                    <div className="p-4 space-y-4">
-                      {opportunity.clins.map((clin) => (
-                        <div
-                          key={clin.id}
-                          className="p-4 bg-gray-50 rounded-lg border-2 border-gray-200 hover:border-blue-300 transition-colors"
-                        >
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center space-x-2 flex-wrap">
-                              <h3 className="text-sm font-semibold text-gray-900">
-                                CLIN {clin.clin_number}
-                              </h3>
-                              {clin.base_item_number && (
-                                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                                  Base Item: {clin.base_item_number}
-                                </span>
-                              )}
-                              {clin.clin_name && (
-                                <span className="text-xs text-gray-600">- {clin.clin_name}</span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="space-y-3">
-                            {/* Product Details */}
-                            {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity || clin.contract_type || clin.extended_price) && (
-                              <div className="space-y-2">
-                                <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Product Details</h4>
-                                <div className="pl-2 space-y-1.5 text-sm text-gray-700">
-                                  {clin.product_name && (
-                                    <div><span className="font-medium">Name:</span> {clin.product_name}</div>
-                                  )}
-                                  {clin.product_description && (
-                                    <div className="text-xs text-gray-600 whitespace-pre-wrap"><span className="font-medium">Supplies/Services:</span> {clin.product_description}</div>
-                                  )}
-                                  {clin.manufacturer_name && (
-                                    <div><span className="font-medium">Manufacturer:</span> {clin.manufacturer_name}</div>
-                                  )}
-                                  {(clin.part_number || clin.model_number) && (
-                                    <div className="flex items-center space-x-3">
-                                      {clin.part_number && (
-                                        <span><span className="font-medium">Part #:</span> {clin.part_number}</span>
-                                      )}
-                                      {clin.model_number && (
-                                        <span><span className="font-medium">Model #:</span> {clin.model_number}</span>
-                                      )}
-                                    </div>
-                                  )}
-                                  {clin.quantity && (
-                                    <div>
-                                      <span className="font-medium">Quantity:</span> {clin.quantity}
-                                      {clin.unit_of_measure && ` ${clin.unit_of_measure}`}
-                                    </div>
-                                  )}
-                                  {clin.contract_type && (
-                                    <div>
-                                      <span className="font-medium">Contract Type:</span> {clin.contract_type}
-                                    </div>
-                                  )}
-                                  {clin.extended_price && (
-                                    <div>
-                                      <span className="font-medium">Extended Price:</span> ${clin.extended_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Service Details */}
-                            {(clin.service_description || clin.scope_of_work || clin.timeline || clin.service_requirements) && (
-                              <div className="space-y-2">
-                                <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Service Details</h4>
-                                <div className="pl-2 space-y-1.5 text-sm text-gray-700">
-                                  {clin.service_description && (
-                                    <div className="text-xs text-gray-600 whitespace-pre-wrap">{clin.service_description}</div>
-                                  )}
-                                  {clin.scope_of_work && (
-                                    <div>
-                                      <span className="font-medium">Scope:</span> 
-                                      <div className="text-xs text-gray-600 whitespace-pre-wrap mt-0.5">{clin.scope_of_work}</div>
-                                    </div>
-                                  )}
-                                  {clin.timeline && (
-                                    <div><span className="font-medium">Timeline:</span> {clin.timeline}</div>
-                                  )}
-                                  {clin.service_requirements && (
-                                    <div>
-                                      <span className="font-medium">Requirements:</span>
-                                      <div className="text-xs text-gray-600 whitespace-pre-wrap mt-0.5">{clin.service_requirements}</div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Sidebar */}
@@ -680,11 +573,32 @@ const OpportunityDetail = () => {
                 {/* Documents - Attachments */}
                 {opportunity.documents && opportunity.documents.length > 0 && (
                   <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                    <div className="px-4 py-3 border-b border-gray-200">
+                    <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
                       <h2 className="text-base font-semibold text-gray-900 flex items-center">
                         <HiOutlinePaperClip className="w-5 h-5 mr-2 text-gray-600" />
                         Attachments ({opportunity.documents.length})
                       </h2>
+                      <button
+                        onClick={handleExtractDocuments}
+                        disabled={extracting || opportunity.status === 'processing' || opportunity.status === 'pending'}
+                        className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={extracting ? 'Extraction in progress...' : 'Extract text from all documents'}
+                      >
+                        {extracting ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Extracting...
+                          </>
+                        ) : (
+                          <>
+                            <HiOutlineSparkles className="w-4 h-4 mr-1.5" />
+                            Extract Text
+                          </>
+                        )}
+                      </button>
                     </div>
                     <div className="p-4 space-y-2">
                       {opportunity.documents.map((doc) => (
@@ -813,7 +727,7 @@ const OpportunityDetail = () => {
               </div>
               <div className="px-6 py-4">
                 <p className="text-sm text-gray-600">
-                  Are you sure you want to delete this opportunity? This action cannot be undone and will permanently delete all related documents, deadlines, and CLINs.
+                  Are you sure you want to delete this opportunity? This action cannot be undone and will permanently delete all related documents and deadlines.
                 </p>
               </div>
               <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-2">

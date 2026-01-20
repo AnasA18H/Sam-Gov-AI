@@ -38,7 +38,7 @@ COPY alembic.ini .
 COPY app.py .
 
 # Create directories for data and logs
-RUN mkdir -p /app/data/documents /app/data/uploads /app/logs
+RUN mkdir -p /app/backend/data/documents /app/backend/data/uploads /app/logs
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

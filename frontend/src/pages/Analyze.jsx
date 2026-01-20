@@ -1,5 +1,5 @@
 /**
- * Analysis Input Page - Primary SAM.gov URL input
+ * Scraping Input Page - Primary SAM.gov URL input
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -125,10 +125,10 @@ const Analyze = () => {
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
             <div className="px-4 py-4 border-b border-gray-200">
               <h1 className="text-xl font-semibold text-gray-900 mb-1">
-                Analyze SAM.gov Opportunity
+                Scrape SAM.gov Opportunity
               </h1>
               <p className="text-sm text-gray-600">
-                Enter a SAM.gov solicitation URL to begin automated analysis
+                Enter a SAM.gov solicitation URL to scrape and download documents
               </p>
             </div>
             <div className="px-4 py-4">
@@ -162,7 +162,7 @@ const Analyze = () => {
                     />
                   </div>
                   <p className="mt-1.5 text-xs text-gray-600">
-                    Enter the full URL of the SAM.gov opportunity you want to analyze
+                    Enter the full URL of the SAM.gov opportunity you want to scrape
                   </p>
                 </div>
 
@@ -198,13 +198,13 @@ const Analyze = () => {
                   )}
                 </div>
 
-                {/* Begin Analysis Button */}
+                {/* Begin Scraping Button */}
                 <div className="pt-2">
                   <button
                     type="submit"
                     disabled={loading || !samGovUrl.trim()}
                     className="w-full inline-flex items-center justify-center px-4 py-2.5 border-2 border-[#14B8A6] rounded-xl shadow-sm text-sm font-medium text-white bg-[#14B8A6] hover:bg-[#0D9488] hover:border-[#0D9488] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title={loading ? 'Processing...' : 'Begin Analysis'}
+                    title={loading ? 'Processing...' : 'Begin Scraping'}
                   >
                     {loading ? (
                       <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

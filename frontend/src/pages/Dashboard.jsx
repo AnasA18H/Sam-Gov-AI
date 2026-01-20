@@ -89,7 +89,7 @@ const Dashboard = () => {
                 <button
                   onClick={() => navigate('/analyze')}
                   className="p-2 text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors"
-                  title="New Analysis"
+                  title="New Opportunity"
                 >
                   <HiOutlinePlus className="w-5 h-5" />
                 </button>
@@ -130,7 +130,7 @@ const Dashboard = () => {
                     <button
                       onClick={() => navigate('/analyze')}
                       className="inline-flex items-center justify-center p-2 text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors"
-                      title="Start Your First Analysis"
+                      title="Start Your First Scrape"
                     >
                       <HiOutlinePlus className="w-5 h-5" />
                     </button>
@@ -203,7 +203,7 @@ const Dashboard = () => {
               </div>
               <div className="px-6 py-4">
                 <p className="text-sm text-gray-600">
-                  Are you sure you want to delete this opportunity? This action cannot be undone and will permanently delete all related documents, deadlines, and CLINs.
+                  Are you sure you want to delete this opportunity? This action cannot be undone and will permanently delete all related documents and deadlines.
                 </p>
               </div>
               <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-2">
