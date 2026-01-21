@@ -18,7 +18,7 @@ from ..models.opportunity import Opportunity
 from ..models.document import Document, DocumentType, DocumentSource
 from ..schemas.opportunity import OpportunityCreate, OpportunityResponse, OpportunityDetailResponse, OpportunityList
 from sqlalchemy.orm import joinedload
-from ..services.tasks import scrape_sam_gov_opportunity, extract_documents
+from ..services.tasks import scrape_sam_gov_opportunity
 
 logger = logging.getLogger(__name__)
 
@@ -181,101 +181,95 @@ async def delete_opportunity(
             detail="Opportunity not found"
         )
     
-    # Delete all files and directories associated with this opportunity
-    try:
-        # Resolve storage paths relative to project root
-        project_root = settings.PROJECT_ROOT
-        
-        # Delete documents directory (all downloaded documents)
-        if hasattr(settings, 'STORAGE_BASE_PATH'):
-            storage_base = Path(settings.STORAGE_BASE_PATH)
-            # Handle both absolute and relative paths
-            if storage_base.is_absolute():
-                documents_dir = storage_base / str(opportunity_id)
-            else:
-                documents_dir = project_root / storage_base / str(opportunity_id)
-            
-            if documents_dir.exists() and documents_dir.is_dir():
-                shutil.rmtree(documents_dir)
-                logger.info(f"Deleted documents directory (entire folder): {documents_dir}")
-                # Verify folder is deleted
-                if documents_dir.exists():
-                    logger.warning(f"Warning: Documents folder still exists after deletion attempt: {documents_dir}")
-            elif documents_dir.exists():
-                # If it's a file (shouldn't happen), delete it
-                documents_dir.unlink()
-                logger.info(f"Deleted documents file: {documents_dir}")
-        
-        # Delete uploads directory (all user-uploaded files)
-        uploads_base = settings.UPLOADS_DIR
-        if uploads_base.is_absolute():
-            uploads_dir = uploads_base / str(opportunity_id)
-        else:
-            uploads_dir = project_root / uploads_base / str(opportunity_id)
-        
-        if uploads_dir.exists() and uploads_dir.is_dir():
-            shutil.rmtree(uploads_dir)
-            logger.info(f"Deleted uploads directory (entire folder): {uploads_dir}")
-            # Verify folder is deleted
-            if uploads_dir.exists():
-                logger.warning(f"Warning: Uploads folder still exists after deletion attempt: {uploads_dir}")
-        
-        # Delete debug extracts directory (all debug extraction results)
-        if hasattr(settings, 'DEBUG_EXTRACTS_DIR'):
-            debug_extracts_base = settings.DEBUG_EXTRACTS_DIR
-            if debug_extracts_base.is_absolute():
-                debug_extracts_dir = debug_extracts_base / f"opportunity_{opportunity_id}"
-            else:
-                debug_extracts_dir = project_root / debug_extracts_base / f"opportunity_{opportunity_id}"
-            
-            if debug_extracts_dir.exists() and debug_extracts_dir.is_dir():
-                shutil.rmtree(debug_extracts_dir)
-                logger.info(f"Deleted debug extracts directory (entire folder): {debug_extracts_dir}")
-                # Verify folder is deleted
-                if debug_extracts_dir.exists():
-                    logger.warning(f"Warning: Debug extracts folder still exists after deletion attempt: {debug_extracts_dir}")
-        
-        # Also try to delete individual document files if they exist outside the directories
-        # This handles edge cases where files might be stored with different paths
-        documents = db.query(Document).filter(Document.opportunity_id == opportunity_id).all()
-        for doc in documents:
-            try:
-                file_path = Path(doc.file_path)
-                
-                # Handle relative paths
-                if not file_path.is_absolute():
-                    # Try relative to project root first
-                    abs_path = project_root / file_path
-                    if not abs_path.exists() and hasattr(settings, 'STORAGE_BASE_PATH'):
-                        # Try relative to storage base path
-                        storage_base = Path(settings.STORAGE_BASE_PATH)
-                        if storage_base.is_absolute():
-                            abs_path = storage_base.parent / file_path.lstrip('/')
-                        else:
-                            abs_path = project_root / storage_base.parent / file_path.lstrip('/')
-                    file_path = abs_path
-                
-                # Delete file if it exists and is a file (not already deleted by directory removal)
-                if file_path.exists() and file_path.is_file():
-                    file_path.unlink()
-                    logger.info(f"Deleted individual file: {file_path}")
-            except Exception as e:
-                logger.warning(f"Error deleting individual file {doc.file_path}: {str(e)}")
-                # Continue with other files
-        
-    except Exception as e:
-        logger.error(f"Error deleting opportunity files: {str(e)}", exc_info=True)
-        # Continue with database deletion even if file deletion fails
+    # Get all documents before deletion to delete files from disk
+    documents = db.query(Document).filter(Document.opportunity_id == opportunity_id).all()
     
-    # Delete the opportunity from database (CASCADE will automatically delete related records:
-    # - Documents (documents table)
-    # - Deadlines (deadlines table)  
-    # - CLINs (clins table)
+    # Delete individual files from disk
+    for doc in documents:
+        try:
+            # Resolve file path
+            file_path = Path(doc.file_path)
+            
+            # Handle relative paths
+            if not file_path.is_absolute():
+                # Try relative to project root
+                abs_path = settings.PROJECT_ROOT / file_path
+                if not abs_path.exists():
+                    # Try relative to storage base path
+                    if hasattr(settings, 'STORAGE_BASE_PATH'):
+                        storage_base = Path(settings.STORAGE_BASE_PATH)
+                        abs_path = storage_base.parent / file_path if 'backend/data' in str(file_path) else storage_base / file_path
+                file_path = abs_path
+            
+            # Delete file if it exists
+            if file_path.exists() and file_path.is_file():
+                file_path.unlink()
+                logger.info(f"Deleted file: {file_path}")
+            elif file_path.exists() and file_path.is_dir():
+                # If it's a directory, remove it recursively
+                shutil.rmtree(file_path)
+                logger.info(f"Deleted directory: {file_path}")
+        except Exception as e:
+            logger.warning(f"Error deleting file {doc.file_path}: {str(e)}")
+            # Continue deleting other files even if one fails
+    
+    # Delete all opportunity-related directories and their contents
+    directories_to_delete = []
+    
+    # Documents directory - check multiple possible locations
+    if hasattr(settings, 'STORAGE_BASE_PATH'):
+        # Primary location: backend/data/documents/{opportunity_id}
+        storage_base = Path(settings.STORAGE_BASE_PATH)
+        if not storage_base.is_absolute():
+            storage_base = settings.PROJECT_ROOT / storage_base
+        documents_dir = storage_base / str(opportunity_id)
+        directories_to_delete.append(documents_dir)
+    
+    # Also check DOCUMENTS_DIR location
+    documents_dir_alt = settings.DOCUMENTS_DIR / str(opportunity_id)
+    if documents_dir_alt not in directories_to_delete:
+        directories_to_delete.append(documents_dir_alt)
+    
+    # Also check backend/data/documents directly
+    backend_docs_dir = settings.PROJECT_ROOT / "backend" / "data" / "documents" / str(opportunity_id)
+    if backend_docs_dir not in directories_to_delete:
+        directories_to_delete.append(backend_docs_dir)
+    
+    # Uploads directory
+    uploads_dir = settings.UPLOADS_DIR / str(opportunity_id)
+    directories_to_delete.append(uploads_dir)
+    
+    # Debug extracts directory (data/debug_extracts/opportunity_{opportunity_id})
+    debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
+    directories_to_delete.append(debug_dir)
+    logger.info(f"Will attempt to delete debug extracts directory: {debug_dir}")
+    
+    # Delete all directories
+    deleted_dirs = []
+    for directory in directories_to_delete:
+        try:
+            if directory.exists() and directory.is_dir():
+                shutil.rmtree(directory)
+                deleted_dirs.append(str(directory))
+                logger.info(f"Successfully deleted directory: {directory}")
+        except Exception as e:
+            logger.warning(f"Error deleting directory {directory}: {str(e)}")
+            # Continue deleting other directories even if one fails
+    
+    if deleted_dirs:
+        logger.info(f"Deleted {len(deleted_dirs)} directory(ies) for opportunity {opportunity_id}: {', '.join(deleted_dirs)}")
+    else:
+        logger.info(f"No directories found to delete for opportunity {opportunity_id}")
+    
+    # Delete the opportunity from database
+    # Note: CASCADE will automatically delete all related database records:
+    # - Documents (via ondelete="CASCADE" in Document.opportunity_id)
+    # - CLINs (via ondelete="CASCADE" in CLIN.opportunity_id)
+    # - Deadlines (via ondelete="CASCADE" in Deadline.opportunity_id)
     db.delete(opportunity)
     db.commit()
     
     logger.info(f"Successfully deleted opportunity {opportunity_id} and all related data")
-    
     return None
 
 
@@ -319,23 +313,19 @@ async def view_document(
     # For local files, serve the file
     file_path = Path(document.file_path)
     
-    # Handle relative paths (from project root or storage base path)
+    # Handle relative paths (from project root or data directory)
     if not file_path.is_absolute():
         from ..core.config import settings
         # Try relative to project root first
         project_root = Path(__file__).parent.parent.parent.parent
         file_path = project_root / file_path
         
-        # If still doesn't exist, try relative to STORAGE_BASE_PATH or UPLOADS_DIR
+        # If still doesn't exist, try relative to DATA_DIR (which is already relative to project root)
         if not file_path.exists():
             # Remove any leading slashes and normalize
             relative_path = document.file_path.lstrip('/').lstrip('\\')
-            # Try with STORAGE_BASE_PATH for downloaded documents
-            if hasattr(settings, 'STORAGE_BASE_PATH'):
-                file_path = Path(settings.STORAGE_BASE_PATH).parent / relative_path
-            # If still doesn't exist, try with UPLOADS_DIR for uploaded files
-            if not file_path.exists():
-                file_path = settings.UPLOADS_DIR.parent / relative_path
+            # Try with DATA_DIR
+            file_path = settings.DATA_DIR / relative_path
     
     if not file_path.exists():
         raise HTTPException(
@@ -358,48 +348,3 @@ async def view_document(
         filename=document.original_file_name or document.file_name,
         media_type=media_type
     )
-
-
-@router.post("/{opportunity_id}/extract", status_code=status.HTTP_202_ACCEPTED)
-async def extract_opportunity_documents(
-    opportunity_id: int,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Trigger text extraction from all documents for an opportunity.
-    Returns immediately, extraction runs in background.
-    """
-    # Verify opportunity belongs to user
-    opportunity = db.query(Opportunity).filter(
-        Opportunity.id == opportunity_id,
-        Opportunity.user_id == current_user.id
-    ).first()
-    
-    if not opportunity:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Opportunity not found"
-        )
-    
-    # Get document count
-    document_count = db.query(Document).filter(Document.opportunity_id == opportunity_id).count()
-    
-    if document_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No documents found for this opportunity"
-        )
-    
-    # Trigger background extraction task
-    task = extract_documents.delay(opportunity_id)
-    
-    logger.info(f"Text extraction triggered for opportunity {opportunity_id} (task ID: {task.id})")
-    
-    return {
-        "status": "accepted",
-        "message": f"Text extraction started for {document_count} document(s)",
-        "task_id": task.id,
-        "opportunity_id": opportunity_id,
-        "document_count": document_count
-    }

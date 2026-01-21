@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 import requests
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from playwright.sync_api import Page
 import zipfile
 import shutil
@@ -39,6 +39,10 @@ class DocumentDownloader:
     def download_document(self, url: str, opportunity_id: int, filename: str = None) -> Optional[Dict]:
         """
         Download a document from URL and save it
+        Handles three cases:
+        1. PDF viewer - direct PDF download
+        2. Webpage with download link - find and download PDF
+        3. Webpage with text only - scrape and save as TXT
         
         Args:
             url: Document URL
@@ -62,77 +66,469 @@ class DocumentDownloader:
             opp_dir = self.storage_base_path / str(opportunity_id)
             opp_dir.mkdir(parents=True, exist_ok=True)
             
-            file_path = opp_dir / filename
-            
-            # Use Playwright if available (for authenticated downloads), otherwise fall back to requests
+            # If we have Playwright, use smart download with case detection
             if self.page:
-                logger.info(f"Downloading {url} to {file_path} using Playwright")
-                try:
-                    # Use Playwright's download functionality
-                    with self.page.expect_download() as download_info:
-                        self.page.goto(url, wait_until='load', timeout=60000)
-                    
-                    download = download_info.value
-                    download.save_as(str(file_path))
-                    file_size = file_path.stat().st_size
-                    logger.info(f"Downloaded {filename} ({file_size} bytes) using Playwright")
-                except Exception as e:
-                    logger.warning(f"Playwright download failed, trying requests: {e}")
-                    # Fall back to requests
-                    response = requests.get(url, stream=True, timeout=60, headers={
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    })
-                    response.raise_for_status()
-                    
-                    with open(file_path, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                    
-                    file_size = file_path.stat().st_size
-                    logger.info(f"Downloaded {filename} ({file_size} bytes) using requests")
+                return self._download_with_playwright(url, opportunity_id, filename, opp_dir)
             else:
-                # Use requests (fallback)
-                logger.info(f"Downloading {url} to {file_path} using requests")
-                response = requests.get(url, stream=True, timeout=60, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                })
-                response.raise_for_status()
-                
-                with open(file_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                
-                file_size = file_path.stat().st_size
-                logger.info(f"Downloaded {filename} ({file_size} bytes)")
-            
-            # Verify file is not empty and is a valid file type
-            if file_size == 0:
-                logger.error(f"Downloaded file is empty: {filename}")
-                file_path.unlink()  # Delete empty file
-                return None
-            
-            # Check if file is actually an error page (HTML) instead of a document
-            try:
-                with open(file_path, 'rb') as f:
-                    first_bytes = f.read(1024)
-                    if b'<html' in first_bytes.lower() or b'<!doctype' in first_bytes.lower():
-                        logger.error(f"Downloaded file appears to be HTML error page: {filename}")
-                        file_path.unlink()  # Delete error page
-                        return None
-            except:
-                pass
-            
-            return {
-                'path': str(file_path),
-                'relative_path': str(file_path.relative_to(self.storage_base_path.parent)),
-                'size': file_size,
-                'name': filename,
-                'url': url
-            }
+                # Fallback to simple requests download
+                return self._download_with_requests(url, opportunity_id, filename, opp_dir)
             
         except Exception as e:
             logger.error(f"Error downloading document from {url}: {str(e)}", exc_info=True)
             return None
+    
+    def _download_with_playwright(self, url: str, opportunity_id: int, filename: str, opp_dir: Path) -> Optional[Dict]:
+        """
+        Download using Playwright with smart case detection
+        Tries in order: Case 1 (direct PDF) -> Case 2 (find PDF link) -> Case 3 (extract text as last resort)
+        """
+        try:
+            logger.info(f"Navigating to {url} to detect download type")
+            self.page.goto(url, wait_until='load', timeout=60000)
+            self.page.wait_for_timeout(2000)  # Wait for page to fully load
+            
+            # CASE 1: Try direct PDF download (PDF viewer or direct PDF URL)
+            result = self._try_case1_direct_pdf(url, filename, opp_dir)
+            if result:
+                logger.info(f"✅ Case 1 succeeded: Direct PDF download")
+                return result
+            
+            logger.info(f"Case 1 failed, trying Case 2: Find PDF link on page")
+            
+            # CASE 2: Look for PDF download links on the page
+            result = self._try_case2_find_pdf_link(url, filename, opp_dir)
+            if result:
+                logger.info(f"✅ Case 2 succeeded: Found and downloaded PDF from page")
+                return result
+            
+            logger.info(f"Case 2 failed, trying Case 3: Extract text content (last resort)")
+            
+            # CASE 3: Extract text content and save as TXT (LAST RESORT)
+            result = self._try_case3_extract_text(url, filename, opp_dir)
+            if result:
+                logger.info(f"✅ Case 3 succeeded: Extracted and saved text content")
+                return result
+            
+            logger.warning(f"All three cases failed for {url}")
+            return None
+                
+        except Exception as e:
+            logger.error(f"Error in Playwright download: {str(e)}", exc_info=True)
+            return None
+    
+    def _try_case1_direct_pdf(self, url: str, filename: str, opp_dir: Path) -> Optional[Dict]:
+        """Case 1: Try direct PDF download (PDF viewer or direct PDF URL)"""
+        try:
+            # Check if URL directly serves a PDF
+            if url.lower().endswith('.pdf'):
+                logger.info(f"Case 1: URL appears to be direct PDF, attempting download")
+                try:
+                    with self.page.expect_download(timeout=10000) as download_info:
+                        self.page.goto(url, wait_until='load', timeout=60000)
+                    
+                    download = download_info.value
+                    file_path = opp_dir / filename
+                    if not file_path.suffix.lower() == '.pdf':
+                        file_path = file_path.with_suffix('.pdf')
+                    download.save_as(str(file_path))
+                    file_size = file_path.stat().st_size
+                    
+                    if file_size > 0 and self._is_valid_pdf(file_path):
+                        logger.info(f"Case 1: Direct PDF download - {file_path.name} ({file_size} bytes)")
+                        return self._create_file_info(file_path, url, file_size)
+                except Exception as e:
+                    logger.info(f"Case 1: Direct PDF download failed: {e}")
+            
+            # Also check if current page is a PDF viewer (check for PDF.js or embedded PDF)
+            try:
+                # Check if page has PDF viewer indicators
+                pdf_viewer_indicators = [
+                    'embed[type="application/pdf"]',
+                    'iframe[src*=".pdf"]',
+                    'object[type="application/pdf"]',
+                    '#pdf-viewer',
+                    '.pdf-viewer',
+                ]
+                
+                for indicator in pdf_viewer_indicators:
+                    element = self.page.query_selector(indicator)
+                    if element:
+                        # Try to get PDF URL from iframe/embed
+                        pdf_src = element.get_attribute('src')
+                        if pdf_src:
+                            if not pdf_src.startswith('http'):
+                                pdf_src = urljoin(self.page.url, pdf_src)
+                            
+                            logger.info(f"Case 1: Found PDF viewer with src: {pdf_src}")
+                            with self.page.expect_download(timeout=10000) as download_info:
+                                self.page.goto(pdf_src, wait_until='load', timeout=60000)
+                            
+                            download = download_info.value
+                            file_path = opp_dir / filename
+                            if not file_path.suffix.lower() == '.pdf':
+                                file_path = file_path.with_suffix('.pdf')
+                            download.save_as(str(file_path))
+                            file_size = file_path.stat().st_size
+                            
+                            if file_size > 0 and self._is_valid_pdf(file_path):
+                                logger.info(f"Case 1: Downloaded PDF from viewer - {file_path.name} ({file_size} bytes)")
+                                return self._create_file_info(file_path, url, file_size)
+            except Exception as e:
+                logger.info(f"Case 1: PDF viewer detection failed: {e}")
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Case 1: Error in direct PDF download: {e}")
+            return None
+    
+    def _try_case2_find_pdf_link(self, url: str, filename: str, opp_dir: Path) -> Optional[Dict]:
+        """Case 2: Look for PDF download links on the page"""
+        try:
+            pdf_links = self._find_pdf_download_links()
+            if not pdf_links:
+                logger.info(f"Case 2: No PDF links found on page")
+                return None
+            
+            logger.info(f"Case 2: Found {len(pdf_links)} PDF download link(s) on page")
+            for pdf_link in pdf_links:
+                try:
+                    pdf_url = pdf_link.get('url')
+                    pdf_name = pdf_link.get('name', filename)
+                    if not pdf_name.endswith('.pdf'):
+                        pdf_name += '.pdf'
+                    
+                    logger.info(f"Case 2: Attempting to download PDF from link: {pdf_url}")
+                    
+                    # Try clicking the link element first (more reliable)
+                    link_element = pdf_link.get('element')
+                    if link_element:
+                        try:
+                            with self.page.expect_download(timeout=30000) as download_info:
+                                link_element.click()
+                            download = download_info.value
+                            file_path = opp_dir / self._sanitize_filename(pdf_name)
+                            download.save_as(str(file_path))
+                            file_size = file_path.stat().st_size
+                            
+                            if file_size > 0 and self._is_valid_pdf(file_path):
+                                logger.info(f"Case 2: Successfully downloaded PDF via click: {pdf_name} ({file_size} bytes)")
+                                return self._create_file_info(file_path, url, file_size)
+                        except Exception as e:
+                            logger.info(f"Case 2: Click failed, trying direct navigation: {e}")
+                    
+                    # Fallback: Navigate directly to PDF URL
+                    try:
+                        # Resolve relative URLs
+                        if not pdf_url.startswith('http'):
+                            pdf_url = urljoin(self.page.url, pdf_url)
+                        
+                        with self.page.expect_download(timeout=30000) as download_info:
+                            self.page.goto(pdf_url, wait_until='load', timeout=60000)
+                        
+                        download = download_info.value
+                        file_path = opp_dir / self._sanitize_filename(pdf_name)
+                        download.save_as(str(file_path))
+                        file_size = file_path.stat().st_size
+                        
+                        if file_size > 0 and self._is_valid_pdf(file_path):
+                            logger.info(f"Case 2: Successfully downloaded PDF via navigation: {pdf_name} ({file_size} bytes)")
+                            return self._create_file_info(file_path, url, file_size)
+                    except Exception as e:
+                        logger.warning(f"Case 2: Direct navigation also failed: {e}")
+                        continue
+                except Exception as e:
+                    logger.warning(f"Case 2: Failed to download PDF from link: {e}")
+                    continue
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Case 2: Error finding PDF links: {e}")
+            return None
+    
+    def _try_case3_extract_text(self, url: str, filename: str, opp_dir: Path) -> Optional[Dict]:
+        """Case 3: Extract text content and save as TXT (LAST RESORT)"""
+        try:
+            logger.info(f"Case 3: Extracting text content from page (last resort)")
+            text_content = self._extract_text_from_page()
+            if text_content and len(text_content.strip()) > 100:  # Minimum content length
+                file_path = opp_dir / filename
+                if not file_path.suffix.lower() == '.txt':
+                    file_path = file_path.with_suffix('.txt')
+                
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(f"Source URL: {url}\n")
+                    f.write(f"Extracted: {datetime.now().isoformat()}\n")
+                    f.write("=" * 80 + "\n\n")
+                    f.write(text_content)
+                
+                file_size = file_path.stat().st_size
+                logger.info(f"Case 3: Extracted and saved text content: {file_path.name} ({file_size} bytes, {len(text_content)} chars)")
+                return self._create_file_info(file_path, url, file_size)
+            else:
+                logger.warning(f"Case 3: Text extraction failed or content too short ({len(text_content) if text_content else 0} chars)")
+                return None
+                
+        except Exception as e:
+            logger.warning(f"Case 3: Error extracting text: {e}")
+            return None
+    
+    def _download_with_requests(self, url: str, opportunity_id: int, filename: str, opp_dir: Path) -> Optional[Dict]:
+        """Fallback download using requests"""
+        try:
+            file_path = opp_dir / filename
+            logger.info(f"Downloading {url} to {file_path} using requests")
+            
+            response = requests.get(url, stream=True, timeout=60, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            response.raise_for_status()
+            
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            file_size = file_path.stat().st_size
+            
+            # Check if HTML error page
+            if file_size > 0:
+                with open(file_path, 'rb') as f:
+                    first_bytes = f.read(1024)
+                    if b'<html' in first_bytes.lower() or b'<!doctype' in first_bytes.lower():
+                        logger.error(f"Downloaded file appears to be HTML error page: {filename}")
+                        file_path.unlink()
+                        return None
+            
+            if file_size == 0:
+                logger.error(f"Downloaded file is empty: {filename}")
+                file_path.unlink()
+                return None
+            
+            logger.info(f"Downloaded {filename} ({file_size} bytes) using requests")
+            return self._create_file_info(file_path, url, file_size)
+            
+        except Exception as e:
+            logger.error(f"Error in requests download: {str(e)}", exc_info=True)
+            return None
+    
+    def _find_pdf_download_links(self) -> List[Dict]:
+        """Find PDF download links on the current page"""
+        pdf_links = []
+        
+        try:
+            # Look for links with .pdf in href or text
+            pdf_selectors = [
+                'a[href$=".pdf"]',
+                'a[href*=".pdf"]',
+                'a:has-text(".pdf")',
+                'a[href*="download"]',
+                'a[href*="Download"]',
+                'a[href*="file"]',
+            ]
+            
+            for selector in pdf_selectors:
+                try:
+                    links = self.page.query_selector_all(selector)
+                    for link in links:
+                        href = link.get_attribute('href')
+                        text = link.inner_text().strip()
+                        
+                        if href and ('.pdf' in href.lower() or 'download' in href.lower() or 'file' in href.lower()):
+                            # Resolve relative URLs
+                            if not href.startswith('http'):
+                                from urllib.parse import urljoin
+                                href = urljoin(self.page.url, href)
+                            
+                            pdf_links.append({
+                                'url': href,
+                                'name': text or Path(href).name,
+                                'element': link
+                            })
+                except:
+                    continue
+            
+            # Also try JavaScript evaluation to find PDF links
+            try:
+                js_links = self.page.evaluate('''() => {
+                    const links = Array.from(document.querySelectorAll('a'));
+                    const pdfLinks = [];
+                    links.forEach(link => {
+                        const href = link.getAttribute('href') || '';
+                        const text = link.innerText?.trim() || '';
+                        if (href.includes('.pdf') || href.includes('download') || text.includes('.pdf')) {
+                            pdfLinks.push({
+                                href: href,
+                                text: text,
+                                fullUrl: link.href
+                            });
+                        }
+                    });
+                    return pdfLinks;
+                }''')
+                
+                for js_link in js_links:
+                    if js_link.get('fullUrl') and js_link['fullUrl'] not in [l['url'] for l in pdf_links]:
+                        pdf_links.append({
+                            'url': js_link['fullUrl'],
+                            'name': js_link.get('text') or Path(js_link['fullUrl']).name,
+                            'element': None
+                        })
+            except:
+                pass
+            
+            # Remove duplicates
+            seen_urls = set()
+            unique_links = []
+            for link in pdf_links:
+                if link['url'] not in seen_urls:
+                    seen_urls.add(link['url'])
+                    unique_links.append(link)
+            
+            return unique_links
+            
+        except Exception as e:
+            logger.warning(f"Error finding PDF links: {e}")
+            return []
+    
+    def _extract_text_from_page(self) -> Optional[str]:
+        """Extract text content from the current page, preserving structure"""
+        try:
+            # Try to get structured content first (tables, forms, etc.)
+            structured_content = self._extract_structured_content()
+            if structured_content and len(structured_content.strip()) > 100:
+                return structured_content
+            
+            # Try to get main content area
+            content_selectors = [
+                'main',
+                'article',
+                '.content',
+                '#content',
+                '.main-content',
+                '#main-content',
+                'body',
+            ]
+            
+            text_content = None
+            for selector in content_selectors:
+                try:
+                    element = self.page.query_selector(selector)
+                    if element:
+                        text_content = element.inner_text()
+                        if text_content and len(text_content.strip()) > 100:
+                            break
+                except:
+                    continue
+            
+            # Fallback to body text
+            if not text_content or len(text_content.strip()) < 100:
+                try:
+                    body = self.page.query_selector('body')
+                    if body:
+                        text_content = body.inner_text()
+                except:
+                    pass
+            
+            # Clean up text
+            if text_content:
+                # Remove excessive whitespace but preserve structure
+                lines = []
+                for line in text_content.split('\n'):
+                    stripped = line.strip()
+                    if stripped:
+                        lines.append(stripped)
+                    elif lines and lines[-1]:  # Preserve paragraph breaks
+                        lines.append('')
+                text_content = '\n'.join(lines)
+            
+            return text_content
+            
+        except Exception as e:
+            logger.warning(f"Error extracting text: {e}")
+            return None
+    
+    def _extract_structured_content(self) -> Optional[str]:
+        """Extract structured content like tables, forms, and key-value pairs"""
+        try:
+            # Try to extract table data
+            tables = self.page.query_selector_all('table')
+            if tables:
+                structured_text = []
+                for table in tables:
+                    rows = table.query_selector_all('tr')
+                    for row in rows:
+                        cells = row.query_selector_all('td, th')
+                        if cells:
+                            row_text = ' | '.join([cell.inner_text().strip() for cell in cells])
+                            structured_text.append(row_text)
+                if structured_text:
+                    return '\n'.join(structured_text)
+            
+            # Try to extract form fields and labels
+            labels = self.page.query_selector_all('label')
+            inputs = self.page.query_selector_all('input, textarea, select')
+            if labels or inputs:
+                structured_text = []
+                for label in labels:
+                    label_text = label.inner_text().strip()
+                    # Try to find associated input
+                    for_input = label.get_attribute('for')
+                    if for_input:
+                        input_elem = self.page.query_selector(f'#{for_input}')
+                        if input_elem:
+                            value = input_elem.get_attribute('value') or input_elem.inner_text().strip()
+                            structured_text.append(f"{label_text}: {value}")
+                    else:
+                        structured_text.append(label_text)
+                
+                if structured_text:
+                    return '\n'.join(structured_text)
+            
+            # Try to extract div-based key-value pairs (common in SAM.gov pages)
+            try:
+                # Look for patterns like "Label: Value" or structured divs
+                structured_divs = self.page.evaluate('''() => {
+                    const divs = Array.from(document.querySelectorAll('div'));
+                    const pairs = [];
+                    divs.forEach(div => {
+                        const text = div.innerText?.trim();
+                        if (text && text.includes(':')) {
+                            pairs.push(text);
+                        }
+                    });
+                    return pairs.slice(0, 50); // Limit to avoid too much data
+                }''')
+                
+                if structured_divs and len(structured_divs) > 5:
+                    return '\n'.join(structured_divs)
+            except:
+                pass
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error extracting structured content: {e}")
+            return None
+    
+    def _is_valid_pdf(self, file_path: Path) -> bool:
+        """Check if file is a valid PDF"""
+        try:
+            with open(file_path, 'rb') as f:
+                first_bytes = f.read(4)
+                return first_bytes == b'%PDF'
+        except:
+            return False
+    
+    def _create_file_info(self, file_path: Path, url: str, file_size: int) -> Dict:
+        """Create file info dictionary"""
+        return {
+            'path': str(file_path),
+            'relative_path': str(file_path.relative_to(self.storage_base_path.parent)),
+            'size': file_size,
+            'name': file_path.name,
+            'url': url
+        }
     
     def download_all_as_zip(self, page: Page, opportunity_id: int, opportunity_url: str = None) -> Optional[Dict]:
         """

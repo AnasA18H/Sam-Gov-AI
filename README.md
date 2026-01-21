@@ -8,9 +8,9 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-336791.svg)
 ![Groq](https://img.shields.io/badge/Groq-Llama_3.1-8B-orange.svg)
 
-**Government Contract Scraping Platform**
+**AI-Powered Government Contract Analysis Platform**
 
-*Automating US Government contract solicitation scraping from SAM.gov*
+*Automating US Government contract solicitation analysis from SAM.gov*
 
 [Features](#features) • [Quick Start](#quick-start) • [Documentation](#api-documentation) • [Deployment](#deployment)
 
@@ -20,15 +20,17 @@
 
 ## Overview
 
-**SAM.gov AI** is a web application that automates the scraping of US Government contract solicitations from [SAM.gov](https://sam.gov). The platform streamlines the bid preparation process by automatically extracting metadata from SAM.gov pages and downloading all related documents.
+**SAM.gov AI** is an intelligent web application that automates the analysis of US Government contract solicitations from [SAM.gov](https://sam.gov). The platform streamlines the bid preparation process by automatically extracting critical information from solicitation documents, classifying opportunities, and providing actionable insights.
 
 ### Core Capabilities
 
 | Capability | Description |
 |------------|-------------|
 | **Automated Scraping** | Extracts data directly from SAM.gov opportunity pages using Playwright |
-| **Document Downloads** | Automated attachment downloads (PDF, Word, Excel, ZIP) |
-| **Deadline Tracking** | Automated deadline extraction with timezone support from pages |
+| **Hybrid Document Analysis** | Table parsing for structured forms (SF1449, SF30) + LLM extraction for unstructured text (SOW, amendments) |
+| **AI Classification** | Groq-powered Llama models classify solicitations as Product/Service/Both with confidence scores |
+| **CLIN Extraction** | Intelligent extraction of Contract Line Item Numbers with full product/service details |
+| **Deadline Tracking** | Automated deadline extraction with timezone support from pages and documents |
 | **Contact Management** | Automatic extraction and display of primary/alternative contacts |
 
 ---
@@ -59,12 +61,17 @@
 </details>
 
 <details>
-<summary><strong>Document Management</strong></summary>
+<summary><strong>Advanced Document Analysis</strong></summary>
 
-- Automated document downloads from SAM.gov
-- Support for PDF, Word, Excel, and ZIP files
-- Document storage and retrieval
-- Optional file uploads when creating opportunities
+- **Hybrid Extraction Approach**:
+  - Table parsing for structured forms (SF1449, SF30) using camelot-py/pdfplumber
+  - LLM-powered extraction using Groq (Llama 3.1-8B) for unstructured text (SOW, amendments)
+  - Regex fallback for edge cases
+- Text extraction from PDF, Word, and Excel documents
+- AI-powered classification (Product/Service/Both) with confidence scoring
+- CLIN extraction with product/service details, quantities, part numbers
+- Deadline extraction from documents (complements page metadata)
+- Optional file uploads with SAM.gov URL analysis
 
 </details>
 
@@ -95,6 +102,7 @@
 - Organized file storage (documents/uploads)
 - Secure document viewing/downloading
 - Complete data cleanup on opportunity deletion
+- Debug extraction files for troubleshooting (`data/debug_extracts/`)
 
 </details>
 
@@ -130,6 +138,29 @@
 
 </details>
 
+<details>
+<summary><strong>Document Processing</strong></summary>
+
+| Library | Purpose |
+|---------|---------|
+| **pdfplumber** | PDF text extraction |
+| **camelot-py** | Table extraction from PDFs |
+| **python-docx** | Word document parsing |
+| **openpyxl** | Excel file handling |
+
+</details>
+
+<details>
+<summary><strong>AI & Machine Learning</strong></summary>
+
+| Technology | Purpose |
+|------------|---------|
+| **Groq + LangChain** | LLM-powered extraction (Llama 3.1-8B) |
+| **spaCy** | NLP for classification |
+| **scikit-learn** | Machine learning algorithms |
+| **Transformers** | Pre-trained NLP models |
+
+</details>
 
 <details>
 <summary><strong>Frontend Technologies</strong></summary>
@@ -298,7 +329,8 @@ sam-project/
 │   │   ├── services/         # Business logic
 │   │   │   ├── tasks.py
 │   │   │   ├── sam_gov_scraper.py
-│   │   │   └── document_downloader.py
+│   │   │   ├── document_downloader.py
+│   │   │   └── document_analyzer.py  # Hybrid extraction
 │   │   └── utils/
 │   └── migrations/           # Alembic migrations
 ├── frontend/
@@ -308,6 +340,10 @@ sam-project/
 │   │   ├── contexts/         # React contexts
 │   │   └── utils/            # Utilities
 │   └── public/
+├── data/
+│   ├── documents/            # Downloaded documents
+│   ├── uploads/              # User uploads
+│   └── debug_extracts/       # Debug extraction files
 ├── scripts/                  # Setup scripts
 ├── logs/                     # Application logs
 ├── start.sh                  # Start script
@@ -400,6 +436,16 @@ alembic downgrade -1
 | Celery | `logs/celery.log` |
 | Frontend | `logs/frontend.log` |
 
+### Debug Extracts
+
+Extracted text and analysis results are saved to:
+
+```
+data/debug_extracts/opportunity_{id}/
+  ├── {doc_id}_{filename}_extracted.txt
+  ├── {doc_id}_{filename}_clins.txt
+  └── analysis_summary.txt
+```
 
 ---
 
@@ -437,6 +483,8 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 | SAM.gov Scraping | ✓ |
 | Document Downloads | ✓ |
 | Contact Info Extraction | ✓ |
+| Document Analysis | ✓ |
+| CLIN Extraction (Hybrid) | ✓ |
 | Deadline Extraction | ✓ |
 | File Upload | ✓ |
 | Frontend UI | ✓ |
@@ -460,13 +508,34 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 ## How It Works
 
 <details>
-<summary><strong>Scraping Pipeline</strong></summary>
+<summary><strong>Analysis Pipeline</strong></summary>
 
 1. **Input**: User provides SAM.gov URL (+ optional files)
-2. **Scraping**: Playwright extracts metadata from SAM.gov page
-3. **Download**: All attachments are automatically downloaded
-4. **Extraction**: Contact info, deadlines, and classification codes extracted
-5. **Storage**: All data saved to database and displayed in UI
+2. **Scraping**: Playwright extracts metadata and downloads attachments
+3. **Document Classification**: Documents routed by type (SF1449, SF30, SOW, etc.)
+4. **Extraction**:
+   - Structured forms → Table parsing (camelot/pdfplumber)
+   - Unstructured text → LLM extraction (Groq + Llama)
+   - Fallback → Regex extraction
+5. **Classification**: AI determines Product/Service/Both
+6. **Storage**: All data saved to database and displayed in UI
+
+</details>
+
+<details>
+<summary><strong>CLIN Extraction Methods</strong></summary>
+
+**For Structured Forms (SF1449, SF30):**
+- Uses `camelot-py` or `pdfplumber` to extract tables
+- Directly parses CLIN table rows and columns
+
+**For Unstructured Documents (SOW, Amendments):**
+- Uses Groq LLM (Llama 3.1-8B) with LangChain
+- Pydantic schemas ensure structured output
+- Extracts: CLIN numbers, descriptions, quantities, part numbers, manufacturers
+
+**Fallback:**
+- Regex-based pattern matching if other methods fail
 
 </details>
 

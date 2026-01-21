@@ -8,9 +8,10 @@ from ..core.config import settings
 from ..models.opportunity import Opportunity
 from ..models.document import Document, DocumentType, DocumentSource
 from ..models.deadline import Deadline
+from ..models.clin import CLIN
 from .sam_gov_scraper import SAMGovScraper
 from .document_downloader import DocumentDownloader
-from .document_extractor import DocumentExtractor
+from .document_analyzer import DocumentAnalyzer
 from datetime import datetime
 from dateutil import parser as dateutil_parser
 import logging
@@ -57,49 +58,65 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             attachments = result.get('attachments', [])
             
             logger.info(f"DEBUG: Scraping result - success: {result.get('success')}, metadata keys: {list(metadata.keys())}, attachments count: {len(attachments)}")
+            logger.info(f"DEBUG: Extracted metadata - title: {metadata.get('title', 'None')[:50] if metadata.get('title') else 'None'}, description: {len(metadata.get('description', '')) if metadata.get('description') else 0} chars, agency: {metadata.get('agency', 'None')}")
             if attachments:
                 logger.info(f"DEBUG: Attachments found: {[att.get('name', att.get('url', 'unknown')) for att in attachments]}")
             else:
                 logger.warning(f"DEBUG: No attachments found in scraping result!")
             
             # Update opportunity with metadata
+            metadata_updated = False
             if metadata.get('title'):
                 opportunity.title = metadata['title']
+                metadata_updated = True
+                logger.info(f"Updated opportunity title: {metadata['title'][:50]}")
             
             if metadata.get('notice_id'):
                 opportunity.notice_id = metadata['notice_id']
-                # Also update sam_gov_id if not set (for backward compatibility)
-                # But check if it already exists for another opportunity to avoid unique constraint violation
+                # Only update sam_gov_id if not already set (for backward compatibility)
+                # Don't update if it's already set to avoid unique constraint violations
                 if not opportunity.sam_gov_id:
-                    notice_id = metadata['notice_id']
-                    # Check if another opportunity already has this sam_gov_id
-                    existing_opp = db.query(Opportunity).filter(
-                        Opportunity.sam_gov_id == notice_id,
-                        Opportunity.id != opportunity.id
-                    ).first()
-                    if not existing_opp:
-                        opportunity.sam_gov_id = notice_id
-                    else:
-                        logger.warning(f"sam_gov_id '{notice_id}' already exists for opportunity {existing_opp.id}, skipping update for opportunity {opportunity_id}")
+                    opportunity.sam_gov_id = metadata['notice_id']
+                    logger.info(f"Updated opportunity sam_gov_id: {metadata['notice_id']}")
+                metadata_updated = True
+                logger.info(f"Updated opportunity notice_id: {metadata['notice_id']}")
             
             if metadata.get('description'):
                 opportunity.description = metadata['description']
+                metadata_updated = True
+                logger.info(f"Updated opportunity description ({len(metadata['description'])} chars)")
             
             if metadata.get('agency'):
                 opportunity.agency = metadata['agency']
+                metadata_updated = True
+                logger.info(f"Updated opportunity agency: {metadata['agency']}")
             
             if metadata.get('status'):
-                opportunity.status = metadata['status'].lower()
+                # Don't overwrite status if it's already "processing" - let analyze_documents set it to "completed"
+                if opportunity.status != "processing":
+                    opportunity.status = metadata['status'].lower()
+                metadata_updated = True
             
             # Store contact information
             if metadata.get('primary_contact'):
                 opportunity.primary_contact = metadata['primary_contact']
+                metadata_updated = True
+                logger.info(f"Updated primary contact: {metadata['primary_contact'].get('name', 'N/A')}")
             
             if metadata.get('alternative_contact'):
                 opportunity.alternative_contact = metadata['alternative_contact']
+                metadata_updated = True
+                logger.info(f"Updated alternative contact: {metadata['alternative_contact'].get('name', 'N/A')}")
             
             if metadata.get('contracting_office_address'):
                 opportunity.contracting_office_address = metadata['contracting_office_address']
+                metadata_updated = True
+                logger.info(f"Updated contracting office address")
+            
+            # Commit metadata updates immediately so frontend can see them
+            if metadata_updated:
+                db.commit()
+                logger.info(f"Committed metadata updates for opportunity {opportunity_id}")
             
             # Store deadline if found (CRITICAL)
             if metadata.get('date_offers_due'):
@@ -129,6 +146,9 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                         is_primary=True
                     )
                     db.add(deadline)
+                    # Commit deadline immediately so frontend can see it
+                    db.commit()
+                    logger.info(f"Added deadline: {deadline_dt} {deadline_time_str} {timezone_str}")
                 except Exception as e:
                     logger.warning(f"Could not parse deadline: {str(e)}")
             
@@ -179,11 +199,14 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             else:
                 logger.warning(f"DEBUG: No attachments to download - attachments list was empty or None!")
             
-            # Set status to completed after scraping finishes
-            opportunity.status = "completed"
+            # Keep status as "processing" - will be set to "completed" after analysis finishes
+            # Don't set to completed here - let analyze_documents set it after analysis
             db.commit()
             
             logger.info(f"Successfully scraped opportunity {opportunity_id}")
+            
+            # Trigger document analysis (will set status to "completed" when done)
+            analyze_documents.delay(opportunity_id)
             
             return {
                 "status": "success",
@@ -194,30 +217,24 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
     except Exception as e:
         logger.error(f"Error scraping opportunity {opportunity_id}: {str(e)}", exc_info=True)
         if opportunity:
-            try:
-                db.rollback()  # Rollback any pending transaction
-                opportunity.status = "failed"
-                opportunity.error_message = str(e)
-                db.commit()
-            except Exception as commit_error:
-                logger.error(f"Error updating opportunity status after failure: {str(commit_error)}")
-                db.rollback()
+            opportunity.status = "failed"
+            opportunity.error_message = str(e)
+            db.commit()
         return {"status": "error", "message": str(e)}
     finally:
         db.close()
 
 
-@celery_app.task(name="extract_documents")
-def extract_documents(opportunity_id: int):
+@celery_app.task(name="analyze_documents")
+def analyze_documents(opportunity_id: int):
     """
-    Background task to extract text from all documents for an opportunity
+    Background task to analyze downloaded documents
+    This will extract CLINs, classify solicitation type, etc.
     
     Args:
-        opportunity_id: ID of the opportunity to extract documents for
+        opportunity_id: ID of the opportunity to analyze
     """
     db = SessionLocal()
-    opportunity = None
-    
     try:
         opportunity = db.query(Opportunity).filter(Opportunity.id == opportunity_id).first()
         if not opportunity:
@@ -229,71 +246,257 @@ def extract_documents(opportunity_id: int):
         
         if not documents:
             logger.warning(f"No documents found for opportunity {opportunity_id}")
-            return {"status": "success", "message": "No documents to extract", "extracted_count": 0}
+            return {"status": "success", "message": "No documents to analyze"}
         
-        logger.info(f"Starting text extraction for opportunity {opportunity_id} ({len(documents)} documents)")
+        logger.info(f"Starting document analysis for opportunity {opportunity_id} ({len(documents)} documents)")
         
-        # Initialize document extractor
-        extractor = DocumentExtractor()
+        # Initialize document analyzer
+        analyzer = DocumentAnalyzer()
         
-        extracted_count = 0
-        failed_count = 0
+        # Combine all extracted text from all documents
+        all_text = []
+        clins_found = []
+        deadlines_found = []
         
-        # Extract text from each document
-        for doc in documents:
+        # 1. Extract text from all documents sequentially (one at a time)
+        import time
+        for doc_idx, doc in enumerate(documents, 1):
+            if doc.file_type not in [DocumentType.PDF, DocumentType.WORD, DocumentType.EXCEL]:
+                logger.debug(f"Skipping document {doc.id} - unsupported type: {doc.file_type}")
+                continue
+            
+            # Skip Q&A documents and similar files for CLIN extraction
+            doc_name_lower = doc.file_name.lower()
+            is_qa_document = any(keyword in doc_name_lower for keyword in ['question', 'q&a', 'qa', 'inquiry', 'clarification'])
+            
+            logger.info(f"[{doc_idx}/{len(documents)}] Processing document: {doc.file_name}")
+            
+            # Add delay between documents to avoid rate limits (except for first document)
+            if doc_idx > 1:
+                delay = 2  # 2 seconds between documents
+                logger.debug(f"Waiting {delay}s before processing next document...")
+                time.sleep(delay)
+            
             try:
-                # Resolve file path
-                file_path = Path(doc.file_path)
+                # Get absolute file path
+                doc_file_path = Path(doc.file_path)
+                if not doc_file_path.is_absolute():
+                    doc_file_path = Path(settings.PROJECT_ROOT) / doc.file_path
                 
-                # Handle relative paths
-                if not file_path.is_absolute():
-                    project_root = settings.PROJECT_ROOT
-                    abs_path = project_root / file_path
-                    if not abs_path.exists() and hasattr(settings, 'STORAGE_BASE_PATH'):
-                        storage_base = Path(settings.STORAGE_BASE_PATH)
-                        if storage_base.is_absolute():
-                            abs_path = storage_base.parent / file_path.lstrip('/') if 'backend/data' in str(file_path) else storage_base / file_path.lstrip('/')
-                        else:
-                            abs_path = project_root / storage_base.parent / file_path.lstrip('/') if 'backend/data' in str(file_path) else project_root / storage_base / file_path.lstrip('/')
-                    file_path = abs_path if abs_path.exists() else file_path
-                
-                if not Path(file_path).exists():
-                    logger.warning(f"Document file not found: {doc.file_path} (doc ID: {doc.id})")
-                    failed_count += 1
-                    continue
-                
-                # Extract text using the robust extractor
-                logger.info(f"Extracting text from document {doc.id}: {doc.file_name}")
-                result = extractor.extract_text_robustly(
-                    file_path=str(file_path),
-                    opportunity_id=opportunity_id,
-                    document_id=doc.id
-                )
-                
-                if result['text'] and result['quality_score'] > 0:
-                    extracted_count += 1
-                    logger.info(f"Successfully extracted text from {doc.file_name} (quality: {result['quality_score']:.2f}, length: {len(result['text'])})")
+                text = analyzer.extract_text(doc.file_path)
+                if text:
+                    all_text.append(text)
+                    logger.info(f"Extracted {len(text)} characters from {doc.file_name}")
+                    
+                    # DEBUG: Save extracted text to file for debugging
+                    try:
+                        debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
+                        debug_dir.mkdir(parents=True, exist_ok=True)
+                        debug_file = debug_dir / f"{doc.id}_{doc.file_name}_extracted.txt"
+                        with open(debug_file, 'w', encoding='utf-8') as f:
+                            f.write(f"Document: {doc.file_name}\n")
+                            f.write(f"File Path: {doc.file_path}\n")
+                            f.write(f"Document Type: {doc.file_type}\n")
+                            f.write(f"Source: {doc.source}\n")
+                            f.write(f"Size: {doc.file_size} bytes\n")
+                            f.write("=" * 80 + "\n")
+                            f.write("EXTRACTED TEXT:\n")
+                            f.write("=" * 80 + "\n")
+                            f.write(text)
+                        logger.info(f"DEBUG: Saved extracted text to {debug_file}")
+                    except Exception as debug_error:
+                        logger.warning(f"Failed to save debug extract: {str(debug_error)}")
+                    
+                    # Only extract CLINs from non-Q&A documents (solicitation, SOW, technical docs)
+                    if not is_qa_document:
+                        # Use AI-only extraction (no table parsing, no regex fallback)
+                        doc_clins = analyzer.extract_clins(text, file_path=doc_file_path if doc.file_type == DocumentType.PDF else None)
+                        clins_found.extend(doc_clins)
+                        
+                        # Add small delay after processing each document to avoid rate limits
+                        if doc_idx < len(documents):
+                            time.sleep(1)  # 1 second delay between documents
+                        
+                        # DEBUG: Save CLIN extraction results
+                        if doc_clins:
+                            try:
+                                clin_debug_file = debug_dir / f"{doc.id}_{doc.file_name}_clins.txt"
+                                with open(clin_debug_file, 'w', encoding='utf-8') as f:
+                                    f.write(f"CLINs Extracted from: {doc.file_name}\n")
+                                    f.write(f"Total CLINs: {len(doc_clins)}\n")
+                                    f.write("=" * 80 + "\n")
+                                    for i, clin in enumerate(doc_clins, 1):
+                                        f.write(f"\nCLIN {i}:\n")
+                                        f.write("-" * 80 + "\n")
+                                        for key, value in clin.items():
+                                            if value:
+                                                f.write(f"{key}: {value}\n")
+                                logger.info(f"DEBUG: Saved CLIN extraction results to {clin_debug_file}")
+                            except Exception as clin_debug_error:
+                                logger.warning(f"Failed to save CLIN debug extract: {str(clin_debug_error)}")
+                    else:
+                        logger.info(f"Skipping CLIN extraction from Q&A document: {doc.file_name}")
+                    
+                    # Extract deadlines from this document
+                    doc_deadlines = analyzer.extract_deadlines(text)
+                    deadlines_found.extend(doc_deadlines)
                 else:
-                    failed_count += 1
-                    logger.warning(f"Extraction failed or returned empty text for {doc.file_name}")
-                
+                    logger.warning(f"No text extracted from {doc.file_name}")
             except Exception as e:
-                logger.error(f"Error extracting text from document {doc.id} ({doc.file_name}): {str(e)}", exc_info=True)
-                failed_count += 1
+                logger.error(f"Error extracting text from {doc.file_name}: {str(e)}", exc_info=True)
                 continue
         
-        logger.info(f"Text extraction completed for opportunity {opportunity_id}: {extracted_count} succeeded, {failed_count} failed")
+        combined_text = "\n\n".join(all_text)
+        
+        if not combined_text:
+            logger.warning(f"No text extracted from any documents for opportunity {opportunity_id}")
+            return {
+                "status": "success",
+                "opportunity_id": opportunity_id,
+                "documents_analyzed": len(documents),
+                "message": "No text extracted from documents"
+            }
+        
+        # 2. Classify solicitation type (product/service/hybrid)
+        logger.info("Classifying solicitation type...")
+        classification, confidence = analyzer.classify_solicitation_type(
+            text=combined_text,
+            title=opportunity.title,
+            description=opportunity.description
+        )
+        
+        opportunity.solicitation_type = classification
+        opportunity.classification_confidence = f"{confidence:.2f}"
+        logger.info(f"Classification: {classification.value}, confidence: {confidence:.2f}")
+        
+        # 3. Store CLINs in database
+        logger.info(f"Storing {len(clins_found)} CLINs...")
+        for clin_data in clins_found:
+            # Check if CLIN already exists for this opportunity
+            existing_clin = db.query(CLIN).filter(
+                CLIN.opportunity_id == opportunity_id,
+                CLIN.clin_number == clin_data['clin_number']
+            ).first()
+            
+            if not existing_clin:
+                clin = CLIN(
+                    opportunity_id=opportunity.id,
+                    clin_number=clin_data['clin_number'],
+                    clin_name=clin_data.get('clin_name'),
+                    base_item_number=clin_data.get('base_item_number'),
+                    product_name=clin_data.get('product_name'),
+                    product_description=clin_data.get('product_description'),
+                    manufacturer_name=clin_data.get('manufacturer_name'),
+                    part_number=clin_data.get('part_number'),
+                    model_number=clin_data.get('model_number'),
+                    quantity=clin_data.get('quantity'),
+                    unit_of_measure=clin_data.get('unit_of_measure'),
+                    contract_type=clin_data.get('contract_type'),
+                    extended_price=clin_data.get('extended_price'),
+                    service_description=clin_data.get('service_description'),
+                    scope_of_work=clin_data.get('scope_of_work'),
+                    timeline=clin_data.get('timeline'),
+                    service_requirements=clin_data.get('service_requirements'),
+                )
+                db.add(clin)
+            else:
+                # Update existing CLIN if we have new information
+                if clin_data.get('base_item_number') and not existing_clin.base_item_number:
+                    existing_clin.base_item_number = clin_data['base_item_number']
+                if clin_data.get('product_name') and not existing_clin.product_name:
+                    existing_clin.product_name = clin_data['product_name']
+                if clin_data.get('product_description') and not existing_clin.product_description:
+                    existing_clin.product_description = clin_data['product_description']
+                if clin_data.get('manufacturer_name') and not existing_clin.manufacturer_name:
+                    existing_clin.manufacturer_name = clin_data['manufacturer_name']
+                if clin_data.get('contract_type') and not existing_clin.contract_type:
+                    existing_clin.contract_type = clin_data['contract_type']
+                if clin_data.get('extended_price') and not existing_clin.extended_price:
+                    existing_clin.extended_price = clin_data['extended_price']
+        
+        # 4. Store additional deadlines from documents
+        logger.info(f"Storing {len(deadlines_found)} deadlines from documents...")
+        for deadline_data in deadlines_found:
+            # Check if similar deadline already exists (avoid duplicates)
+            existing_deadline = db.query(Deadline).filter(
+                Deadline.opportunity_id == opportunity_id,
+                Deadline.due_date == deadline_data['due_date'],
+                Deadline.deadline_type == deadline_data.get('deadline_type')
+            ).first()
+            
+            if not existing_deadline:
+                deadline = Deadline(
+                    opportunity_id=opportunity.id,
+                    due_date=deadline_data['due_date'],
+                    due_time=deadline_data.get('due_time'),
+                    timezone=deadline_data.get('timezone'),
+                    deadline_type=deadline_data.get('deadline_type'),
+                    description=deadline_data.get('description'),
+                    is_primary=deadline_data.get('is_primary', False)
+                )
+                db.add(deadline)
+        
+        # Update status to completed AFTER analysis is done
+        opportunity.status = "completed"
+        
+        # Commit all changes
+        db.commit()
+        
+        # DEBUG: Save analysis summary to file
+        try:
+            debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            summary_file = debug_dir / "analysis_summary.txt"
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write(f"Opportunity Analysis Summary - ID: {opportunity_id}\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(f"Title: {opportunity.title}\n")
+                f.write(f"Notice ID: {opportunity.notice_id}\n")
+                f.write(f"Status: {opportunity.status}\n")
+                f.write(f"Documents Analyzed: {len(documents)}\n")
+                f.write(f"Classification: {classification.value}\n")
+                f.write(f"Confidence: {confidence:.2f}\n")
+                f.write(f"CLINs Extracted: {len(clins_found)}\n")
+                f.write(f"Deadlines Extracted: {len(deadlines_found)}\n")
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("DOCUMENTS:\n")
+                f.write("=" * 80 + "\n")
+                for doc in documents:
+                    f.write(f"\n- {doc.file_name} ({doc.file_type}, {doc.file_size} bytes)\n")
+                f.write("\n" + "=" * 80 + "\n")
+                f.write(f"ALL CLINs EXTRACTED ({len(clins_found)}):\n")
+                f.write("=" * 80 + "\n")
+                for i, clin in enumerate(clins_found, 1):
+                    f.write(f"\nCLIN {i}:\n")
+                    f.write("-" * 80 + "\n")
+                    for key, value in clin.items():
+                        if value:
+                            f.write(f"  {key}: {value}\n")
+            logger.info(f"DEBUG: Saved analysis summary to {summary_file}")
+        except Exception as summary_error:
+            logger.warning(f"Failed to save analysis summary: {str(summary_error)}")
+        
+        logger.info(f"Successfully analyzed documents for opportunity {opportunity_id}")
+        logger.info(f"  - Classification: {classification.value} (confidence: {confidence:.2f})")
+        logger.info(f"  - CLINs extracted: {len(clins_found)}")
+        logger.info(f"  - Deadlines extracted: {len(deadlines_found)}")
         
         return {
             "status": "success",
             "opportunity_id": opportunity_id,
-            "total_documents": len(documents),
-            "extracted_count": extracted_count,
-            "failed_count": failed_count
+            "documents_analyzed": len(documents),
+            "classification": classification.value,
+            "confidence": confidence,
+            "clins_extracted": len(clins_found),
+            "deadlines_extracted": len(deadlines_found)
         }
         
     except Exception as e:
-        logger.error(f"Error extracting documents for opportunity {opportunity_id}: {str(e)}", exc_info=True)
+        logger.error(f"Error analyzing documents for opportunity {opportunity_id}: {str(e)}", exc_info=True)
+        if opportunity:
+            opportunity.status = "failed"
+            opportunity.error_message = f"Document analysis failed: {str(e)}"
+            db.commit()
         return {"status": "error", "message": str(e)}
     finally:
         db.close()

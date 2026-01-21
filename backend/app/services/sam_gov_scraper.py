@@ -96,22 +96,26 @@ class SAMGovScraper:
             # Extract Notice ID (appears in multiple places)
             notice_id = self._extract_notice_id()
             metadata['notice_id'] = notice_id
+            logger.info(f"Extracted notice_id: {notice_id}")
             
             # Extract Title
             title = self._extract_title()
             metadata['title'] = title
+            logger.info(f"Extracted title: {title[:50] if title else None}")
             
             # Extract Date Offers Due (CRITICAL)
             deadline = self._extract_deadline()
             metadata['date_offers_due'] = deadline.get('date') if deadline else None
             metadata['date_offers_due_time'] = deadline.get('time') if deadline else None
             metadata['date_offers_due_timezone'] = deadline.get('timezone') if deadline else None
+            logger.info(f"Extracted deadline: {deadline}")
             
             # Extract Agency Information
             agency = self._extract_agency()
             metadata['agency'] = agency.get('department') if agency else None
             metadata['sub_tier'] = agency.get('sub_tier') if agency else None
             metadata['office'] = agency.get('office') if agency else None
+            logger.info(f"Extracted agency: {agency}")
             
             # Extract Classification
             classification = self._extract_classification()
@@ -122,6 +126,7 @@ class SAMGovScraper:
             # Extract Description
             description = self._extract_description()
             metadata['description'] = description
+            logger.info(f"Extracted description: {len(description) if description else 0} chars")
             
             # Extract Published Date
             published_date = self._extract_published_date()
@@ -135,9 +140,13 @@ class SAMGovScraper:
             contacts = self._extract_contacts()
             metadata['primary_contact'] = contacts.get('primary') if contacts else None
             metadata['alternative_contact'] = contacts.get('alternative') if contacts else None
+            metadata['contracting_office_address'] = contacts.get('contracting_office_address') if contacts else None
+            logger.info(f"Extracted contacts: primary={metadata.get('primary_contact') is not None}, alternative={metadata.get('alternative_contact') is not None}")
+            
+            logger.info(f"Metadata extraction complete. Keys: {list(metadata.keys())}, Non-null values: {sum(1 for v in metadata.values() if v)}")
             
         except Exception as e:
-            logger.error(f"Error extracting metadata: {str(e)}")
+            logger.error(f"Error extracting metadata: {str(e)}", exc_info=True)
         
         return metadata
     
