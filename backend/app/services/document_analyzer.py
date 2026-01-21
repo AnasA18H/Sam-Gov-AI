@@ -282,7 +282,25 @@ class DocumentAnalyzer:
         file_ext = file_path_obj.suffix.lower()
         
         try:
-            if file_ext == '.pdf':
+            if file_ext == '.txt':
+                # TXT files are already text - just read them directly
+                logger.info(f"Reading TXT file directly: {file_path_obj.name}")
+                with open(file_path_obj, 'r', encoding='utf-8') as f:
+                    text = f.read()
+                # Skip the header if it's from our extraction (starts with "Source URL:")
+                if text.startswith("Source URL:"):
+                    # Find where the actual content starts (after the separator line)
+                    lines = text.split('\n')
+                    content_start = 0
+                    for i, line in enumerate(lines):
+                        if line.startswith("=" * 80) or line.startswith("=" * 40):
+                            content_start = i + 1
+                            break
+                    if content_start > 0:
+                        text = '\n'.join(lines[content_start:])
+                logger.info(f"Read {len(text)} characters from TXT file")
+                return text
+            elif file_ext == '.pdf':
                 return self._extract_from_pdf(file_path_obj)
             elif file_ext in ['.doc', '.docx']:
                 return self._extract_from_word(file_path_obj)
@@ -401,7 +419,7 @@ class DocumentAnalyzer:
                                 letter_count = len(re.findall(r'[a-zA-Z]', desc_clean))
                                 alnum_count = len(re.findall(r'[a-zA-Z0-9]', desc_clean))
                                 if len(desc_clean) > 10 and (letter_count < 3 or (alnum_count / len(desc_clean)) < 0.3):
-                                    continue
+                                continue
                             
                             clin_data = {
                                 'clin_number': first_cell,
@@ -615,7 +633,7 @@ DOCUMENT TEXT:
             for attempt in range(max_retries):
                 try:
                     document_prompt = document_instruction + document_text
-                    
+            
                     # Use LangChain 1.x API: with_structured_output
                     try:
                         # Try function_calling first (better Groq compatibility), fallback to json_schema
@@ -652,7 +670,7 @@ DOCUMENT TEXT:
                                 try:
                                     # Try to parse as JSON
                                     result = json.loads(response.content)
-                                    if isinstance(result, list):
+                    if isinstance(result, list):
                                         result = [CLINItem(**item) if isinstance(item, dict) else item for item in result]
                                 except:
                                     result = response.content
@@ -715,57 +733,57 @@ DOCUMENT TEXT:
             else:
                 return []
             
-        except Exception as e:
+            except Exception as e:
             logger.error(f"LLM extraction failed: {str(e)}")
-            logger.debug(f"Error details: {type(e).__name__}", exc_info=True)
+                logger.debug(f"Error details: {type(e).__name__}", exc_info=True)
             return []
-    
+            
     def _convert_llm_results_to_dicts(self, results: List) -> List[Dict]:
         """Convert LLM results (CLINItem objects or dicts) to our standard dict format"""
-        clins = []
+            clins = []
         if not isinstance(results, list):
             return clins
         
-        for item in results:
-            try:
-                # Handle both CLINItem objects and dicts
-                if isinstance(item, CLINItem):
-                    # Extract from Pydantic model
-                    item_number = item.item_number
-                    description = self._clean_text(item.description) if item.description else None
-                    product_name = self._clean_text(item.product_name) if item.product_name else None
-                    quantity = float(item.quantity) if item.quantity else None
-                    unit = item.unit
-                    base_item_number = getattr(item, 'base_item_number', None)
-                    contract_type = getattr(item, 'contract_type', None)
-                    extended_price = float(item.extended_price) if getattr(item, 'extended_price', None) else None
-                    part_number = item.part_number
-                    model_number = item.model_number
-                    manufacturer = item.manufacturer
-                elif isinstance(item, dict):
-                    # Extract from dict (in case LLM returns dict instead of model)
-                    item_number = item.get('item_number', '')
-                    description = self._clean_text(item.get('description', '')) if item.get('description') else None
-                    product_name = self._clean_text(item.get('product_name', '')) if item.get('product_name') else None
-                    quantity = float(item['quantity']) if item.get('quantity') else None
-                    unit = item.get('unit')
-                    base_item_number = item.get('base_item_number')
-                    contract_type = item.get('contract_type')
-                    extended_price = float(item['extended_price']) if item.get('extended_price') else None
-                    part_number = item.get('part_number')
-                    model_number = item.get('model_number')
-                    manufacturer = item.get('manufacturer')
-                else:
-                    continue
-                
+                for item in results:
+                    try:
+                        # Handle both CLINItem objects and dicts
+                        if isinstance(item, CLINItem):
+                            # Extract from Pydantic model
+                            item_number = item.item_number
+                            description = self._clean_text(item.description) if item.description else None
+                            product_name = self._clean_text(item.product_name) if item.product_name else None
+                            quantity = float(item.quantity) if item.quantity else None
+                            unit = item.unit
+                            base_item_number = getattr(item, 'base_item_number', None)
+                            contract_type = getattr(item, 'contract_type', None)
+                            extended_price = float(item.extended_price) if getattr(item, 'extended_price', None) else None
+                            part_number = item.part_number
+                            model_number = item.model_number
+                            manufacturer = item.manufacturer
+                        elif isinstance(item, dict):
+                            # Extract from dict (in case LLM returns dict instead of model)
+                            item_number = item.get('item_number', '')
+                            description = self._clean_text(item.get('description', '')) if item.get('description') else None
+                            product_name = self._clean_text(item.get('product_name', '')) if item.get('product_name') else None
+                            quantity = float(item['quantity']) if item.get('quantity') else None
+                            unit = item.get('unit')
+                            base_item_number = item.get('base_item_number')
+                            contract_type = item.get('contract_type')
+                            extended_price = float(item['extended_price']) if item.get('extended_price') else None
+                            part_number = item.get('part_number')
+                            model_number = item.get('model_number')
+                            manufacturer = item.get('manufacturer')
+                        else:
+                            continue
+                        
                 # Validate CLIN number (must be valid format)
                 if not item_number:
                     logger.debug(f"Skipping CLIN with empty item_number")
-                    continue
+                            continue
                 if not self._is_valid_clin_number(str(item_number)):
                     logger.debug(f"Skipping CLIN with invalid item_number format: '{item_number}'")
-                    continue
-                
+                            continue
+                        
                 # Validate description (must be readable, not corrupted)
                 if description:
                     desc_clean = description.strip()
@@ -783,26 +801,26 @@ DOCUMENT TEXT:
                 
                 # Only add if we have at least a CLIN number and some valid data
                 if item_number:
-                    clin_data = {
-                        'clin_number': str(item_number).strip(),
-                        'base_item_number': str(base_item_number).strip() if base_item_number else None,
-                        'product_description': description,
-                        'quantity': quantity,
-                        'unit_of_measure': str(unit).strip() if unit else None,
-                        'contract_type': str(contract_type).strip() if contract_type else None,
-                        'extended_price': extended_price,
+                        clin_data = {
+                            'clin_number': str(item_number).strip(),
+                            'base_item_number': str(base_item_number).strip() if base_item_number else None,
+                            'product_description': description,
+                            'quantity': quantity,
+                            'unit_of_measure': str(unit).strip() if unit else None,
+                            'contract_type': str(contract_type).strip() if contract_type else None,
+                            'extended_price': extended_price,
                         'product_name': product_name,
                         'manufacturer_name': str(manufacturer).strip() if manufacturer else None,
-                        'part_number': str(part_number).strip() if part_number else None,
-                        'model_number': str(model_number).strip() if model_number else None,
-                    }
-                    clins.append(clin_data)
+                            'part_number': str(part_number).strip() if part_number else None,
+                            'model_number': str(model_number).strip() if model_number else None,
+                        }
+                        clins.append(clin_data)
                     
-            except Exception as item_error:
+                    except Exception as item_error:
                 logger.warning(f"Error converting LLM result item: {str(item_error)}")
-                continue
-        
-        return clins
+                        continue
+            
+            return clins
     
     def extract_clins(self, text: str, file_path: Optional[Path] = None) -> List[Dict]:
         """
@@ -840,15 +858,15 @@ DOCUMENT TEXT:
             doc_type = self.classify_document_type(file_path, text)
         
         logger.info(f"Using AI/LLM extraction for {doc_type} (AI-only mode)")
-        llm_clins = self._extract_clins_with_llm(text)
+            llm_clins = self._extract_clins_with_llm(text)
         
-        if llm_clins:
+            if llm_clins:
             logger.info(f"AI extraction found {len(llm_clins)} CLINs")
         else:
             logger.info("AI extraction found 0 CLINs")
         
-        return llm_clins
-    
+                return llm_clins
+        
     def _find_clin_description_in_text(self, text: str, clin_number: str) -> Optional[str]:
         """
         Search for CLIN number in text and extract nearby description

@@ -94,7 +94,7 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             if metadata.get('status'):
                 # Don't overwrite status if it's already "processing" - let analyze_documents set it to "completed"
                 if opportunity.status != "processing":
-                    opportunity.status = metadata['status'].lower()
+                opportunity.status = metadata['status'].lower()
                 metadata_updated = True
             
             # Store contact information
@@ -261,8 +261,15 @@ def analyze_documents(opportunity_id: int):
         # 1. Extract text from all documents sequentially (one at a time)
         import time
         for doc_idx, doc in enumerate(documents, 1):
-            if doc.file_type not in [DocumentType.PDF, DocumentType.WORD, DocumentType.EXCEL]:
-                logger.debug(f"Skipping document {doc.id} - unsupported type: {doc.file_type}")
+            # Check file type - also check extension for OTHER types
+            file_ext = Path(doc.file_name).suffix.lower()
+            is_supported_type = (
+                doc.file_type in [DocumentType.PDF, DocumentType.WORD, DocumentType.EXCEL] or
+                file_ext in ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt']
+            )
+            
+            if not is_supported_type:
+                logger.debug(f"Skipping document {doc.id} - unsupported type: {doc.file_type} (extension: {file_ext})")
                 continue
             
             # Skip Q&A documents and similar files for CLIN extraction
@@ -283,8 +290,9 @@ def analyze_documents(opportunity_id: int):
                 if not doc_file_path.is_absolute():
                     doc_file_path = Path(settings.PROJECT_ROOT) / doc.file_path
                 
+                logger.info(f"Attempting to extract text from: {doc.file_path} (absolute: {doc_file_path})")
                 text = analyzer.extract_text(doc.file_path)
-                if text:
+                if text and text.strip():
                     all_text.append(text)
                     logger.info(f"Extracted {len(text)} characters from {doc.file_name}")
                     
@@ -341,7 +349,7 @@ def analyze_documents(opportunity_id: int):
                     doc_deadlines = analyzer.extract_deadlines(text)
                     deadlines_found.extend(doc_deadlines)
                 else:
-                    logger.warning(f"No text extracted from {doc.file_name}")
+                    logger.warning(f"No text extracted from {doc.file_name} (file exists: {doc_file_path.exists()})")
             except Exception as e:
                 logger.error(f"Error extracting text from {doc.file_name}: {str(e)}", exc_info=True)
                 continue

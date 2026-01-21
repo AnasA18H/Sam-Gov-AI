@@ -6,7 +6,25 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { opportunitiesAPI } from '../utils/api';
 import ProtectedRoute from '../components/ProtectedRoute';
-import { HiOutlineTrash, HiOutlinePlus, HiOutlineLogout, HiOutlineDocumentText, HiOutlineClock, HiOutlineChevronRight, HiOutlineArrowLeft } from 'react-icons/hi';
+import { 
+  HiOutlineTrash, 
+  HiOutlinePlus, 
+  HiOutlineLogout, 
+  HiOutlineDocumentText, 
+  HiOutlineClock, 
+  HiOutlineChevronRight, 
+  HiOutlineArrowLeft,
+  HiOutlineSearch,
+  HiOutlineFilter,
+  HiOutlineX,
+  HiOutlineRefresh,
+  HiOutlineDownload,
+  HiOutlineInformationCircle,
+  HiOutlineChartBar,
+  HiOutlineMenu,
+  HiOutlineChevronLeft,
+  HiOutlineCog
+} from 'react-icons/hi';
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -16,6 +34,10 @@ const Dashboard = () => {
   const [deletingId, setDeletingId] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [opportunityToDelete, setOpportunityToDelete] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
 
   useEffect(() => {
     fetchOpportunities();
@@ -67,6 +89,56 @@ const Dashboard = () => {
     setOpportunityToDelete(null);
   };
 
+  // Calculate statistics
+  const stats = {
+    total: opportunities.length,
+    completed: opportunities.filter(opp => opp.status === 'completed').length,
+    processing: opportunities.filter(opp => opp.status === 'processing' || opp.status === 'pending').length,
+    failed: opportunities.filter(opp => opp.status === 'failed').length,
+  };
+
+  // Filter and sort opportunities
+  const filteredAndSortedOpportunities = opportunities
+    .filter(opp => {
+      // Search filter
+      const matchesSearch = !searchQuery || 
+        (opp.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (opp.notice_id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (opp.description || '').toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // Status filter
+      const matchesStatus = statusFilter === 'all' || opp.status === statusFilter;
+      
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'newest') {
+        return new Date(b.created_at) - new Date(a.created_at);
+      } else if (sortBy === 'oldest') {
+        return new Date(a.created_at) - new Date(b.created_at);
+      } else if (sortBy === 'title') {
+        return (a.title || '').localeCompare(b.title || '');
+      }
+      return 0;
+    });
+
+  const handleExport = () => {
+    // Export opportunities as JSON
+    const dataStr = JSON.stringify(opportunities, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `opportunities_${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleRefresh = () => {
+    setLoading(true);
+    fetchOpportunities();
+  };
+
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
@@ -106,14 +178,200 @@ const Dashboard = () => {
         </nav>
 
         {/* Main Content */}
-        <main className="max-w-7xl mx-auto py-4 sm:px-6 lg:px-8">
-          <div className="px-4 py-4 sm:px-0">
-            <div className="mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">Dashboard</h2>
-              <p className="mt-0.5 text-sm text-gray-500">
-                Welcome back, {user?.full_name || user?.email}
-              </p>
+        <div className="relative">
+          {/* Floating Utilities Block */}
+          <div className={`fixed bottom-6 right-6 z-50 transition-all duration-300 ease-in-out ${
+            sidebarOpen ? 'w-80' : 'w-14'
+          }`}>
+            <div className="bg-white border-2 border-[#14B8A6] rounded-lg shadow-2xl overflow-hidden">
+              {/* Toggle Button / Header */}
+              <div className="bg-[#14B8A6] px-4 py-3 flex items-center justify-between cursor-pointer" onClick={() => setSidebarOpen(!sidebarOpen)}>
+                <div className="flex items-center space-x-2">
+                  <HiOutlineCog className="w-5 h-5 text-white" />
+                  {sidebarOpen && (
+                    <h3 className="text-sm font-semibold text-white transition-opacity duration-300">Utilities</h3>
+                  )}
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSidebarOpen(!sidebarOpen);
+                  }}
+                  className="p-1 text-white hover:bg-[#0D9488] rounded transition-colors"
+                  title={sidebarOpen ? 'Collapse' : 'Expand'}
+                >
+                  {sidebarOpen ? (
+                    <HiOutlineChevronRight className="w-5 h-5 transition-transform duration-300" />
+                  ) : (
+                    <HiOutlineChevronLeft className="w-5 h-5 transition-transform duration-300" />
+                  )}
+                </button>
+              </div>
+
+              {/* Sidebar Content */}
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                sidebarOpen ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'
+              }`}>
+                <div className="px-4 py-4 space-y-5 max-h-[600px] overflow-y-auto">
+                  {/* Statistics */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineChartBar className="w-4 h-4 mr-1 text-[#14B8A6]" />
+                      Statistics
+                    </h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center p-2 bg-gray-100 rounded-lg border border-gray-200">
+                        <span className="text-sm text-gray-700">Total</span>
+                        <span className="text-sm font-semibold text-black">{stats.total}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-2 bg-[#14B8A6] bg-opacity-10 rounded-lg border border-[#14B8A6] border-opacity-20">
+                        <span className="text-sm text-gray-700">Completed</span>
+                        <span className="text-sm font-semibold text-[#14B8A6]">{stats.completed}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-2 bg-gray-100 rounded-lg border border-gray-200">
+                        <span className="text-sm text-gray-700">Processing</span>
+                        <span className="text-sm font-semibold text-black">{stats.processing}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-2 bg-gray-100 rounded-lg border border-gray-200">
+                        <span className="text-sm text-gray-700">Failed</span>
+                        <span className="text-sm font-semibold text-black">{stats.failed}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Search */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineSearch className="w-4 h-4 mr-1 text-[#14B8A6]" />
+                      Search
+                    </h4>
+                    <div className="relative">
+                      <HiOutlineSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Search opportunities..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white"
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-black"
+                        >
+                          <HiOutlineX className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Filters */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineFilter className="w-4 h-4 mr-1 text-[#14B8A6]" />
+                      Filters
+                    </h4>
+                    <div className="space-y-2">
+                      <label className="block">
+                        <select
+                          value={statusFilter}
+                          onChange={(e) => setStatusFilter(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white text-black"
+                        >
+                          <option value="all">All Status</option>
+                          <option value="completed">Completed</option>
+                          <option value="processing">Processing</option>
+                          <option value="pending">Pending</option>
+                          <option value="failed">Failed</option>
+                        </select>
+                      </label>
+                      <label className="block">
+                        <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white text-black"
+                        >
+                          <option value="newest">Newest First</option>
+                          <option value="oldest">Oldest First</option>
+                          <option value="title">Title (A-Z)</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Quick Actions */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3">Quick Actions</h4>
+                    <div className="space-y-2">
+                      <button
+                        onClick={handleRefresh}
+                        disabled={loading}
+                        className="w-full flex items-center justify-center px-3 py-2 text-sm text-black bg-gray-100 rounded-lg hover:bg-gray-200 border border-gray-300 transition-colors disabled:opacity-50"
+                      >
+                        <HiOutlineRefresh className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh
+                      </button>
+                      <button
+                        onClick={handleExport}
+                        disabled={opportunities.length === 0}
+                        className="w-full flex items-center justify-center px-3 py-2 text-sm text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <HiOutlineDownload className="w-4 h-4 mr-2" />
+                        Export JSON
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Help */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineInformationCircle className="w-4 h-4 mr-1 text-[#14B8A6]" />
+                      Help
+                    </h4>
+                    <div className="space-y-2 text-sm text-gray-700">
+                      <p className="text-xs leading-relaxed">
+                        Use the search bar to find opportunities by title, notice ID, or description.
+                      </p>
+                      <p className="text-xs leading-relaxed">
+                        Filter by status to see only completed, processing, or failed opportunities.
+                      </p>
+                      <p className="text-xs leading-relaxed">
+                        Click on any opportunity to view detailed information and CLINs.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
+
+          {/* Main Content Area */}
+          <main className="max-w-7xl mx-auto py-4 sm:px-6 lg:px-8">
+            <div className="px-4 py-4 sm:px-0">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">Dashboard</h2>
+                  <p className="mt-0.5 text-sm text-gray-500">
+                    Welcome back, {user?.full_name || user?.email}
+                  </p>
+                </div>
+                {(searchQuery || statusFilter !== 'all') && (
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs text-gray-500">
+                      Showing {filteredAndSortedOpportunities.length} of {opportunities.length}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setStatusFilter('all');
+                      }}
+                      className="text-xs text-[#14B8A6] hover:text-[#0D9488] font-medium"
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                )}
+              </div>
 
             {/* Opportunities List */}
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -124,19 +382,36 @@ const Dashboard = () => {
               <div className="divide-y divide-gray-200">
                 {loading ? (
                   <div className="px-4 py-8 text-center text-sm text-gray-500">Loading...</div>
-                ) : opportunities.length === 0 ? (
+                ) : filteredAndSortedOpportunities.length === 0 ? (
                   <div className="px-4 py-8 text-center">
-                    <p className="text-sm text-gray-500 mb-3">No opportunities yet.</p>
-                    <button
-                      onClick={() => navigate('/analyze')}
-                      className="inline-flex items-center justify-center p-2 text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors"
-                      title="Start Your First Analysis"
-                    >
-                      <HiOutlinePlus className="w-5 h-5" />
-                    </button>
+                    {opportunities.length === 0 ? (
+                      <>
+                        <p className="text-sm text-gray-500 mb-3">No opportunities yet.</p>
+                        <button
+                          onClick={() => navigate('/analyze')}
+                          className="inline-flex items-center justify-center p-2 text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors"
+                          title="Start Your First Analysis"
+                        >
+                          <HiOutlinePlus className="w-5 h-5" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-gray-500 mb-3">No opportunities match your filters.</p>
+                        <button
+                          onClick={() => {
+                            setSearchQuery('');
+                            setStatusFilter('all');
+                          }}
+                          className="text-sm text-[#14B8A6] hover:text-[#0D9488]"
+                        >
+                          Clear filters
+                        </button>
+                      </>
+                    )}
                   </div>
                 ) : (
-                  opportunities.map((opp) => (
+                  filteredAndSortedOpportunities.map((opp) => (
                     <div
                       key={opp.id}
                       className="px-4 py-3 hover:bg-gray-50 transition-colors group"
@@ -192,7 +467,8 @@ const Dashboard = () => {
               </div>
             </div>
           </div>
-        </main>
+          </main>
+        </div>
 
         {/* Delete Confirmation Modal */}
         {showDeleteConfirm && (

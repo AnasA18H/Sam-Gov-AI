@@ -1,0 +1,16 @@
+CLINs Extracted from: W911S226U2477_S2P2_Brand_Name_or_Equal.pdf
+Total CLINs: 1
+================================================================================
+
+CLIN 1:
+--------------------------------------------------------------------------------
+clin_number: 0001
+product_description: RTVX2C Brand Name: Kubota Part Number: RTVX2C 001 Salient Characteristics: Kubota RTV Full enclosed cab X1100C Diesel Full turn signals 2 each and front lights as well has back glass protector and work lights, turf tires
+quantity: 2.0
+unit_of_measure: Each
+contract_type: Firm Fixed Price
+extended_price: 150.0
+product_name: RTVX2C
+manufacturer_name: Kubota
+part_number: RTVX2C 001
+model_number: RTVX2C 001

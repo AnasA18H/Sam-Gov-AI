@@ -8,10 +8,11 @@ import { opportunitiesAPI } from '../utils/api';
 import ProtectedRoute from '../components/ProtectedRoute';
 import {
   HiOutlineArrowLeft,
-  HiOutlineArrowRight,
   HiOutlineDocumentText,
-  HiOutlinePaperClip,
   HiOutlineGlobe,
+  HiOutlineUpload,
+  HiOutlineSearch,
+  HiOutlineX,
 } from 'react-icons/hi';
 
 const Analyze = () => {
@@ -110,10 +111,11 @@ const Analyze = () => {
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => navigate('/dashboard')}
-                  className="p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-colors"
                   title="Back to Dashboard"
                 >
-                  <HiOutlineArrowLeft className="w-5 h-5" />
+                  <HiOutlineArrowLeft className="w-4 h-4 mr-1.5" />
+                  <span className="hidden sm:inline">Dashboard</span>
                 </button>
               </div>
             </div>
@@ -121,30 +123,37 @@ const Analyze = () => {
         </nav>
 
         {/* Main Content */}
-        <main className="max-w-3xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-            <div className="px-4 py-4 border-b border-gray-200">
-              <h1 className="text-xl font-semibold text-gray-900 mb-1">
-                Analyze SAM.gov Opportunity
-              </h1>
-              <p className="text-sm text-gray-600">
-                Enter a SAM.gov solicitation URL to begin automated analysis
-              </p>
+        <main className="max-w-3xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+          <div className="bg-white rounded-lg border border-gray-200 shadow-lg">
+            <div className="px-6 py-5 border-b border-gray-200 bg-gray-50">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-gray-100 rounded-lg">
+                  <HiOutlineSearch className="w-6 h-6 text-gray-700" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-gray-900">
+                    Analyze SAM.gov Opportunity
+                  </h1>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Enter a SAM.gov solicitation URL to begin automated analysis
+                  </p>
+                </div>
+              </div>
             </div>
-            <div className="px-4 py-4">
+            <div className="px-6 py-6">
 
-              <form onSubmit={handleSubmit} className="space-y-5">
+              <form onSubmit={handleSubmit} className="space-y-6">
                 {error && (
-                  <div className="bg-red-50 border-2 border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-                    {error}
+                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm flex items-center space-x-2">
+                    <HiOutlineX className="w-5 h-5 flex-shrink-0" />
+                    <span>{error}</span>
                   </div>
                 )}
 
                 {/* Primary Input: SAM.gov URL */}
                 <div>
-                  <label htmlFor="samGovUrl" className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1.5 flex items-center space-x-2">
-                    <HiOutlineGlobe className="w-4 h-4 text-gray-600" />
-                    <span>SAM.gov Opportunity URL <span className="text-red-500">*</span></span>
+                  <label htmlFor="samGovUrl" className="block text-sm font-medium text-gray-700 mb-2">
+                    SAM.gov Opportunity URL <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -155,64 +164,102 @@ const Analyze = () => {
                       name="samGovUrl"
                       type="url"
                       required
-                      className="block w-full pl-10 pr-3 py-2.5 border-2 border-green-400 rounded-xl text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                      className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-gray-400 transition-all bg-white"
                       placeholder="https://sam.gov/opp/[id]/view"
                       value={samGovUrl}
                       onChange={(e) => setSamGovUrl(e.target.value)}
                     />
                   </div>
-                  <p className="mt-1.5 text-xs text-gray-600">
+                  <p className="mt-2 text-xs text-gray-500">
                     Enter the full URL of the SAM.gov opportunity you want to analyze
                   </p>
                 </div>
 
                 {/* Optional: File Upload */}
                 <div>
-                  <label htmlFor="files" className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1.5 flex items-center space-x-2">
-                    <HiOutlinePaperClip className="w-4 h-4 text-gray-600" />
-                    <span>Additional Documents (Optional)</span>
+                  <label htmlFor="files" className="block text-sm font-medium text-gray-700 mb-2">
+                    Additional Documents <span className="text-gray-400 font-normal">(Optional)</span>
                   </label>
                   <div className="relative">
-                    <input
-                      id="files"
-                      name="files"
-                      type="file"
-                      multiple
-                      accept=".pdf,.doc,.docx,.xlsx,.xls"
-                      className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-2 file:border-green-400 file:text-sm file:font-medium file:bg-green-50 file:text-green-700 hover:file:bg-green-100 file:cursor-pointer"
-                      onChange={handleFileChange}
-                    />
+                    <label
+                      htmlFor="files"
+                      className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 hover:border-gray-400 transition-colors group"
+                    >
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <HiOutlineUpload className="w-8 h-8 mb-2 text-gray-400 group-hover:text-gray-600" />
+                        <p className="mb-2 text-sm text-gray-500">
+                          <span className="font-semibold">Click to upload</span> or drag and drop
+                        </p>
+                        <p className="text-xs text-gray-400">PDF, DOC, DOCX, XLS, XLSX (MAX. 10MB per file)</p>
+                      </div>
+                      <input
+                        id="files"
+                        name="files"
+                        type="file"
+                        multiple
+                        accept=".pdf,.doc,.docx,.xlsx,.xls"
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
+                    </label>
                   </div>
-                  <p className="mt-1.5 text-xs text-gray-600">
-                    Upload additional PDF or Word documents related to this solicitation
-                  </p>
                   {files.length > 0 && (
-                    <div className="mt-2">
-                      <p className="text-xs text-gray-600 font-medium">Selected files:</p>
-                      <ul className="list-disc list-inside text-xs text-gray-600 mt-1 space-y-0.5">
+                    <div className="mt-4 space-y-2">
+                      <p className="text-xs font-medium text-gray-700">Selected files ({files.length}):</p>
+                      <div className="space-y-2">
                         {files.map((file, index) => (
-                          <li key={index}>{file.name}</li>
+                          <div key={index} className="flex items-center justify-between p-2 bg-gray-50 border border-gray-200 rounded-lg">
+                            <div className="flex items-center space-x-2 flex-1 min-w-0">
+                              <HiOutlineDocumentText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                              <span className="text-sm text-gray-700 truncate">{file.name}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setFiles(files.filter((_, i) => i !== index))}
+                              className="ml-2 p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
+                            >
+                              <HiOutlineX className="w-4 h-4" />
+                            </button>
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     </div>
                   )}
+                  <p className="mt-2 text-xs text-gray-500">
+                    Upload additional PDF or Word documents related to this solicitation
+                  </p>
                 </div>
 
-                {/* Begin Analysis Button */}
-                <div className="pt-2">
+                {/* Action Buttons */}
+                <div className="pt-4 flex items-center justify-end space-x-3 border-t border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard')}
+                    className="inline-flex items-center justify-center px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-colors"
+                    title="Cancel"
+                  >
+                    <HiOutlineArrowLeft className="w-4 h-4 mr-2" />
+                    Cancel
+                  </button>
                   <button
                     type="submit"
                     disabled={loading || !samGovUrl.trim()}
-                    className="w-full inline-flex items-center justify-center px-4 py-2.5 border-2 border-[#14B8A6] rounded-xl shadow-sm text-sm font-medium text-white bg-[#14B8A6] hover:bg-[#0D9488] hover:border-[#0D9488] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="inline-flex items-center justify-center px-6 py-2.5 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     title={loading ? 'Processing...' : 'Begin Analysis'}
                   >
                     {loading ? (
-                      <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Processing...
+                      </>
                     ) : (
-                      <HiOutlineArrowRight className="w-5 h-5" />
+                      <>
+                        <HiOutlineSearch className="w-4 h-4 mr-2" />
+                        Begin Analysis
+                      </>
                     )}
                   </button>
                 </div>

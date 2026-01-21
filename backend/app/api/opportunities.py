@@ -234,9 +234,9 @@ async def delete_opportunity(
     backend_docs_dir = settings.PROJECT_ROOT / "backend" / "data" / "documents" / str(opportunity_id)
     if backend_docs_dir not in directories_to_delete:
         directories_to_delete.append(backend_docs_dir)
-    
+        
     # Uploads directory
-    uploads_dir = settings.UPLOADS_DIR / str(opportunity_id)
+        uploads_dir = settings.UPLOADS_DIR / str(opportunity_id)
     directories_to_delete.append(uploads_dir)
     
     # Debug extracts directory (data/debug_extracts/opportunity_{opportunity_id})
@@ -252,7 +252,7 @@ async def delete_opportunity(
                 shutil.rmtree(directory)
                 deleted_dirs.append(str(directory))
                 logger.info(f"Successfully deleted directory: {directory}")
-        except Exception as e:
+    except Exception as e:
             logger.warning(f"Error deleting directory {directory}: {str(e)}")
             # Continue deleting other directories even if one fails
     

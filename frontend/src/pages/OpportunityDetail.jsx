@@ -351,7 +351,7 @@ const OpportunityDetail = () => {
                                 ) : (
                                   <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
                                 )}
-                              </div>
+                            </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-gray-900">
                                   Scraping SAM.gov Data
@@ -361,7 +361,7 @@ const OpportunityDetail = () => {
                                     ? `Extracted: ${opportunity.title ? 'Title' : ''}${opportunity.title && opportunity.description ? ', ' : ''}${opportunity.description ? 'Description' : ''}${(opportunity.title || opportunity.description) && opportunity.deadlines?.length > 0 ? ', ' : ''}${opportunity.deadlines?.length > 0 ? `${opportunity.deadlines.length} Deadline(s)` : ''}`
                                     : 'Extracting title, description, deadlines, and contacts...'}
                                 </p>
-                              </div>
+                            </div>
                             </div>
 
                             {/* Step 2: Downloading Documents */}
@@ -645,7 +645,7 @@ const OpportunityDetail = () => {
                     <div className="p-4">
                       <div className="h-32 flex items-center justify-center">
                         <p className="text-sm text-gray-400">CLINs will appear here once analysis is complete...</p>
-                      </div>
+                        </div>
                     </div>
                   </div>
                 )}

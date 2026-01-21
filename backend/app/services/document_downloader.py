@@ -3,6 +3,7 @@ Document downloader service
 Handles downloading and storing SAM.gov attachments
 """
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -82,16 +83,27 @@ class DocumentDownloader:
         Download using Playwright with smart case detection
         Tries in order: Case 1 (direct PDF) -> Case 2 (find PDF link) -> Case 3 (extract text as last resort)
         """
-        try:
+                try:
+            # CASE 1: Check if URL is a direct PDF BEFORE navigating
+            # This handles PDFs that auto-download when navigated to
+            if url.lower().endswith('.pdf'):
+                logger.info(f"Case 1: URL is direct PDF, attempting download before navigation")
+                result = self._try_case1_direct_pdf(url, filename, opp_dir)
+                if result:
+                    logger.info(f"✅ Case 1 succeeded: Direct PDF download")
+                    return result
+            
             logger.info(f"Navigating to {url} to detect download type")
             self.page.goto(url, wait_until='load', timeout=60000)
             self.page.wait_for_timeout(2000)  # Wait for page to fully load
             
             # CASE 1: Try direct PDF download (PDF viewer or direct PDF URL)
-            result = self._try_case1_direct_pdf(url, filename, opp_dir)
-            if result:
-                logger.info(f"✅ Case 1 succeeded: Direct PDF download")
-                return result
+            # Only if we haven't tried it already
+            if not url.lower().endswith('.pdf'):
+                result = self._try_case1_direct_pdf(url, filename, opp_dir)
+                if result:
+                    logger.info(f"✅ Case 1 succeeded: Direct PDF download")
+                    return result
             
             logger.info(f"Case 1 failed, trying Case 2: Find PDF link on page")
             
@@ -123,8 +135,18 @@ class DocumentDownloader:
             if url.lower().endswith('.pdf'):
                 logger.info(f"Case 1: URL appears to be direct PDF, attempting download")
                 try:
-                    with self.page.expect_download(timeout=10000) as download_info:
-                        self.page.goto(url, wait_until='load', timeout=60000)
+                    # For direct PDF URLs, expect download BEFORE navigating
+                    # This handles the case where navigation triggers immediate download
+                    with self.page.expect_download(timeout=30000) as download_info:
+                        # Use 'networkidle' or 'domcontentloaded' instead of 'load' for PDFs
+                        # because PDFs trigger downloads and don't fully "load" as pages
+                        try:
+                            self.page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                        except Exception as nav_error:
+                            # If navigation fails because download started, that's actually good
+                            # The download_info should have the download
+                            if "Download is starting" not in str(nav_error):
+                                raise
                     
                     download = download_info.value
                     file_path = opp_dir / filename
@@ -138,6 +160,28 @@ class DocumentDownloader:
                         return self._create_file_info(file_path, url, file_size)
                 except Exception as e:
                     logger.info(f"Case 1: Direct PDF download failed: {e}")
+                    # Try alternative method: use requests for direct PDF
+                    try:
+                        logger.info(f"Case 1: Trying alternative method with requests")
+                    response = requests.get(url, stream=True, timeout=60, headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    })
+                    response.raise_for_status()
+                    
+                        file_path = opp_dir / filename
+                        if not file_path.suffix.lower() == '.pdf':
+                            file_path = file_path.with_suffix('.pdf')
+                        
+                    with open(file_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    
+                    file_size = file_path.stat().st_size
+                        if file_size > 0 and self._is_valid_pdf(file_path):
+                            logger.info(f"Case 1: Direct PDF download via requests - {file_path.name} ({file_size} bytes)")
+                            return self._create_file_info(file_path, url, file_size)
+                    except Exception as req_error:
+                        logger.info(f"Case 1: Requests method also failed: {req_error}")
             
             # Also check if current page is a PDF viewer (check for PDF.js or embedded PDF)
             try:
@@ -160,8 +204,8 @@ class DocumentDownloader:
                                 pdf_src = urljoin(self.page.url, pdf_src)
                             
                             logger.info(f"Case 1: Found PDF viewer with src: {pdf_src}")
-                            with self.page.expect_download(timeout=10000) as download_info:
-                                self.page.goto(pdf_src, wait_until='load', timeout=60000)
+                            with self.page.expect_download(timeout=30000) as download_info:
+                                self.page.goto(pdf_src, wait_until='domcontentloaded', timeout=60000)
                             
                             download = download_info.value
                             file_path = opp_dir / filename
@@ -195,6 +239,12 @@ class DocumentDownloader:
                 try:
                     pdf_url = pdf_link.get('url')
                     pdf_name = pdf_link.get('name', filename)
+                    
+                    # Clean up URL (remove fragments like #)
+                    if pdf_url and '#' in pdf_url:
+                        pdf_url = pdf_url.split('#')[0]
+                    
+                    # Ensure PDF extension
                     if not pdf_name.endswith('.pdf'):
                         pdf_name += '.pdf'
                     
@@ -202,10 +252,21 @@ class DocumentDownloader:
                     
                     # Try clicking the link element first (more reliable)
                     link_element = pdf_link.get('element')
+                    onclick_handler = pdf_link.get('onclick', '')
+                    
                     if link_element:
                         try:
+                            logger.info(f"Case 2: Trying to click link element")
+                            # For JavaScript-based links, we might need to wait for download differently
                             with self.page.expect_download(timeout=30000) as download_info:
+                                # Scroll element into view first
+                                link_element.scroll_into_view_if_needed()
+                                self.page.wait_for_timeout(500)
+                                # Click the element
                                 link_element.click()
+                                # Wait a bit for download to start
+                                self.page.wait_for_timeout(2000)
+                            
                             download = download_info.value
                             file_path = opp_dir / self._sanitize_filename(pdf_name)
                             download.save_as(str(file_path))
@@ -215,7 +276,17 @@ class DocumentDownloader:
                                 logger.info(f"Case 2: Successfully downloaded PDF via click: {pdf_name} ({file_size} bytes)")
                                 return self._create_file_info(file_path, url, file_size)
                         except Exception as e:
-                            logger.info(f"Case 2: Click failed, trying direct navigation: {e}")
+                            logger.info(f"Case 2: Click failed ({e}), trying JavaScript click or direct navigation")
+                            # Try JavaScript click as fallback
+                            try:
+                                if onclick_handler:
+                                    logger.info(f"Case 2: Trying JavaScript onclick handler")
+                                    self.page.evaluate(f"() => {{ {onclick_handler} }}")
+                                    self.page.wait_for_timeout(2000)
+                                    # Check if download started
+                                    # This is tricky - we'll try navigation method instead
+                            except:
+                                pass
                     
                     # Fallback: Navigate directly to PDF URL
                     try:
@@ -223,8 +294,15 @@ class DocumentDownloader:
                         if not pdf_url.startswith('http'):
                             pdf_url = urljoin(self.page.url, pdf_url)
                         
+                        logger.info(f"Case 2: Trying direct navigation to: {pdf_url}")
+                        # For PDF URLs, use domcontentloaded and expect download
                         with self.page.expect_download(timeout=30000) as download_info:
-                            self.page.goto(pdf_url, wait_until='load', timeout=60000)
+                            try:
+                                self.page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
+                            except Exception as nav_error:
+                                # If navigation fails because download started, that's actually good
+                                if "Download is starting" not in str(nav_error):
+                                    raise
                         
                         download = download_info.value
                         file_path = opp_dir / self._sanitize_filename(pdf_name)
@@ -236,6 +314,25 @@ class DocumentDownloader:
                             return self._create_file_info(file_path, url, file_size)
                     except Exception as e:
                         logger.warning(f"Case 2: Direct navigation also failed: {e}")
+                        # Try one more time with requests as last resort
+                        try:
+                            logger.info(f"Case 2: Trying requests as last resort for: {pdf_url}")
+                            response = requests.get(pdf_url, stream=True, timeout=60, headers={
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                            })
+                            response.raise_for_status()
+                            
+                            file_path = opp_dir / self._sanitize_filename(pdf_name)
+                            with open(file_path, 'wb') as f:
+                                for chunk in response.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                            
+                            file_size = file_path.stat().st_size
+                            if file_size > 0 and self._is_valid_pdf(file_path):
+                                logger.info(f"Case 2: Successfully downloaded PDF via requests: {pdf_name} ({file_size} bytes)")
+                                return self._create_file_info(file_path, url, file_size)
+                        except Exception as req_error:
+                            logger.warning(f"Case 2: Requests method also failed: {req_error}")
                         continue
                 except Exception as e:
                     logger.warning(f"Case 2: Failed to download PDF from link: {e}")
@@ -278,18 +375,18 @@ class DocumentDownloader:
         """Fallback download using requests"""
         try:
             file_path = opp_dir / filename
-            logger.info(f"Downloading {url} to {file_path} using requests")
+                logger.info(f"Downloading {url} to {file_path} using requests")
             
-            response = requests.get(url, stream=True, timeout=60, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
-            response.raise_for_status()
-            
-            with open(file_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            file_size = file_path.stat().st_size
+                response = requests.get(url, stream=True, timeout=60, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
+                response.raise_for_status()
+                
+                with open(file_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                file_size = file_path.stat().st_size
             
             # Check if HTML error page
             if file_size > 0:
@@ -317,14 +414,141 @@ class DocumentDownloader:
         pdf_links = []
         
         try:
-            # Look for links with .pdf in href or text
+            # First, use JavaScript to comprehensively find all PDF links
+            # This handles JavaScript-based links, table links, and regular links
+            try:
+                js_links = self.page.evaluate('''() => {
+                    const pdfLinks = [];
+                    
+                    // Find all links
+                    const allLinks = Array.from(document.querySelectorAll('a'));
+                    
+                    // Also check table cells that might contain PDF links
+                    const tableCells = Array.from(document.querySelectorAll('td, th'));
+                    
+                    allLinks.forEach(link => {
+                        const href = link.getAttribute('href') || '';
+                        const onclick = link.getAttribute('onclick') || '';
+                        const text = link.innerText?.trim() || '';
+                        const title = link.getAttribute('title') || '';
+                        const fullUrl = link.href || '';
+                        
+                        // Check if it's a PDF link by various indicators
+                        const isPdfLink = 
+                            href.includes('.pdf') || 
+                            fullUrl.includes('.pdf') ||
+                            text.includes('.pdf') ||
+                            title.includes('.pdf') ||
+                            (onclick && onclick.includes('.pdf')) ||
+                            (href && (href.includes('download') || href.includes('file')));
+                        
+                        if (isPdfLink) {
+                            // Try to extract PDF filename from text or href
+                            let pdfName = text || title || '';
+                            if (!pdfName || !pdfName.includes('.pdf')) {
+                                // Extract from href
+                                const hrefMatch = (href || fullUrl).match(/([^/]+\.pdf)/i);
+                                if (hrefMatch) {
+                                    pdfName = hrefMatch[1];
+                                }
+                            }
+                            
+                            pdfLinks.push({
+                                href: href,
+                                fullUrl: fullUrl,
+                                text: text,
+                                title: title,
+                                onclick: onclick,
+                                element: link,
+                                pdfName: pdfName
+                            });
+                        }
+                    });
+                    
+                    // Also check table cells for PDF filenames
+                    tableCells.forEach(cell => {
+                        const cellText = cell.innerText?.trim() || '';
+                        const pdfMatch = cellText.match(/([A-Za-z0-9_\-]+\.pdf)/i);
+                        if (pdfMatch) {
+                            const pdfName = pdfMatch[1];
+                            // Find if there's a link in this cell or nearby
+                            const linkInCell = cell.querySelector('a');
+                            if (linkInCell) {
+                                const href = linkInCell.getAttribute('href') || '';
+                                const fullUrl = linkInCell.href || '';
+                                if (!pdfLinks.some(l => l.pdfName === pdfName)) {
+                                    pdfLinks.push({
+                                        href: href,
+                                        fullUrl: fullUrl,
+                                        text: pdfName,
+                                        title: '',
+                                        onclick: '',
+                                        element: linkInCell,
+                                        pdfName: pdfName
+                                    });
+                                }
+                            }
+                        }
+                    });
+                    
+                    return pdfLinks;
+                }''')
+                
+                for js_link in js_links:
+                    # Determine the actual PDF URL
+                    pdf_url = None
+                    pdf_name = js_link.get('pdfName') or js_link.get('text') or ''
+                    
+                    # Prefer fullUrl, then href, then construct from onclick
+                    if js_link.get('fullUrl') and '.pdf' in js_link['fullUrl'].lower():
+                        pdf_url = js_link['fullUrl']
+                    elif js_link.get('href') and ('.pdf' in js_link['href'].lower() or js_link['href'].startswith('http')):
+                        pdf_url = js_link['href']
+                        if not pdf_url.startswith('http'):
+                            pdf_url = urljoin(self.page.url, pdf_url)
+                    elif js_link.get('onclick'):
+                        # Try to extract URL from onclick handler
+                        onclick = js_link['onclick']
+                        url_match = re.search(r'["\']([^"\']*\.pdf[^"\']*)["\']', onclick)
+                        if url_match:
+                            pdf_url = url_match.group(1)
+                            if not pdf_url.startswith('http'):
+                                pdf_url = urljoin(self.page.url, pdf_url)
+                    
+                    # If we have a PDF name but no URL, try to construct it
+                    if pdf_name and '.pdf' in pdf_name.lower() and not pdf_url:
+                        # Try common patterns
+                        base_url = self.page.url.split('?')[0].rsplit('/', 1)[0]
+                        pdf_url = f"{base_url}/{pdf_name}"
+                    
+                    if pdf_url or pdf_name:
+                        # Get the element if available
+                        element_handle = None
+                        if js_link.get('element'):
+                            # We can't pass DOM elements through evaluate, so we need to find it again
+                            try:
+                                # Try to find by text or href
+                                if pdf_name:
+                                    element_handle = self.page.query_selector(f'a:has-text("{pdf_name}")')
+                                if not element_handle and pdf_url:
+                                    element_handle = self.page.query_selector(f'a[href*="{Path(pdf_url).name}"]')
+                            except:
+                                pass
+                        
+                        pdf_links.append({
+                            'url': pdf_url or '',
+                            'name': pdf_name,
+                            'element': element_handle,
+                            'onclick': js_link.get('onclick', '')
+                        })
+            except Exception as e:
+                logger.warning(f"JavaScript PDF link finding failed: {e}")
+            
+            # Fallback: Look for links with .pdf in href or text using selectors
             pdf_selectors = [
                 'a[href$=".pdf"]',
                 'a[href*=".pdf"]',
                 'a:has-text(".pdf")',
-                'a[href*="download"]',
-                'a[href*="Download"]',
-                'a[href*="file"]',
             ]
             
             for selector in pdf_selectors:
@@ -334,57 +558,32 @@ class DocumentDownloader:
                         href = link.get_attribute('href')
                         text = link.inner_text().strip()
                         
-                        if href and ('.pdf' in href.lower() or 'download' in href.lower() or 'file' in href.lower()):
+                        if href and '.pdf' in href.lower():
                             # Resolve relative URLs
                             if not href.startswith('http'):
-                                from urllib.parse import urljoin
                                 href = urljoin(self.page.url, href)
                             
-                            pdf_links.append({
-                                'url': href,
-                                'name': text or Path(href).name,
-                                'element': link
-                            })
+                            # Check if we already have this link
+                            if not any(l['url'] == href for l in pdf_links):
+                                pdf_links.append({
+                                    'url': href,
+                                    'name': text or Path(href).name,
+                                    'element': link,
+                                    'onclick': ''
+                                })
                 except:
                     continue
             
-            # Also try JavaScript evaluation to find PDF links
-            try:
-                js_links = self.page.evaluate('''() => {
-                    const links = Array.from(document.querySelectorAll('a'));
-                    const pdfLinks = [];
-                    links.forEach(link => {
-                        const href = link.getAttribute('href') || '';
-                        const text = link.innerText?.trim() || '';
-                        if (href.includes('.pdf') || href.includes('download') || text.includes('.pdf')) {
-                            pdfLinks.push({
-                                href: href,
-                                text: text,
-                                fullUrl: link.href
-                            });
-                        }
-                    });
-                    return pdfLinks;
-                }''')
-                
-                for js_link in js_links:
-                    if js_link.get('fullUrl') and js_link['fullUrl'] not in [l['url'] for l in pdf_links]:
-                        pdf_links.append({
-                            'url': js_link['fullUrl'],
-                            'name': js_link.get('text') or Path(js_link['fullUrl']).name,
-                            'element': None
-                        })
-            except:
-                pass
-            
-            # Remove duplicates
+            # Remove duplicates and clean up
             seen_urls = set()
             unique_links = []
             for link in pdf_links:
-                if link['url'] not in seen_urls:
-                    seen_urls.add(link['url'])
+                url = link.get('url', '').split('#')[0].split('?')[0]  # Remove fragments and query params for comparison
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
                     unique_links.append(link)
             
+            logger.info(f"Found {len(unique_links)} unique PDF links")
             return unique_links
             
         except Exception as e:

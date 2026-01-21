@@ -1,0 +1,148 @@
+Document: Department of Defense Procurement Toolbox.txt
+File Path: backend/data/documents/97/Department of Defense Procurement Toolbox.txt
+Document Type: DocumentType.OTHER
+Source: DocumentSource.SAM_GOV
+Size: 1722 bytes
+================================================================================
+EXTRACTED TEXT:
+================================================================================
+
+Sun
+	
+Mon
+	
+Tue
+	
+Wed
+	
+Thu
+	
+Fri
+	
+Sat | Sun | Mon | Tue | Wed | Thu | Fri | Sat
+Sun | Mon | Tue | Wed | Thu | Fri | Sat
+28
+	
+29
+	
+30
+	
+31
+	
+1
+	
+2
+	
+3
+
+
+4
+	
+5
+	
+6
+	
+7
+Property Transfer for Contractors
+	
+8
+Property Transfer for Government Users
+	
+9
+	
+10
+
+
+11
+	
+12
+	
+13
+	
+14
+	
+15
+	
+16
+	
+17
+
+
+18
+	
+19
+	
+20
+GFP Basics
+	
+21
+GFP Intermediate
+	
+22
+	
+23
+	
+24
+
+
+25
+	
+26
+	
+27
+	
+28
+	
+29
+	
+30
+	
+31
+
+
+1
+	
+2
+	
+3
+	
+4
+Property Loss Contractor
+	
+5
+Property Loss for Government Users
+	
+6
+	
+7 | 28 | 29 | 30 | 31 | 1 | 2 | 3 | 4 | 5 | 6 | 7
+Property Transfer for Contractors | 8
+Property Transfer for Government Users | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20
+GFP Basics | 21
+GFP Intermediate | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 1 | 2 | 3 | 4
+Property Loss Contractor | 5
+Property Loss for Government Users | 6 | 7
+28 | 29 | 30 | 31 | 1 | 2 | 3
+4 | 5 | 6 | 7
+Property Transfer for Contractors | 8
+Property Transfer for Government Users | 9 | 10
+11 | 12 | 13 | 14 | 15 | 16 | 17
+18 | 19 | 20
+GFP Basics | 21
+GFP Intermediate | 22 | 23 | 24
+25 | 26 | 27 | 28 | 29 | 30 | 31
+1 | 2 | 3 | 4
+Property Loss Contractor | 5
+Property Loss for Government Users | 6 | 7
+Sun | Mon | Tue | Wed | Thu | Fri | Sat
+28 | 29 | 30 | 31 | 1 | 2 | 3
+4 | 5 | 6 | 7
+Property Transfer for Contractors | 8
+Property Transfer for Government Users | 9 | 10
+11 | 12 | 13 | 14 | 15 | 16 | 17
+18 | 19 | 20
+GFP Basics | 21
+GFP Intermediate | 22 | 23 | 24
+25 | 26 | 27 | 28 | 29 | 30 | 31
+1 | 2 | 3 | 4
+Property Loss Contractor | 5
+Property Loss for Government Users | 6 | 7
