@@ -5,7 +5,8 @@
 # This script starts all required services for the application
 ###############################################################################
 
-set -e
+# Don't exit on error - we handle errors manually
+set +e
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -227,24 +228,40 @@ else
     BACKEND_PID=$!
     echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
     
-    # Wait for backend to start
+    # Wait for backend to start with retries
     print_info "Waiting for backend to start..."
-    sleep 3
+    BACKEND_READY=false
+    MAX_RETRIES=10
+    RETRY_COUNT=0
+    
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        sleep 2
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        
+        # Check if process is still running
+        if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+            print_error "Backend server process died"
+            print_info "Check logs/backend.log for details"
+            rm -f "$BACKEND_PID_FILE"
+            exit 1
+        fi
+        
+        # Try health check with timeout
+        if curl -s -f --max-time 5 "$BACKEND_URL/health" &> /dev/null; then
+            BACKEND_READY=true
+            break
+        fi
+    done
     
     # Check if backend started successfully
-    if kill -0 "$BACKEND_PID" 2>/dev/null; then
-        if curl -s "$BACKEND_URL/health" &> /dev/null; then
-            print_success "Backend server started (PID: $BACKEND_PID)"
-            print_info "Backend URL: $BACKEND_URL"
-            print_info "API Docs: $BACKEND_URL/docs"
-        else
-            print_warning "Backend process started but health check failed"
-            print_info "Check logs/backend.log for details"
-        fi
+    if [ "$BACKEND_READY" = true ]; then
+        print_success "Backend server started (PID: $BACKEND_PID)"
+        print_info "Backend URL: $BACKEND_URL"
+        print_info "API Docs: $BACKEND_URL/docs"
     else
-        print_error "Backend server failed to start"
-        print_info "Check logs/backend.log for details"
-        rm -f "$BACKEND_PID_FILE"
+        print_warning "Backend process started but health check failed after ${MAX_RETRIES} attempts"
+        print_info "Backend may still be starting up. Check logs/backend.log for details"
+        print_info "You can manually verify at: $BACKEND_URL/health"
     fi
 fi
 

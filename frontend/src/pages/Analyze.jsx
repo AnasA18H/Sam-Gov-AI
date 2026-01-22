@@ -103,7 +103,7 @@ const Analyze = () => {
                 </div>
                 <button
                   onClick={() => navigate('/dashboard')}
-                  className="text-lg font-semibold text-[#2D1B3D] hover:text-[#14B8A6] transition-colors"
+                  className="text-lg font-semibold text-[#2D1B3D] hover:text-[#14B8A6] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2 rounded"
                 >
                   Sam Gov AI
                 </button>
@@ -164,7 +164,7 @@ const Analyze = () => {
                       name="samGovUrl"
                       type="url"
                       required
-                      className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-gray-400 transition-all bg-white"
+                      className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] transition-all bg-white hover:border-gray-400"
                       placeholder="https://sam.gov/opp/[id]/view"
                       value={samGovUrl}
                       onChange={(e) => setSamGovUrl(e.target.value)}

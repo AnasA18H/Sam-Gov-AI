@@ -72,14 +72,40 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                 logger.info(f"Updated opportunity title: {metadata['title'][:50]}")
             
             if metadata.get('notice_id'):
-                opportunity.notice_id = metadata['notice_id']
+                new_notice_id = metadata['notice_id']
+                
+                # Check if this notice_id already exists for another opportunity
+                existing_notice = db.query(Opportunity).filter(
+                    Opportunity.notice_id == new_notice_id,
+                    Opportunity.id != opportunity_id
+                ).first()
+                
+                if existing_notice:
+                    logger.warning(f"Skipping notice_id update: {new_notice_id} already exists for opportunity {existing_notice.id}")
+                elif not opportunity.notice_id or opportunity.notice_id != new_notice_id:
+                    opportunity.notice_id = new_notice_id
+                    metadata_updated = True
+                    logger.info(f"Updated opportunity notice_id: {new_notice_id}")
+                else:
+                    logger.info(f"Opportunity {opportunity_id} already has notice_id={opportunity.notice_id}, no update needed")
+                
                 # Only update sam_gov_id if not already set (for backward compatibility)
                 # Don't update if it's already set to avoid unique constraint violations
+                new_sam_gov_id = metadata['notice_id']
                 if not opportunity.sam_gov_id:
-                    opportunity.sam_gov_id = metadata['notice_id']
-                    logger.info(f"Updated opportunity sam_gov_id: {metadata['notice_id']}")
-                metadata_updated = True
-                logger.info(f"Updated opportunity notice_id: {metadata['notice_id']}")
+                    # Check if this sam_gov_id already exists for another opportunity
+                    existing = db.query(Opportunity).filter(
+                        Opportunity.sam_gov_id == new_sam_gov_id,
+                        Opportunity.id != opportunity_id
+                    ).first()
+                    if not existing:
+                        opportunity.sam_gov_id = new_sam_gov_id
+                        metadata_updated = True
+                        logger.info(f"Updated opportunity sam_gov_id: {new_sam_gov_id}")
+                    else:
+                        logger.warning(f"Skipping sam_gov_id update: {new_sam_gov_id} already exists for opportunity {existing.id}")
+                elif opportunity.sam_gov_id != new_sam_gov_id:
+                    logger.warning(f"Opportunity {opportunity_id} already has sam_gov_id={opportunity.sam_gov_id}, not updating to {new_sam_gov_id}")
             
             if metadata.get('description'):
                 opportunity.description = metadata['description']
@@ -94,8 +120,8 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             if metadata.get('status'):
                 # Don't overwrite status if it's already "processing" - let analyze_documents set it to "completed"
                 if opportunity.status != "processing":
-                opportunity.status = metadata['status'].lower()
-                metadata_updated = True
+                    opportunity.status = metadata['status'].lower()
+                    metadata_updated = True
             
             # Store contact information
             if metadata.get('primary_contact'):
@@ -115,8 +141,14 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             
             # Commit metadata updates immediately so frontend can see them
             if metadata_updated:
-                db.commit()
-                logger.info(f"Committed metadata updates for opportunity {opportunity_id}")
+                try:
+                    db.commit()
+                    logger.info(f"Committed metadata updates for opportunity {opportunity_id}")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Error committing metadata updates for opportunity {opportunity_id}: {str(e)}")
+                    # Re-raise to let the outer exception handler deal with it
+                    raise
             
             # Store deadline if found (CRITICAL)
             if metadata.get('date_offers_due'):
@@ -216,10 +248,14 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
         
     except Exception as e:
         logger.error(f"Error scraping opportunity {opportunity_id}: {str(e)}", exc_info=True)
-        if opportunity:
-            opportunity.status = "failed"
-            opportunity.error_message = str(e)
-            db.commit()
+        try:
+            db.rollback()
+            if opportunity:
+                opportunity.status = "failed"
+                opportunity.error_message = str(e)
+                db.commit()
+        except Exception as rollback_error:
+            logger.error(f"Error during rollback/status update: {str(rollback_error)}")
         return {"status": "error", "message": str(e)}
     finally:
         db.close()

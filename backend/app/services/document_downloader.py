@@ -78,12 +78,27 @@ class DocumentDownloader:
             logger.error(f"Error downloading document from {url}: {str(e)}", exc_info=True)
             return None
     
-    def _download_with_playwright(self, url: str, opportunity_id: int, filename: str, opp_dir: Path) -> Optional[Dict]:
+    def _download_with_playwright(self, url: str, opportunity_id: int, filename: str, opp_dir: Path, max_depth: int = 3, current_depth: int = 0) -> Optional[Dict]:
         """
         Download using Playwright with smart case detection
-        Tries in order: Case 1 (direct PDF) -> Case 2 (find PDF link) -> Case 3 (extract text as last resort)
+        Tries in order: Case 1 (direct PDF) -> Case 2 (find PDF link) -> Case Download Button -> Case 0 (handle agreement) -> Case 3 (extract text as last resort)
+        
+        Case 0 is only used when no links, download buttons, or PDFs are found - right before extracting text.
+        This handles pages with disclaimers that need to be accepted before data extraction.
+        
+        Args:
+            url: URL to download from
+            opportunity_id: Opportunity ID
+            filename: Target filename
+            opp_dir: Output directory
+            max_depth: Maximum recursion depth (default: 3)
+            current_depth: Current recursion depth (default: 0)
         """
-                try:
+        try:
+            # Prevent infinite recursion
+            if current_depth >= max_depth:
+                logger.warning(f"Maximum recursion depth ({max_depth}) reached for {url}")
+                return None
             # CASE 1: Check if URL is a direct PDF BEFORE navigating
             # This handles PDFs that auto-download when navigated to
             if url.lower().endswith('.pdf'):
@@ -108,12 +123,54 @@ class DocumentDownloader:
             logger.info(f"Case 1 failed, trying Case 2: Find PDF link on page")
             
             # CASE 2: Look for PDF download links on the page
-            result = self._try_case2_find_pdf_link(url, filename, opp_dir)
+            result = self._try_case2_find_pdf_link(url, filename, opp_dir, current_depth, max_depth, opportunity_id)
             if result:
                 logger.info(f"✅ Case 2 succeeded: Found and downloaded PDF from page")
                 return result
             
-            logger.info(f"Case 2 failed, trying Case 3: Extract text content (last resort)")
+            logger.info(f"Case 2 failed, trying Case Download Button: Check for download buttons")
+            
+            # CASE DOWNLOAD BUTTON: Look for download buttons on the page
+            result = self._try_case_download_button(url, filename, opp_dir, current_depth, max_depth, opportunity_id)
+            if result:
+                logger.info(f"✅ Case Download Button succeeded: Found and clicked download button")
+                return result
+            
+            logger.info(f"Case Download Button failed. No links or download buttons found.")
+            logger.info(f"Case 0: Checking for agreement/disclaimer (only when no other options available)")
+            
+            # CASE 0: Handle agreement/disclaimer dialogs ONLY when no links/buttons/PDFs found
+            # This is for pages with just data that might have a disclaimer blocking access
+            agreement_handled = self._try_case0_handle_agreement()
+            if agreement_handled:
+                logger.info(f"✅ Case 0: Handled agreement/disclaimer, waiting for page to update")
+                self.page.wait_for_timeout(2000)  # Wait for page to update after agreement
+                
+                # After handling agreement, the page might now have links/PDFs available
+                # Re-check all cases again since the page content may have changed
+                logger.info(f"Case 0: Re-checking for PDFs/links after agreement was accepted")
+                
+                # Re-check Case 1: Direct PDF download (PDF viewer might be revealed)
+                result = self._try_case1_direct_pdf(url, filename, opp_dir)
+                if result:
+                    logger.info(f"✅ Case 1 succeeded after Case 0: Direct PDF download")
+                    return result
+                
+                # Re-check Case 2: Look for PDF download links (might be revealed after agreement)
+                result = self._try_case2_find_pdf_link(url, filename, opp_dir, current_depth, max_depth, opportunity_id)
+                if result:
+                    logger.info(f"✅ Case 2 succeeded after Case 0: Found and downloaded PDF from page")
+                    return result
+                
+                # Re-check Case Download Button: Look for download buttons (might be revealed after agreement)
+                result = self._try_case_download_button(url, filename, opp_dir, current_depth, max_depth, opportunity_id)
+                if result:
+                    logger.info(f"✅ Case Download Button succeeded after Case 0: Found and clicked download button")
+                    return result
+                
+                logger.info(f"Case 0: After agreement, still no PDFs/links found, proceeding to text extraction")
+            
+            logger.info(f"Trying Case 3: Extract text content (last resort)")
             
             # CASE 3: Extract text content and save as TXT (LAST RESORT)
             result = self._try_case3_extract_text(url, filename, opp_dir)
@@ -121,12 +178,253 @@ class DocumentDownloader:
                 logger.info(f"✅ Case 3 succeeded: Extracted and saved text content")
                 return result
             
-            logger.warning(f"All three cases failed for {url}")
+            logger.warning(f"All cases failed for {url}")
             return None
                 
         except Exception as e:
             logger.error(f"Error in Playwright download: {str(e)}", exc_info=True)
             return None
+    
+    def _try_case0_handle_agreement(self) -> bool:
+        """
+        Case 0: Handle agreement/disclaimer dialogs or statements that must be accepted
+        This is ONLY used when no links, download buttons, or PDFs are found on the page.
+        Used right before Case 3 (text extraction) to handle disclaimers that might block data access.
+        Returns True if an agreement was found and handled, False otherwise
+        """
+        try:
+            # Wait a bit for any modals/dialogs to appear
+            self.page.wait_for_timeout(1000)
+            
+            # Common agreement/disclaimer button texts (case-insensitive)
+            agreement_texts = [
+                'ok', 'agree', 'accept', 'i agree', 'i accept', 'continue', 'proceed',
+                'acknowledge', 'acknowledged', 'understood', 'yes', 'confirm',
+                'accept terms', 'accept and continue', 'agree and continue',
+                'i understand', 'accept disclaimer', 'accept agreement'
+            ]
+            
+            # Look for buttons with agreement text
+            # Try multiple selectors to find agreement buttons
+            selectors_to_try = [
+                # Common button selectors
+                'button',
+                'input[type="button"]',
+                'input[type="submit"]',
+                'a.button',
+                '.btn',
+                '.button',
+                '[role="button"]',
+                # Modal/dialog specific
+                '.modal button',
+                '.dialog button',
+                '#dialog button',
+                '#modal button',
+                '[class*="modal"] button',
+                '[class*="dialog"] button',
+                '[id*="modal"] button',
+                '[id*="dialog"] button',
+            ]
+            
+            agreement_found = False
+            
+            for selector in selectors_to_try:
+                try:
+                    # Get all buttons matching the selector
+                    buttons = self.page.query_selector_all(selector)
+                    
+                    for button in buttons:
+                        try:
+                            # Get button text (multiple ways)
+                            button_text = ''
+                            
+                            # Try inner text
+                            inner_text = button.inner_text()
+                            if inner_text:
+                                button_text = inner_text.strip().lower()
+                            
+                            # Try text content if inner_text is empty
+                            if not button_text:
+                                text_content = button.evaluate('el => el.textContent')
+                                if text_content:
+                                    button_text = text_content.strip().lower()
+                            
+                            # Try value attribute for input buttons
+                            if not button_text:
+                                value = button.get_attribute('value')
+                                if value:
+                                    button_text = value.strip().lower()
+                            
+                            # Try aria-label
+                            if not button_text:
+                                aria_label = button.get_attribute('aria-label')
+                                if aria_label:
+                                    button_text = aria_label.strip().lower()
+                            
+                            # Check if button text matches any agreement phrase
+                            for agreement_phrase in agreement_texts:
+                                if agreement_phrase in button_text:
+                                    logger.info(f"Case 0: Found agreement button with text: '{button_text}'")
+                                    
+                                    # FIRST: Check if there are checkboxes that need to be checked before clicking
+                                    # Some sites require checking a checkbox before the button becomes clickable
+                                    try:
+                                        checkboxes = self.page.query_selector_all('input[type="checkbox"]')
+                                        for checkbox in checkboxes:
+                                            try:
+                                                # Check if checkbox is related to agreement/terms
+                                                checkbox_id = checkbox.get_attribute('id') or ''
+                                                checkbox_name = checkbox.get_attribute('name') or ''
+                                                checkbox_label = ''
+                                                
+                                                # Try to find associated label
+                                                if checkbox_id:
+                                                    label = self.page.query_selector(f'label[for="{checkbox_id}"]')
+                                                    if label:
+                                                        checkbox_label = label.inner_text().strip().lower()
+                                                
+                                                # Check if it's an agreement checkbox
+                                                agreement_keywords = ['agree', 'accept', 'terms', 'conditions', 'disclaimer', 'acknowledge']
+                                                if any(keyword in checkbox_label or keyword in checkbox_id.lower() or keyword in checkbox_name.lower() for keyword in agreement_keywords):
+                                                    # Check if checkbox is not already checked
+                                                    is_checked = checkbox.evaluate('el => el.checked')
+                                                    if not is_checked:
+                                                        checkbox.evaluate('el => el.click()')
+                                                        logger.info(f"Case 0: Checked agreement checkbox")
+                                                        self.page.wait_for_timeout(500)
+                                            except Exception as cb_error:
+                                                logger.debug(f"Case 0: Error checking checkbox: {cb_error}")
+                                    except Exception as cb_error:
+                                        logger.debug(f"Case 0: Error finding checkboxes: {cb_error}")
+                                    
+                                    # Scroll into view
+                                    try:
+                                        button.scroll_into_view_if_needed()
+                                        self.page.wait_for_timeout(500)
+                                    except:
+                                        pass
+                                    
+                                    # Click the agreement button
+                                    try:
+                                        button.click(timeout=5000)
+                                        logger.info(f"Case 0: Clicked agreement button: '{button_text}'")
+                                        agreement_found = True
+                                        
+                                        # Wait for any modal/dialog to close
+                                        self.page.wait_for_timeout(1500)
+                                        
+                                        break  # Found and clicked agreement button
+                                    except Exception as click_error:
+                                        logger.info(f"Case 0: Could not click button '{button_text}': {click_error}")
+                                        # Try JavaScript click as fallback
+                                        try:
+                                            self.page.evaluate('el => el.click()', button)
+                                            logger.info(f"Case 0: Clicked agreement button via JavaScript: '{button_text}'")
+                                            agreement_found = True
+                                            self.page.wait_for_timeout(1500)
+                                            break
+                                        except:
+                                            pass
+                                    
+                                    if agreement_found:
+                                        break
+                            
+                            if agreement_found:
+                                break
+                        except Exception as btn_error:
+                            logger.debug(f"Case 0: Error processing button: {btn_error}")
+                            continue
+                    
+                    if agreement_found:
+                        break
+                except Exception as selector_error:
+                    logger.debug(f"Case 0: Error with selector '{selector}': {selector_error}")
+                    continue
+            
+            # Also check for common modal/dialog patterns that might contain agreements
+            if not agreement_found:
+                try:
+                    # Look for modals with agreement text
+                    modal_selectors = [
+                        '.modal',
+                        '.dialog',
+                        '[role="dialog"]',
+                        '[class*="modal"]',
+                        '[class*="dialog"]',
+                        '[id*="modal"]',
+                        '[id*="dialog"]',
+                    ]
+                    
+                    for modal_selector in modal_selectors:
+                        try:
+                            modal = self.page.query_selector(modal_selector)
+                            if modal and modal.is_visible():
+                                modal_text = modal.inner_text().lower()
+                                # Check if modal contains agreement-related text
+                                if any(keyword in modal_text for keyword in ['agree', 'accept', 'terms', 'conditions', 'disclaimer', 'acknowledge']):
+                                    logger.info(f"Case 0: Found agreement modal/dialog")
+                                    # Try to find and click agreement button in modal using scoped selectors
+                                    modal_selector_base = modal_selector
+                                    button_selectors = [
+                                        f'{modal_selector_base} button',
+                                        f'{modal_selector_base} input[type="button"]',
+                                        f'{modal_selector_base} input[type="submit"]',
+                                        f'{modal_selector_base} a.button',
+                                        f'{modal_selector_base} .btn',
+                                    ]
+                                    
+                                    for btn_selector in button_selectors:
+                                        try:
+                                            modal_buttons = self.page.query_selector_all(btn_selector)
+                                            for btn in modal_buttons:
+                                                try:
+                                                    btn_text = btn.inner_text().strip().lower()
+                                                    if not btn_text:
+                                                        btn_text = btn.get_attribute('value') or btn.get_attribute('aria-label') or ''
+                                                        btn_text = btn_text.strip().lower()
+                                                    
+                                                    if btn_text and any(phrase in btn_text for phrase in agreement_texts):
+                                                        try:
+                                                            btn.scroll_into_view_if_needed()
+                                                            self.page.wait_for_timeout(500)
+                                                            btn.click(timeout=5000)
+                                                            logger.info(f"Case 0: Clicked agreement button in modal: '{btn_text}'")
+                                                            agreement_found = True
+                                                            self.page.wait_for_timeout(1500)
+                                                            break
+                                                        except Exception as click_err:
+                                                            # Try JavaScript click
+                                                            try:
+                                                                self.page.evaluate('el => el.click()', btn)
+                                                                logger.info(f"Case 0: Clicked agreement button in modal via JS: '{btn_text}'")
+                                                                agreement_found = True
+                                                                self.page.wait_for_timeout(1500)
+                                                                break
+                                                            except:
+                                                                pass
+                                                except:
+                                                    continue
+                                            if agreement_found:
+                                                break
+                                        except:
+                                            continue
+                                if agreement_found:
+                                    break
+                        except:
+                            continue
+                except Exception as modal_error:
+                    logger.debug(f"Case 0: Error checking modals: {modal_error}")
+            
+            if agreement_found:
+                logger.info(f"✅ Case 0: Successfully handled agreement/disclaimer")
+            else:
+                logger.info(f"Case 0: No agreement/disclaimer found to handle")
+            
+            return agreement_found
+            
+        except Exception as e:
+            logger.warning(f"Case 0: Error handling agreement: {e}")
+            return False
     
     def _try_case1_direct_pdf(self, url: str, filename: str, opp_dir: Path) -> Optional[Dict]:
         """Case 1: Try direct PDF download (PDF viewer or direct PDF URL)"""
@@ -163,20 +461,20 @@ class DocumentDownloader:
                     # Try alternative method: use requests for direct PDF
                     try:
                         logger.info(f"Case 1: Trying alternative method with requests")
-                    response = requests.get(url, stream=True, timeout=60, headers={
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    })
-                    response.raise_for_status()
-                    
+                        response = requests.get(url, stream=True, timeout=60, headers={
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        })
+                        response.raise_for_status()
+                        
                         file_path = opp_dir / filename
                         if not file_path.suffix.lower() == '.pdf':
                             file_path = file_path.with_suffix('.pdf')
                         
-                    with open(file_path, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                    
-                    file_size = file_path.stat().st_size
+                        with open(file_path, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        
+                        file_size = file_path.stat().st_size
                         if file_size > 0 and self._is_valid_pdf(file_path):
                             logger.info(f"Case 1: Direct PDF download via requests - {file_path.name} ({file_size} bytes)")
                             return self._create_file_info(file_path, url, file_size)
@@ -226,9 +524,23 @@ class DocumentDownloader:
             logger.warning(f"Case 1: Error in direct PDF download: {e}")
             return None
     
-    def _try_case2_find_pdf_link(self, url: str, filename: str, opp_dir: Path) -> Optional[Dict]:
-        """Case 2: Look for PDF download links on the page"""
+    def _try_case2_find_pdf_link(self, url: str, filename: str, opp_dir: Path, current_depth: int = 0, max_depth: int = 3, opportunity_id: int = None) -> Optional[Dict]:
+        """Case 2: Look for PDF download links on the page and also scrape webpage content"""
         try:
+            # FIRST: Extract webpage content before navigating away
+            logger.info(f"Case 2: Extracting webpage content before PDF download")
+            webpage_content = None
+            try:
+                webpage_content = self._extract_text_from_page()
+                if webpage_content and len(webpage_content.strip()) > 100:
+                    logger.info(f"Case 2: Extracted {len(webpage_content)} characters from webpage")
+                else:
+                    logger.info(f"Case 2: Webpage content too short or empty, skipping save")
+                    webpage_content = None
+            except Exception as extract_error:
+                logger.warning(f"Case 2: Failed to extract webpage content: {extract_error}")
+                webpage_content = None
+            
             pdf_links = self._find_pdf_download_links()
             if not pdf_links:
                 logger.info(f"Case 2: No PDF links found on page")
@@ -257,24 +569,72 @@ class DocumentDownloader:
                     if link_element:
                         try:
                             logger.info(f"Case 2: Trying to click link element")
-                            # For JavaScript-based links, we might need to wait for download differently
-                            with self.page.expect_download(timeout=30000) as download_info:
-                                # Scroll element into view first
-                                link_element.scroll_into_view_if_needed()
-                                self.page.wait_for_timeout(500)
-                                # Click the element
-                                link_element.click()
-                                # Wait a bit for download to start
-                                self.page.wait_for_timeout(2000)
                             
-                            download = download_info.value
-                            file_path = opp_dir / self._sanitize_filename(pdf_name)
-                            download.save_as(str(file_path))
-                            file_size = file_path.stat().st_size
+                            # Store current URL to detect navigation
+                            current_url_before = self.page.url
                             
-                            if file_size > 0 and self._is_valid_pdf(file_path):
-                                logger.info(f"Case 2: Successfully downloaded PDF via click: {pdf_name} ({file_size} bytes)")
-                                return self._create_file_info(file_path, url, file_size)
+                            # Try to catch download, but also handle navigation
+                            download_started = False
+                            navigation_occurred = False
+                            
+                            try:
+                                with self.page.expect_download(timeout=5000) as download_info:
+                                    # Scroll element into view first
+                                    link_element.scroll_into_view_if_needed()
+                                    self.page.wait_for_timeout(500)
+                                    # Click the element
+                                    link_element.click()
+                                    # Wait a bit for download to start
+                                    self.page.wait_for_timeout(2000)
+                            
+                                download = download_info.value
+                                file_path = opp_dir / self._sanitize_filename(pdf_name)
+                                download.save_as(str(file_path))
+                                file_size = file_path.stat().st_size
+                                
+                                if file_size > 0 and self._is_valid_pdf(file_path):
+                                    logger.info(f"Case 2: Successfully downloaded PDF via click: {pdf_name} ({file_size} bytes)")
+                                    
+                                    # Also save webpage content if we extracted it
+                                    if webpage_content:
+                                        self._save_webpage_content(url, filename, opp_dir, webpage_content)
+                                    
+                                    return self._create_file_info(file_path, url, file_size)
+                                download_started = True
+                            except Exception as download_error:
+                                # Check if we navigated to a new page instead of downloading
+                                self.page.wait_for_timeout(2000)  # Wait for navigation to complete
+                                current_url_after = self.page.url
+                                
+                                if current_url_after != current_url_before and current_url_after != url:
+                                    navigation_occurred = True
+                                    logger.info(f"Case 2: Link navigated to new page: {current_url_after} (was: {current_url_before})")
+                                    logger.info(f"Case 2: New page may have PDF viewer, PDF link, another page, or just data - applying all cases")
+                                    
+                                    # Get opportunity_id from opp_dir path or use provided
+                                    opp_id = int(opp_dir.name) if opp_dir.name.isdigit() else (opportunity_id if opportunity_id else 0)
+                                    
+                                    # Recursively process the new page - this will apply all cases
+                                    logger.info(f"Case 2: Recursively processing new page (depth: {current_depth + 1}/{max_depth})")
+                                    result = self._download_with_playwright(
+                                        current_url_after, 
+                                        opp_id, 
+                                        pdf_name, 
+                                        opp_dir, 
+                                        max_depth, 
+                                        current_depth + 1
+                                    )
+                                    
+                                    if result:
+                                        # Also save webpage content from original page if we extracted it
+                                        if webpage_content:
+                                            self._save_webpage_content(url, filename, opp_dir, webpage_content)
+                                        return result
+                                else:
+                                    logger.info(f"Case 2: Click failed ({download_error}), no navigation detected")
+                            
+                            if not download_started and not navigation_occurred:
+                                logger.info(f"Case 2: Click did not trigger download or navigation, trying JavaScript click or direct navigation")
                         except Exception as e:
                             logger.info(f"Case 2: Click failed ({e}), trying JavaScript click or direct navigation")
                             # Try JavaScript click as fallback
@@ -295,23 +655,63 @@ class DocumentDownloader:
                             pdf_url = urljoin(self.page.url, pdf_url)
                         
                         logger.info(f"Case 2: Trying direct navigation to: {pdf_url}")
+                        current_url_before_nav = self.page.url
+                        
                         # For PDF URLs, use domcontentloaded and expect download
-                        with self.page.expect_download(timeout=30000) as download_info:
-                            try:
-                                self.page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
-                            except Exception as nav_error:
-                                # If navigation fails because download started, that's actually good
-                                if "Download is starting" not in str(nav_error):
-                                    raise
-                        
-                        download = download_info.value
-                        file_path = opp_dir / self._sanitize_filename(pdf_name)
-                        download.save_as(str(file_path))
-                        file_size = file_path.stat().st_size
-                        
-                        if file_size > 0 and self._is_valid_pdf(file_path):
-                            logger.info(f"Case 2: Successfully downloaded PDF via navigation: {pdf_name} ({file_size} bytes)")
-                            return self._create_file_info(file_path, url, file_size)
+                        download_started = False
+                        try:
+                            with self.page.expect_download(timeout=10000) as download_info:
+                                try:
+                                    self.page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
+                                except Exception as nav_error:
+                                    # If navigation fails because download started, that's actually good
+                                    if "Download is starting" not in str(nav_error):
+                                        raise
+                            
+                            download = download_info.value
+                            file_path = opp_dir / self._sanitize_filename(pdf_name)
+                            download.save_as(str(file_path))
+                            file_size = file_path.stat().st_size
+                            
+                            if file_size > 0 and self._is_valid_pdf(file_path):
+                                logger.info(f"Case 2: Successfully downloaded PDF via navigation: {pdf_name} ({file_size} bytes)")
+                                
+                                # Also save webpage content if we extracted it
+                                if webpage_content:
+                                    self._save_webpage_content(url, filename, opp_dir, webpage_content)
+                                
+                                return self._create_file_info(file_path, url, file_size)
+                            download_started = True
+                        except Exception as nav_error:
+                            # Check if we navigated to a new page (not a PDF)
+                            self.page.wait_for_timeout(2000)
+                            current_url_after_nav = self.page.url
+                            
+                            if current_url_after_nav != current_url_before_nav and not pdf_url.lower().endswith('.pdf'):
+                                logger.info(f"Case 2: Navigation to {pdf_url} resulted in new page: {current_url_after_nav}")
+                                logger.info(f"Case 2: New page may have PDF viewer, PDF link, another page, or just data - applying all cases")
+                                
+                                # Get opportunity_id from opp_dir path or use provided
+                                opp_id = int(opp_dir.name) if opp_dir.name.isdigit() else (opportunity_id if opportunity_id else 0)
+                                
+                                # Recursively process the new page - this will apply all cases
+                                logger.info(f"Case 2: Recursively processing new page from navigation (depth: {current_depth + 1}/{max_depth})")
+                                result = self._download_with_playwright(
+                                    current_url_after_nav, 
+                                    opp_id, 
+                                    pdf_name, 
+                                    opp_dir, 
+                                    max_depth, 
+                                    current_depth + 1
+                                )
+                                
+                                if result:
+                                    # Also save webpage content from original page if we extracted it
+                                    if webpage_content:
+                                        self._save_webpage_content(url, filename, opp_dir, webpage_content)
+                                    return result
+                            else:
+                                logger.warning(f"Case 2: Direct navigation failed: {nav_error}")
                     except Exception as e:
                         logger.warning(f"Case 2: Direct navigation also failed: {e}")
                         # Try one more time with requests as last resort
@@ -330,6 +730,11 @@ class DocumentDownloader:
                             file_size = file_path.stat().st_size
                             if file_size > 0 and self._is_valid_pdf(file_path):
                                 logger.info(f"Case 2: Successfully downloaded PDF via requests: {pdf_name} ({file_size} bytes)")
+                                
+                                # Also save webpage content if we extracted it
+                                if webpage_content:
+                                    self._save_webpage_content(url, filename, opp_dir, webpage_content)
+                                
                                 return self._create_file_info(file_path, url, file_size)
                         except Exception as req_error:
                             logger.warning(f"Case 2: Requests method also failed: {req_error}")
@@ -342,6 +747,152 @@ class DocumentDownloader:
             
         except Exception as e:
             logger.warning(f"Case 2: Error finding PDF links: {e}")
+            return None
+    
+    def _try_case_download_button(self, url: str, filename: str, opp_dir: Path, current_depth: int = 0, max_depth: int = 3, opportunity_id: int = None) -> Optional[Dict]:
+        """Case Download Button: Look for download buttons on the page"""
+        try:
+            logger.info(f"Case Download Button: Searching for download buttons")
+            
+            # Common download button texts (case-insensitive)
+            download_texts = [
+                'download', 'download pdf', 'download file', 'download document',
+                'get pdf', 'get file', 'save pdf', 'save file',
+                'download all', 'download attachments'
+            ]
+            
+            # Look for buttons with download text
+            button_selectors = [
+                'button',
+                'input[type="button"]',
+                'input[type="submit"]',
+                'a.button',
+                '.btn',
+                '.button',
+                '[role="button"]',
+                'a[download]',  # Links with download attribute
+            ]
+            
+            for selector in button_selectors:
+                try:
+                    buttons = self.page.query_selector_all(selector)
+                    
+                    for button in buttons:
+                        try:
+                            # Get button text (multiple ways)
+                            button_text = ''
+                            
+                            # Try inner text
+                            inner_text = button.inner_text()
+                            if inner_text:
+                                button_text = inner_text.strip().lower()
+                            
+                            # Try text content if inner_text is empty
+                            if not button_text:
+                                text_content = button.evaluate('el => el.textContent')
+                                if text_content:
+                                    button_text = text_content.strip().lower()
+                            
+                            # Try value attribute for input buttons
+                            if not button_text:
+                                value = button.get_attribute('value')
+                                if value:
+                                    button_text = value.strip().lower()
+                            
+                            # Try aria-label
+                            if not button_text:
+                                aria_label = button.get_attribute('aria-label')
+                                if aria_label:
+                                    button_text = aria_label.strip().lower()
+                            
+                            # Check if button has download attribute
+                            has_download_attr = button.get_attribute('download')
+                            
+                            # Check if button text matches any download phrase or has download attribute
+                            is_download_button = has_download_attr or any(phrase in button_text for phrase in download_texts)
+                            
+                            if is_download_button:
+                                logger.info(f"Case Download Button: Found download button with text: '{button_text}' (download attr: {has_download_attr})")
+                                
+                                # Store current URL to detect navigation
+                                current_url_before = self.page.url
+                                
+                                # Scroll into view
+                                try:
+                                    button.scroll_into_view_if_needed()
+                                    self.page.wait_for_timeout(500)
+                                except:
+                                    pass
+                                
+                                # Try clicking the download button
+                                download_started = False
+                                navigation_occurred = False
+                                
+                                try:
+                                    with self.page.expect_download(timeout=10000) as download_info:
+                                        button.click(timeout=5000)
+                                        self.page.wait_for_timeout(2000)
+                                    
+                                    download = download_info.value
+                                    # Get suggested filename from download or use provided filename
+                                    suggested_filename = download.suggested_filename or filename
+                                    if not suggested_filename.endswith('.pdf'):
+                                        suggested_filename = filename if filename.endswith('.pdf') else f"{Path(filename).stem}.pdf"
+                                    
+                                    file_path = opp_dir / self._sanitize_filename(suggested_filename)
+                                    download.save_as(str(file_path))
+                                    file_size = file_path.stat().st_size
+                                    
+                                    if file_size > 0 and self._is_valid_pdf(file_path):
+                                        logger.info(f"Case Download Button: Successfully downloaded PDF: {file_path.name} ({file_size} bytes)")
+                                        return self._create_file_info(file_path, url, file_size)
+                                    
+                                    download_started = True
+                                except Exception as click_error:
+                                    # Check if we navigated to a new page instead of downloading
+                                    self.page.wait_for_timeout(2000)
+                                    current_url_after = self.page.url
+                                    
+                                    if current_url_after != current_url_before:
+                                        navigation_occurred = True
+                                        logger.info(f"Case Download Button: Button navigated to new page: {current_url_after}")
+                                        
+                                        # Recursively process the new page - this will apply all cases
+                                        logger.info(f"Case Download Button: Recursively processing new page (depth: {current_depth + 1}/{max_depth})")
+                                        logger.info(f"Case Download Button: New page may have PDF viewer, PDF link, another page, or just data - applying all cases")
+                                        # Get opportunity_id from opp_dir path (e.g., /path/to/123 -> 123) or use provided
+                                        opp_id = int(opp_dir.name) if opp_dir.name.isdigit() else (opportunity_id if opportunity_id else 0)
+                                        result = self._download_with_playwright(
+                                            current_url_after, 
+                                            opp_id,
+                                            filename, 
+                                            opp_dir, 
+                                            max_depth, 
+                                            current_depth + 1
+                                        )
+                                        
+                                        if result:
+                                            return result
+                                    else:
+                                        logger.info(f"Case Download Button: Click failed: {click_error}")
+                                
+                                if download_started or navigation_occurred:
+                                    break
+                        except Exception as btn_error:
+                            logger.debug(f"Case Download Button: Error processing button: {btn_error}")
+                            continue
+                    
+                    if download_started or navigation_occurred:
+                        break
+                except Exception as selector_error:
+                    logger.debug(f"Case Download Button: Error with selector '{selector}': {selector_error}")
+                    continue
+            
+            logger.info(f"Case Download Button: No download buttons found or all attempts failed")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Case Download Button: Error finding download buttons: {e}")
             return None
     
     def _try_case3_extract_text(self, url: str, filename: str, opp_dir: Path) -> Optional[Dict]:
@@ -375,18 +926,18 @@ class DocumentDownloader:
         """Fallback download using requests"""
         try:
             file_path = opp_dir / filename
-                logger.info(f"Downloading {url} to {file_path} using requests")
+            logger.info(f"Downloading {url} to {file_path} using requests")
             
-                response = requests.get(url, stream=True, timeout=60, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                })
-                response.raise_for_status()
-                
-                with open(file_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                
-                file_size = file_path.stat().st_size
+            response = requests.get(url, stream=True, timeout=60, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            response.raise_for_status()
+            
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            file_size = file_path.stat().st_size
             
             # Check if HTML error page
             if file_size > 0:
@@ -404,7 +955,7 @@ class DocumentDownloader:
             
             logger.info(f"Downloaded {filename} ({file_size} bytes) using requests")
             return self._create_file_info(file_path, url, file_size)
-            
+        
         except Exception as e:
             logger.error(f"Error in requests download: {str(e)}", exc_info=True)
             return None
@@ -708,6 +1259,28 @@ class DocumentDownloader:
             
         except Exception as e:
             logger.warning(f"Error extracting structured content: {e}")
+            return None
+    
+    def _save_webpage_content(self, url: str, filename: str, opp_dir: Path, content: str) -> Optional[Path]:
+        """Save webpage content as a TXT file alongside the PDF"""
+        try:
+            # Create filename for webpage content (e.g., "document.pdf" -> "document_page.txt")
+            base_name = Path(filename).stem  # Get filename without extension
+            webpage_filename = f"{base_name}_page.txt"
+            file_path = opp_dir / webpage_filename
+            
+            # Write content with metadata header (same format as Case 3)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(f"Source URL: {url}\n")
+                f.write(f"Extracted: {datetime.now().isoformat()}\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(content)
+            
+            file_size = file_path.stat().st_size
+            logger.info(f"Case 2: Saved webpage content: {file_path.name} ({file_size} bytes, {len(content)} chars)")
+            return file_path
+        except Exception as e:
+            logger.warning(f"Case 2: Failed to save webpage content: {e}")
             return None
     
     def _is_valid_pdf(self, file_path: Path) -> bool:

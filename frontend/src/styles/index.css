@@ -44,3 +44,45 @@
     transform: scale(1);
   }
 }
+
+/* Custom scrollbar for utilities panel */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #14B8A6;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #0D9488;
+}
+
+/* Global hover and focus effects */
+@layer utilities {
+  /* Button hover and focus effects */
+  .btn-hover-focus {
+    @apply transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+  
+  /* Input hover and focus effects */
+  .input-hover-focus {
+    @apply transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1;
+  }
+  
+  /* Link hover and focus effects */
+  .link-hover-focus {
+    @apply transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 rounded;
+  }
+  
+  /* Card hover effects */
+  .card-hover {
+    @apply transition-all duration-200 hover:shadow-md;
+  }
+}

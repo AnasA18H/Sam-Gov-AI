@@ -10,12 +10,15 @@ import os
 import mimetypes
 import shutil
 import logging
+import glob
 from ..core.database import get_db
 from ..core.dependencies import get_current_active_user
 from ..core.config import settings
 from ..models.user import User
 from ..models.opportunity import Opportunity
 from ..models.document import Document, DocumentType, DocumentSource
+from ..models.clin import CLIN
+from ..models.deadline import Deadline
 from ..schemas.opportunity import OpportunityCreate, OpportunityResponse, OpportunityDetailResponse, OpportunityList
 from sqlalchemy.orm import joinedload
 from ..services.tasks import scrape_sam_gov_opportunity
@@ -181,10 +184,48 @@ async def delete_opportunity(
             detail="Opportunity not found"
         )
     
-    # Get all documents before deletion to delete files from disk
+    # Log all data that will be deleted
+    logger.info(f"=" * 80)
+    logger.info(f"DELETING OPPORTUNITY {opportunity_id}")
+    logger.info(f"=" * 80)
+    logger.info(f"Opportunity: {opportunity.title or 'Untitled'} (ID: {opportunity_id})")
+    logger.info(f"Notice ID: {opportunity.notice_id or 'N/A'}")
+    logger.info(f"Status: {opportunity.status}")
+    
+    # Get all related data before deletion
     documents = db.query(Document).filter(Document.opportunity_id == opportunity_id).all()
+    clins = db.query(CLIN).filter(CLIN.opportunity_id == opportunity_id).all()
+    deadlines = db.query(Deadline).filter(Deadline.opportunity_id == opportunity_id).all()
+    
+    # Log data counts
+    logger.info(f"Related data to be deleted:")
+    logger.info(f"  - Documents: {len(documents)}")
+    logger.info(f"  - CLINs: {len(clins)}")
+    logger.info(f"  - Deadlines: {len(deadlines)}")
+    
+    # Log document details
+    if documents:
+        logger.info(f"  Document files:")
+        for doc in documents:
+            logger.info(f"    - {doc.file_name} ({doc.file_type}, {doc.file_size or 'N/A'} bytes)")
+    
+    # Log CLIN details
+    if clins:
+        logger.info(f"  CLINs:")
+        for clin in clins:
+            logger.info(f"    - CLIN {clin.clin_number}: {clin.product_name or clin.clin_name or 'N/A'}")
+    
+    # Log deadline details
+    if deadlines:
+        logger.info(f"  Deadlines:")
+        for deadline in deadlines:
+            logger.info(f"    - {deadline.deadline_type}: {deadline.due_date} {deadline.due_time or ''}")
+    
+    logger.info(f"=" * 80)
     
     # Delete individual files from disk
+    deleted_files = []
+    failed_files = []
     for doc in documents:
         try:
             # Resolve file path
@@ -203,17 +244,29 @@ async def delete_opportunity(
             
             # Delete file if it exists
             if file_path.exists() and file_path.is_file():
+                file_size = file_path.stat().st_size
                 file_path.unlink()
-                logger.info(f"Deleted file: {file_path}")
+                deleted_files.append(str(file_path))
+                logger.info(f"✅ Deleted file: {file_path} ({file_size} bytes)")
             elif file_path.exists() and file_path.is_dir():
                 # If it's a directory, remove it recursively
                 shutil.rmtree(file_path)
-                logger.info(f"Deleted directory: {file_path}")
+                deleted_files.append(str(file_path))
+                logger.info(f"✅ Deleted directory: {file_path}")
+            else:
+                logger.warning(f"⚠️  File not found: {file_path}")
         except Exception as e:
-            logger.warning(f"Error deleting file {doc.file_path}: {str(e)}")
+            failed_files.append((str(doc.file_path), str(e)))
+            logger.warning(f"❌ Error deleting file {doc.file_path}: {str(e)}")
             # Continue deleting other files even if one fails
     
+    if deleted_files:
+        logger.info(f"Deleted {len(deleted_files)} file(s) from disk")
+    if failed_files:
+        logger.warning(f"Failed to delete {len(failed_files)} file(s)")
+    
     # Delete all opportunity-related directories and their contents
+    logger.info(f"Deleting opportunity directories and temp files...")
     directories_to_delete = []
     
     # Documents directory - check multiple possible locations
@@ -223,9 +276,10 @@ async def delete_opportunity(
         if not storage_base.is_absolute():
             storage_base = settings.PROJECT_ROOT / storage_base
         documents_dir = storage_base / str(opportunity_id)
-        directories_to_delete.append(documents_dir)
+        if documents_dir not in directories_to_delete:
+            directories_to_delete.append(documents_dir)
     
-    # Also check DOCUMENTS_DIR location
+    # Also check DOCUMENTS_DIR location (data/documents/{opportunity_id})
     documents_dir_alt = settings.DOCUMENTS_DIR / str(opportunity_id)
     if documents_dir_alt not in directories_to_delete:
         directories_to_delete.append(documents_dir_alt)
@@ -235,41 +289,109 @@ async def delete_opportunity(
     if backend_docs_dir not in directories_to_delete:
         directories_to_delete.append(backend_docs_dir)
         
-    # Uploads directory
-        uploads_dir = settings.UPLOADS_DIR / str(opportunity_id)
-    directories_to_delete.append(uploads_dir)
+    # Uploads directory (data/uploads/{opportunity_id})
+    uploads_dir = settings.UPLOADS_DIR / str(opportunity_id)
+    if uploads_dir not in directories_to_delete:
+        directories_to_delete.append(uploads_dir)
     
     # Debug extracts directory (data/debug_extracts/opportunity_{opportunity_id})
     debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
-    directories_to_delete.append(debug_dir)
-    logger.info(f"Will attempt to delete debug extracts directory: {debug_dir}")
+    if debug_dir not in directories_to_delete:
+        directories_to_delete.append(debug_dir)
+    
+    # Also check for any temp files in the data directory
+    data_dir = settings.DATA_DIR
+    temp_patterns = [
+        str(data_dir / f"temp_opportunity_{opportunity_id}*"),
+        str(data_dir / f"opportunity_{opportunity_id}_*"),
+    ]
     
     # Delete all directories
     deleted_dirs = []
+    failed_dirs = []
+    total_size_deleted = 0
+    
     for directory in directories_to_delete:
         try:
             if directory.exists() and directory.is_dir():
+                # Calculate directory size before deletion
+                dir_size = sum(f.stat().st_size for f in directory.rglob('*') if f.is_file())
+                total_size_deleted += dir_size
+                
+                # Count files in directory
+                file_count = sum(1 for f in directory.rglob('*') if f.is_file())
+                
                 shutil.rmtree(directory)
-                deleted_dirs.append(str(directory))
-                logger.info(f"Successfully deleted directory: {directory}")
-    except Exception as e:
-            logger.warning(f"Error deleting directory {directory}: {str(e)}")
+                deleted_dirs.append({
+                    'path': str(directory),
+                    'size': dir_size,
+                    'files': file_count
+                })
+                logger.info(f"✅ Deleted directory: {directory} ({file_count} files, {dir_size} bytes)")
+            else:
+                logger.debug(f"Directory does not exist: {directory}")
+        except Exception as e:
+            failed_dirs.append((str(directory), str(e)))
+            logger.warning(f"❌ Error deleting directory {directory}: {str(e)}")
             # Continue deleting other directories even if one fails
     
+    # Try to find and delete any temp files matching patterns
+    temp_files_deleted = []
+    for pattern in temp_patterns:
+        try:
+            # Convert Path to string for glob
+            pattern_str = str(pattern)
+            matches = glob.glob(pattern_str)
+            for match in matches:
+                match_path = Path(match)
+                if match_path.exists():
+                    if match_path.is_file():
+                        size = match_path.stat().st_size
+                        match_path.unlink()
+                        temp_files_deleted.append({'path': str(match_path), 'size': size, 'type': 'file'})
+                        logger.info(f"✅ Deleted temp file: {match_path} ({size} bytes)")
+                    elif match_path.is_dir():
+                        dir_size = sum(f.stat().st_size for f in match_path.rglob('*') if f.is_file())
+                        file_count = sum(1 for f in match_path.rglob('*') if f.is_file())
+                        shutil.rmtree(match_path)
+                        temp_files_deleted.append({'path': str(match_path), 'size': dir_size, 'type': 'directory', 'files': file_count})
+                        logger.info(f"✅ Deleted temp directory: {match_path} ({file_count} files, {dir_size} bytes)")
+        except Exception as e:
+            logger.warning(f"Error processing temp pattern {pattern}: {str(e)}")
+    
+    # Summary of file/directory deletion
+    logger.info(f"=" * 80)
+    logger.info(f"FILE DELETION SUMMARY:")
+    logger.info(f"  - Individual files deleted: {len(deleted_files)}")
+    logger.info(f"  - Directories deleted: {len(deleted_dirs)}")
     if deleted_dirs:
-        logger.info(f"Deleted {len(deleted_dirs)} directory(ies) for opportunity {opportunity_id}: {', '.join(deleted_dirs)}")
-    else:
-        logger.info(f"No directories found to delete for opportunity {opportunity_id}")
+        total_dir_files = sum(d.get('files', 0) for d in deleted_dirs)
+        logger.info(f"  - Files in directories: {total_dir_files}")
+    if temp_files_deleted:
+        logger.info(f"  - Temp files/dirs deleted: {len(temp_files_deleted)}")
+    if failed_files:
+        logger.warning(f"  - Failed file deletions: {len(failed_files)}")
+    if failed_dirs:
+        logger.warning(f"  - Failed directory deletions: {len(failed_dirs)}")
+    logger.info(f"=" * 80)
     
     # Delete the opportunity from database
     # Note: CASCADE will automatically delete all related database records:
     # - Documents (via ondelete="CASCADE" in Document.opportunity_id)
     # - CLINs (via ondelete="CASCADE" in CLIN.opportunity_id)
     # - Deadlines (via ondelete="CASCADE" in Deadline.opportunity_id)
+    logger.info(f"Deleting database records...")
     db.delete(opportunity)
     db.commit()
     
-    logger.info(f"Successfully deleted opportunity {opportunity_id} and all related data")
+    logger.info(f"=" * 80)
+    logger.info(f"✅ SUCCESSFULLY DELETED OPPORTUNITY {opportunity_id}")
+    logger.info(f"   - Database records: 1 opportunity, {len(documents)} documents, {len(clins)} CLINs, {len(deadlines)} deadlines")
+    logger.info(f"   - Files deleted: {len(deleted_files)}")
+    logger.info(f"   - Directories deleted: {len(deleted_dirs)}")
+    if temp_files_deleted:
+        logger.info(f"   - Temp files/dirs deleted: {len(temp_files_deleted)}")
+    logger.info(f"=" * 80)
     return None
 
 

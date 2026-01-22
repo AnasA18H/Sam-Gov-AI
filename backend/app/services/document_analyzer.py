@@ -33,8 +33,13 @@ except ImportError:
     logging.debug("tabula-py not available. Using camelot or pdfplumber for tables.")
 
 # LLM extraction (optional - for unstructured text)
+# Try Anthropic first (Claude 3.5 Sonnet), fallback to Groq
+LANGCHAIN_AVAILABLE = False
+ANTHROPIC_AVAILABLE = False
+GROQ_AVAILABLE = False
+PYDANTIC_V1_AVAILABLE = False
+
 try:
-    from langchain_groq import ChatGroq
     from pydantic import BaseModel, Field
     try:
         from pydantic.v1 import BaseModel as V1BaseModel, Field as V1Field
@@ -48,14 +53,33 @@ try:
             PYDANTIC_V1_AVAILABLE = True
         except ImportError:
             PYDANTIC_V1_AVAILABLE = False
-    LANGCHAIN_AVAILABLE = True
+    
+    # Try Anthropic (Claude 3.5 Sonnet) - Primary choice
+    try:
+        from langchain_anthropic import ChatAnthropic
+        ANTHROPIC_AVAILABLE = True
+        LANGCHAIN_AVAILABLE = True
+        logging.info("LangChain Anthropic (Claude) available")
+    except ImportError:
+        logging.debug("LangChain Anthropic not available, trying Groq fallback")
+    
+    # Try Groq as fallback
+    if not ANTHROPIC_AVAILABLE:
+        try:
+            from langchain_groq import ChatGroq
+            GROQ_AVAILABLE = True
+            LANGCHAIN_AVAILABLE = True
+            logging.info("LangChain Groq available (fallback)")
+        except ImportError:
+            logging.warning("LangChain Groq not available")
+    
     # LangChain 1.x uses with_structured_output instead of create_extraction_chain_pydantic
     EXTRACTION_CHAIN_AVAILABLE = False  # Will use with_structured_output method
 except ImportError:
     LANGCHAIN_AVAILABLE = False
     PYDANTIC_V1_AVAILABLE = False
     EXTRACTION_CHAIN_AVAILABLE = False
-    logging.warning("LangChain Groq not available. Using regex-based extraction only.")
+    logging.warning("LangChain not available. Using regex-based extraction only.")
 
 # NLP (optional - spaCy for advanced classification)
 try:
@@ -212,20 +236,43 @@ class DocumentAnalyzer:
             except OSError:
                 logger.warning("spaCy model 'en_core_web_sm' not found. Using keyword-based classification only.")
         
-        # Initialize LLM (optional - requires GROQ_API_KEY)
-        if LANGCHAIN_AVAILABLE and settings.GROQ_API_KEY:
-            try:
-                self.llm = ChatGroq(
-                    model=settings.GROQ_MODEL,
-                    temperature=0,
-                    groq_api_key=settings.GROQ_API_KEY
-                )
-                logger.info(f"Groq LLM initialized: {settings.GROQ_MODEL}")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Groq LLM: {str(e)}. Using regex-based extraction only.")
-                self.llm = None
-        elif LANGCHAIN_AVAILABLE and not settings.GROQ_API_KEY:
-            logger.warning("GROQ_API_KEY not set. LLM extraction disabled. Using regex-based extraction only.")
+        # Initialize LLM - Try Anthropic (Claude 3.5 Sonnet) first, fallback to Groq
+        self.llm = None
+        if LANGCHAIN_AVAILABLE:
+            # Try Anthropic (Claude 3.5 Sonnet) - Primary choice
+            if ANTHROPIC_AVAILABLE and settings.ANTHROPIC_API_KEY:
+                try:
+                    from langchain_anthropic import ChatAnthropic
+                    self.llm = ChatAnthropic(
+                        model=settings.ANTHROPIC_MODEL,
+                        temperature=0,
+                        anthropic_api_key=settings.ANTHROPIC_API_KEY,
+                        max_tokens=4096  # Claude 3.5 Sonnet supports up to 8192, but 4096 is safe for responses
+                    )
+                    logger.info(f"Claude 3.5 Sonnet LLM initialized: {settings.ANTHROPIC_MODEL}")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize Claude LLM: {str(e)}. Trying Groq fallback...")
+                    self.llm = None
+            
+            # Fallback to Groq if Anthropic not available or failed
+            if self.llm is None and GROQ_AVAILABLE and settings.GROQ_API_KEY:
+                try:
+                    from langchain_groq import ChatGroq
+                    self.llm = ChatGroq(
+                        model=settings.GROQ_MODEL,
+                        temperature=0,
+                        groq_api_key=settings.GROQ_API_KEY
+                    )
+                    logger.info(f"Groq LLM initialized (fallback): {settings.GROQ_MODEL}")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize Groq LLM: {str(e)}. Using regex-based extraction only.")
+                    self.llm = None
+            
+            if self.llm is None:
+                if not settings.ANTHROPIC_API_KEY and not settings.GROQ_API_KEY:
+                    logger.warning("No LLM API keys set (ANTHROPIC_API_KEY or GROQ_API_KEY). LLM extraction disabled.")
+                else:
+                    logger.warning("LLM extraction disabled. Using regex-based extraction only.")
     
     def classify_document_type(self, file_path: Path, text: str) -> str:
         """
@@ -419,7 +466,7 @@ class DocumentAnalyzer:
                                 letter_count = len(re.findall(r'[a-zA-Z]', desc_clean))
                                 alnum_count = len(re.findall(r'[a-zA-Z0-9]', desc_clean))
                                 if len(desc_clean) > 10 and (letter_count < 3 or (alnum_count / len(desc_clean)) < 0.3):
-                                continue
+                                    continue
                             
                             clin_data = {
                                 'clin_number': first_cell,
@@ -578,8 +625,13 @@ class DocumentAnalyzer:
     
     def _extract_clins_with_llm(self, text: str) -> List[Dict]:
         """
-        Extract CLINs using LLM (LangChain + Groq with Llama models) with batch processing
+        Extract CLINs using LLM (Claude 3.5 Sonnet via Anthropic, with Groq fallback)
         Best for unstructured text like SOW, amendments
+        
+        Claude 3.5 Sonnet provides:
+        - 200K token context window (can process entire documents)
+        - Native JSON output mode
+        - Superior document understanding (~94% accuracy)
         
         Returns:
             List of CLIN dictionaries
@@ -604,16 +656,18 @@ class DocumentAnalyzer:
                 logger.debug("Cleaned text is empty, skipping LLM extraction")
                 return []
             
-            # Process entire document at once (send full document, not split into batches)
-            # This ensures we send one document at a time, sequentially
-            # Use reasonable context window - send up to 15000 chars per document to avoid payload size limits
-            max_document_size = 15000
-            document_text = cleaned_text[:max_document_size]
-            
-            if not document_text.strip():
-                return []
-            
-            logger.info(f"Processing document for LLM extraction ({len(document_text)} chars)")
+            # Process document with chunking to avoid token limits
+            # Claude 3.5 Sonnet has 200K token context window (≈150K words)
+            # Estimate: ~4 chars per token, so 150000 chars ≈ 37500 tokens (well within 200K limit)
+            # For Groq fallback: 6000 token limit, so 15000 chars ≈ 3750 tokens + prompt overhead
+            # Use larger size for Claude, but keep chunking for very large documents
+            if self.llm and hasattr(self.llm, 'model') and 'claude' in str(self.llm.model).lower():
+                # Claude 3.5 Sonnet - can handle much larger documents
+                max_document_size = 150000  # ~150K chars ≈ 37.5K tokens (well within 200K limit)
+            else:
+                # Groq fallback - smaller limit
+                max_document_size = 15000  # ~15K chars ≈ 3.75K tokens (within 6K limit)
+            chunk_overlap = 500  # Overlap between chunks to avoid splitting CLINs
             
             # Simple, general prompt - process entire document
             document_instruction = """Process this document for CLINs (Contract Line Item Numbers).
@@ -626,125 +680,235 @@ Ignore corrupted text and encoding artifacts. Process the entire document.
 DOCUMENT TEXT:
 """
             
-            # Process document (one document at a time, no batching)
+            # If document is small enough, process in one go
+            if len(cleaned_text) <= max_document_size:
+                document_text = cleaned_text
+                chunks = [document_text]
+                logger.info(f"Processing document for LLM extraction ({len(document_text)} chars) - single chunk")
+            else:
+                # Split into chunks with overlap
+                chunks = []
+                start = 0
+                while start < len(cleaned_text):
+                    end = start + max_document_size
+                    chunk = cleaned_text[start:end]
+                    if chunk.strip():
+                        chunks.append(chunk)
+                    start = end - chunk_overlap  # Overlap to avoid splitting CLINs
+                    if start >= len(cleaned_text):
+                        break
+                logger.info(f"Processing document for LLM extraction ({len(cleaned_text)} chars) - split into {len(chunks)} chunks")
+            
+            if not chunks:
+                return []
+            
+            # Process each chunk
+            all_clins = []
             import time
             max_retries = 3
             retry_delay = 2  # seconds
-            for attempt in range(max_retries):
-                try:
-                    document_prompt = document_instruction + document_text
             
-                    # Use LangChain 1.x API: with_structured_output
+            for chunk_idx, document_text in enumerate(chunks):
+                logger.debug(f"Processing chunk {chunk_idx + 1}/{len(chunks)} ({len(document_text)} chars)")
+                
+                for attempt in range(max_retries):
                     try:
-                        # Try function_calling first (better Groq compatibility), fallback to json_schema
+                        document_prompt = document_instruction + document_text
+                        
+                        # Use LangChain 1.x API: with_structured_output
                         try:
-                            structured_llm = self.llm.with_structured_output(CLINItem, method="function_calling")
-                        except Exception as method_error:
-                            logger.debug(f"function_calling failed, trying json_schema: {str(method_error)}")
-                            # Fallback to json_schema method
-                            structured_llm = self.llm.with_structured_output(CLINItem, method="json_schema")
-                        result = structured_llm.invoke(document_prompt)
-                    except Exception as e:
-                        # Check if it's a rate limit error
-                        error_str = str(e).lower()
-                        if '429' in error_str or 'rate limit' in error_str or 'too many requests' in error_str:
-                            if attempt < max_retries - 1:
-                                wait_time = retry_delay * (attempt + 1)
-                                logger.warning(f"Rate limit hit, waiting {wait_time}s before retry {attempt + 2}/{max_retries}")
-                                time.sleep(wait_time)
+                            # Try function_calling first (better Groq compatibility), fallback to json_schema
+                            try:
+                                structured_llm = self.llm.with_structured_output(CLINItem, method="function_calling")
+                            except Exception as method_error:
+                                logger.debug(f"function_calling failed, trying json_schema: {str(method_error)}")
+                                # Fallback to json_schema method
+                                structured_llm = self.llm.with_structured_output(CLINItem, method="json_schema")
+                            result = structured_llm.invoke(document_prompt)
+                        except Exception as e:
+                            # Check error type
+                            error_str = str(e).lower()
+                            error_msg = str(e)
+                        
+                            result = structured_llm.invoke(document_prompt)
+                            
+                            # Extract results from response
+                            clins = []
+                            if isinstance(result, list):
+                                clins = result
+                            elif isinstance(result, CLINItem):
+                                clins = [result]
+                            elif isinstance(result, dict):
+                                # Check if it's a single CLINItem dict
+                                if 'item_number' in result:
+                                    clins = [result]
+                                else:
+                                    # Try to find list in dict values
+                                    for value in result.values():
+                                        if isinstance(value, list):
+                                            clins = value
+                                            break
+                                        elif isinstance(value, CLINItem):
+                                            clins = [value]
+                                            break
+                            
+                            if clins:
+                                logger.debug(f"Found {len(clins)} CLINs in chunk {chunk_idx + 1}")
+                                all_clins.extend(clins)
+                            else:
+                                logger.debug(f"No CLINs found in chunk {chunk_idx + 1}")
+                            
+                            # Success - break out of retry loop for this chunk
+                            break
+                            
+                        except Exception as e:
+                            # Check error type
+                            error_str = str(e).lower()
+                            error_msg = str(e)
+                            
+                            # Handle 413 Payload Too Large - reduce chunk size and retry
+                            if '413' in error_str or 'payload too large' in error_str or 'request too large' in error_str or 'tpm' in error_str:
+                                if len(document_text) > 2000:
+                                    # Reduce chunk size and retry
+                                    new_size = len(document_text) // 2
+                                    document_text = document_text[:new_size]
+                                    logger.warning(f"Document too large, reducing to {new_size} chars and retrying")
+                                    continue
+                                else:
+                                    logger.error(f"Document still too large after reduction: {str(e)}")
+                                    break  # Skip this chunk
+                            
+                            # Handle rate limit errors
+                            if '429' in error_str or 'rate limit' in error_str or 'too many requests' in error_str:
+                                if attempt < max_retries - 1:
+                                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                                    logger.warning(f"Rate limit hit, waiting {wait_time}s before retry {attempt + 2}/{max_retries}")
+                                    time.sleep(wait_time)
+                                    continue
+                                else:
+                                    logger.error(f"Rate limit exceeded after {max_retries} attempts")
+                                    break  # Skip this chunk
+                            
+                            # Handle 400 Bad Request - usually means malformed prompt or response
+                            if '400' in error_str or 'bad request' in error_str or 'tool_use_failed' in error_str:
+                                logger.warning(f"Bad request error (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                                if attempt < max_retries - 1:
+                                    # Try with smaller chunk or different approach
+                                    if len(document_text) > 3000:
+                                        document_text = document_text[:3000]
+                                        logger.info(f"Reducing chunk size to {len(document_text)} chars due to bad request")
+                                        continue
+                                    time.sleep(retry_delay)
+                                    continue
+                                else:
+                                    logger.error(f"Bad request persisted after {max_retries} attempts, skipping chunk")
+                                    break  # Skip this chunk
+                            
+                            # Log the actual error for debugging
+                            logger.warning(f"with_structured_output failed: {str(e)}")
+                            
+                            # Fallback: try direct invoke with JSON parsing
+                            try:
+                                logger.debug(f"Trying direct invoke with JSON parsing")
+                                response = self.llm.invoke(document_prompt + "\n\nReturn the CLINs as a JSON array.")
+                                # Try to parse response content
+                                if hasattr(response, 'content'):
+                                    import json
+                                    try:
+                                        # Try to parse as JSON
+                                        result = json.loads(response.content)
+                                        if isinstance(result, list):
+                                            result = [CLINItem(**item) if isinstance(item, dict) else item for item in result]
+                                    except:
+                                        result = response.content
+                                else:
+                                    result = str(response)
+                                
+                                # Extract results from fallback response
+                                clins = []
+                                if isinstance(result, list):
+                                    clins = result
+                                elif isinstance(result, CLINItem):
+                                    clins = [result]
+                                elif isinstance(result, dict) and 'item_number' in result:
+                                    clins = [result]
+                                
+                                if clins:
+                                    logger.debug(f"Found {len(clins)} CLINs in chunk {chunk_idx + 1} (fallback method)")
+                                    all_clins.extend(clins)
+                                    break
+                            except Exception as fallback_error:
+                                logger.error(f"All extraction methods failed: {str(fallback_error)}")
+                                if attempt == max_retries - 1:
+                                    break  # Skip this chunk
                                 continue
-                            else:
-                                logger.error(f"Rate limit exceeded after {max_retries} attempts")
-                                return []
-                        
-                        # Log the actual error for debugging
-                        logger.warning(f"with_structured_output failed: {str(e)}")
-                        
-                        # Fallback: try direct invoke with JSON parsing
-                        try:
-                            logger.debug(f"Trying direct invoke with JSON parsing")
-                            response = self.llm.invoke(document_prompt + "\n\nReturn the CLINs as a JSON array.")
-                            # Try to parse response content
-                            if hasattr(response, 'content'):
-                                import json
-                                try:
-                                    # Try to parse as JSON
-                                    result = json.loads(response.content)
-                    if isinstance(result, list):
-                                        result = [CLINItem(**item) if isinstance(item, dict) else item for item in result]
-                                except:
-                                    result = response.content
-                            else:
-                                result = str(response)
-                        except Exception as fallback_error:
-                            logger.error(f"All extraction methods failed: {str(fallback_error)}")
-                            result = None
-                    
-                    # Extract results from response
-                    clins = []
-                    if isinstance(result, list):
-                        clins = result
-                    elif isinstance(result, CLINItem):
-                        clins = [result]
-                    elif isinstance(result, dict):
-                        # Check if it's a single CLINItem dict
-                        if 'item_number' in result:
-                            clins = [result]
+                            
+                    except Exception as doc_error:
+                        error_str = str(doc_error).lower()
+                        # Check if it's a rate limit or temporary error
+                        if ('429' in error_str or 'rate limit' in error_str or 'too many requests' in error_str) and attempt < max_retries - 1:
+                            wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                            logger.warning(f"Rate limit error, waiting {wait_time}s before retry {attempt + 2}/{max_retries}")
+                            time.sleep(wait_time)
+                            continue
+                        elif ('413' in error_str or 'payload too large' in error_str or 'token' in error_str or 'context_length' in error_str) and len(document_text) > 2000:
+                            # Reduce chunk size
+                            document_text = document_text[:len(document_text) // 2]
+                            logger.warning(f"Chunk too large, reducing to {len(document_text)} chars")
+                            continue
+                        elif attempt == max_retries - 1:
+                            logger.error(f"Failed to process chunk {chunk_idx + 1} after {max_retries} attempts: {str(doc_error)}")
+                            break  # Move to next chunk
                         else:
-                            # Try to find list in dict values
-                            for value in result.values():
-                                if isinstance(value, list):
-                                    clins = value
-                                    break
-                                elif isinstance(value, CLINItem):
-                                    clins = [value]
-                                    break
-                    
-                    if clins:
-                        logger.info(f"Found {len(clins)} CLINs in document")
-                    else:
-                        logger.debug("No CLINs found in document")
-                    
-                    # Success - break out of retry loop
-                    break
-                        
-                except Exception as doc_error:
-                    error_str = str(doc_error).lower()
-                    # Check if it's a rate limit or temporary error
-                    if ('429' in error_str or 'rate limit' in error_str or 'too many requests' in error_str) and attempt < max_retries - 1:
-                        wait_time = retry_delay * (attempt + 1)
-                        logger.warning(f"Rate limit error, waiting {wait_time}s before retry {attempt + 2}/{max_retries}")
-                        time.sleep(wait_time)
-                        continue
-                    elif attempt == max_retries - 1:
-                        logger.error(f"Failed to process document after {max_retries} attempts: {str(doc_error)}")
-                        return []
-                    else:
-                        logger.warning(f"Error processing document (attempt {attempt + 1}/{max_retries}): {str(doc_error)}")
-                        time.sleep(retry_delay)
-                        continue
+                            logger.warning(f"Error processing chunk {chunk_idx + 1} (attempt {attempt + 1}/{max_retries}): {str(doc_error)}")
+                            time.sleep(retry_delay)
+                            continue
+                
+                # Add delay between chunks to avoid rate limits
+                if chunk_idx < len(chunks) - 1:
+                    time.sleep(1)
+            
+            # Deduplicate CLINs by item_number
+            seen_numbers = set()
+            unique_clins = []
+            for clin in all_clins:
+                if isinstance(clin, CLINItem):
+                    item_num = clin.item_number
+                elif isinstance(clin, dict):
+                    item_num = clin.get('item_number', '')
+                else:
+                    continue
+                
+                if item_num and item_num not in seen_numbers:
+                    seen_numbers.add(item_num)
+                    unique_clins.append(clin)
+            
+            if len(all_clins) != len(unique_clins):
+                logger.info(f"Deduplicated CLINs: {len(all_clins)} -> {len(unique_clins)}")
             
             # Convert results to our format
-            if clins:
-                converted_clins = self._convert_llm_results_to_dicts(clins)
-                if len(converted_clins) != len(clins):
-                    logger.warning(f"CLIN conversion filtered out {len(clins) - len(converted_clins)} CLIN(s) (found {len(clins)}, kept {len(converted_clins)})")
+            if unique_clins:
+                converted_clins = self._convert_llm_results_to_dicts(unique_clins)
+                if len(converted_clins) != len(unique_clins):
+                    logger.warning(f"CLIN conversion filtered out {len(unique_clins) - len(converted_clins)} CLIN(s) (found {len(unique_clins)}, kept {len(converted_clins)})")
+                logger.info(f"AI extraction found {len(converted_clins)} CLINs from {len(chunks)} chunk(s)")
                 return converted_clins
             else:
+                logger.info("AI extraction found 0 CLINs")
                 return []
             
-            except Exception as e:
+        except Exception as e:
             logger.error(f"LLM extraction failed: {str(e)}")
-                logger.debug(f"Error details: {type(e).__name__}", exc_info=True)
+            logger.debug(f"Error details: {type(e).__name__}", exc_info=True)
             return []
             
     def _convert_llm_results_to_dicts(self, results: List) -> List[Dict]:
         """Convert LLM results (CLINItem objects or dicts) to our standard dict format"""
-            clins = []
+        clins = []
         if not isinstance(results, list):
             return clins
         
-                for item in results:
+        for item in results:
                     try:
                         # Handle both CLINItem objects and dicts
                         if isinstance(item, CLINItem):
@@ -776,32 +940,32 @@ DOCUMENT TEXT:
                         else:
                             continue
                         
-                # Validate CLIN number (must be valid format)
-                if not item_number:
-                    logger.debug(f"Skipping CLIN with empty item_number")
+                        # Validate CLIN number (must be valid format)
+                        if not item_number:
+                            logger.debug(f"Skipping CLIN with empty item_number")
                             continue
-                if not self._is_valid_clin_number(str(item_number)):
-                    logger.debug(f"Skipping CLIN with invalid item_number format: '{item_number}'")
+                        if not self._is_valid_clin_number(str(item_number)):
+                            logger.debug(f"Skipping CLIN with invalid item_number format: '{item_number}'")
                             continue
                         
-                # Validate description (must be readable, not corrupted)
-                if description:
-                    desc_clean = description.strip()
-                    if len(desc_clean) < 3:
-                        description = None
-                    elif not any(c.isalpha() for c in desc_clean):
-                        description = None
-                    elif re.search(r'^;[A-Z0-9<>=:]+(?:;[A-Z0-9<>=:]+)+;?$', desc_clean):
-                        description = None
-                    else:
-                        letter_count = len(re.findall(r'[a-zA-Z]', desc_clean))
-                        alnum_count = len(re.findall(r'[a-zA-Z0-9]', desc_clean))
-                        if len(desc_clean) > 10 and (letter_count < 3 or (alnum_count / len(desc_clean)) < 0.3):
-                            description = None
-                
-                # Only add if we have at least a CLIN number and some valid data
-                if item_number:
-                        clin_data = {
+                                # Validate description (must be readable, not corrupted)
+                        if description:
+                            desc_clean = description.strip()
+                            if len(desc_clean) < 3:
+                                description = None
+                            elif not any(c.isalpha() for c in desc_clean):
+                                description = None
+                            elif re.search(r'^;[A-Z0-9<>=:]+(?:;[A-Z0-9<>=:]+)+;?$', desc_clean):
+                                description = None
+                            else:
+                                letter_count = len(re.findall(r'[a-zA-Z]', desc_clean))
+                                alnum_count = len(re.findall(r'[a-zA-Z0-9]', desc_clean))
+                                if len(desc_clean) > 10 and (letter_count < 3 or (alnum_count / len(desc_clean)) < 0.3):
+                                    description = None
+                        
+                        # Only add if we have at least a CLIN number and some valid data
+                        if item_number:
+                            clin_data = {
                             'clin_number': str(item_number).strip(),
                             'base_item_number': str(base_item_number).strip() if base_item_number else None,
                             'product_description': description,
@@ -811,16 +975,16 @@ DOCUMENT TEXT:
                             'extended_price': extended_price,
                         'product_name': product_name,
                         'manufacturer_name': str(manufacturer).strip() if manufacturer else None,
-                            'part_number': str(part_number).strip() if part_number else None,
-                            'model_number': str(model_number).strip() if model_number else None,
-                        }
-                        clins.append(clin_data)
-                    
+                                'part_number': str(part_number).strip() if part_number else None,
+                                'model_number': str(model_number).strip() if model_number else None,
+                            }
+                            clins.append(clin_data)
+                        
                     except Exception as item_error:
-                logger.warning(f"Error converting LLM result item: {str(item_error)}")
+                        logger.warning(f"Error converting LLM result item: {str(item_error)}")
                         continue
-            
-            return clins
+        
+        return clins
     
     def extract_clins(self, text: str, file_path: Optional[Path] = None) -> List[Dict]:
         """
@@ -858,14 +1022,14 @@ DOCUMENT TEXT:
             doc_type = self.classify_document_type(file_path, text)
         
         logger.info(f"Using AI/LLM extraction for {doc_type} (AI-only mode)")
-            llm_clins = self._extract_clins_with_llm(text)
+        llm_clins = self._extract_clins_with_llm(text)
         
-            if llm_clins:
+        if llm_clins:
             logger.info(f"AI extraction found {len(llm_clins)} CLINs")
         else:
             logger.info("AI extraction found 0 CLINs")
         
-                return llm_clins
+        return llm_clins
         
     def _find_clin_description_in_text(self, text: str, clin_number: str) -> Optional[str]:
         """

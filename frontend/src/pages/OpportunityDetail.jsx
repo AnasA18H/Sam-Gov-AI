@@ -3,6 +3,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { opportunitiesAPI } from '../utils/api';
 import ProtectedRoute from '../components/ProtectedRoute';
 import {
@@ -22,16 +23,22 @@ import {
   HiOutlineChevronDown,
   HiOutlineChevronUp,
   HiOutlineChevronRight,
+  HiOutlineChevronLeft,
   HiOutlineTag,
   HiOutlineRefresh,
   HiOutlineDownload,
   HiOutlineSparkles,
   HiOutlineCheckCircle,
+  HiOutlineCog,
+  HiOutlineChartBar,
+  HiOutlineX,
+  HiOutlineLogout,
 } from 'react-icons/hi';
 
 const OpportunityDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const [opportunity, setOpportunity] = useState(null);
@@ -90,7 +97,14 @@ const OpportunityDetail = () => {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const pollIntervalRef = useRef(null);
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
 
   useEffect(() => {
     fetchOpportunity();
@@ -257,7 +271,7 @@ const OpportunityDetail = () => {
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="p-2 text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-2 text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
                   disabled={deleteLoading}
                   title={deleteLoading ? 'Deleting...' : 'Delete'}
                 >
@@ -272,17 +286,257 @@ const OpportunityDetail = () => {
                 </button>
                 <button
                   onClick={() => navigate('/dashboard')}
-                  className="p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  className="p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
                   title="Back to Dashboard"
                 >
                   <HiOutlineArrowLeft className="w-5 h-5" />
                 </button>
+                
+                {/* User Menu Banner */}
+                <div className="relative">
+                  <button
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    className="flex items-center space-x-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                  >
+                    <div className="flex items-center justify-center w-8 h-8 bg-[#14B8A6] text-white rounded-full text-xs font-semibold">
+                      {user?.full_name ? user.full_name.charAt(0).toUpperCase() : user?.email?.charAt(0).toUpperCase() || 'U'}
+                    </div>
+                    <div className="hidden sm:block text-left">
+                      <div className="text-xs font-medium text-gray-900">
+                        {user?.full_name || 'User'}
+                      </div>
+                      <div className="text-xs text-gray-500 truncate max-w-[120px]">
+                        {user?.email}
+                      </div>
+                    </div>
+                    {userMenuOpen ? (
+                      <HiOutlineChevronUp className="w-4 h-4 text-gray-600 hidden sm:block" />
+                    ) : (
+                      <HiOutlineChevronDown className="w-4 h-4 text-gray-600 hidden sm:block" />
+                    )}
+                  </button>
+
+                  {/* Dropdown Menu */}
+                  {userMenuOpen && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-10" 
+                        onClick={() => setUserMenuOpen(false)}
+                      ></div>
+                      <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                        <div className="px-4 py-3 border-b border-gray-200 sm:hidden">
+                          <div className="text-sm font-medium text-gray-900">
+                            {user?.full_name || 'User'}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate">
+                            {user?.email}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            navigate('/dashboard');
+                          }}
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
+                        >
+                          <HiOutlineArrowLeft className="w-4 h-4" />
+                          <span>Dashboard</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            // Add profile/settings navigation here if needed
+                          }}
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
+                        >
+                          <HiOutlineUser className="w-4 h-4" />
+                          <span>Profile</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            // Add settings navigation here if needed
+                          }}
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
+                        >
+                          <HiOutlineCog className="w-4 h-4" />
+                          <span>Settings</span>
+                        </button>
+                        <div className="border-t border-gray-200 my-1"></div>
+                        <button
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            handleLogout();
+                          }}
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors focus:outline-none focus:bg-red-50"
+                        >
+                          <HiOutlineLogout className="w-4 h-4" />
+                          <span>Logout</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         </nav>
 
         {/* Main Content */}
+        <div className="relative">
+          {/* Floating Left Side Utilities Panel */}
+          <div className={`fixed left-6 top-6 bottom-6 z-40 bg-white border-2 border-[#14B8A6] rounded-xl shadow-lg transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
+            sidebarOpen ? 'w-80' : 'w-20'
+          }`}>
+            {/* Toggle Button / Header */}
+            <div 
+              className="bg-[#14B8A6] h-14 flex items-center justify-between cursor-pointer hover:bg-[#0D9488] transition-colors rounded-t-lg flex-shrink-0 shadow-sm"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              <div className="flex items-center space-x-2 px-3 min-w-0">
+                <HiOutlineCog className="w-5 h-5 text-white flex-shrink-0" />
+                {sidebarOpen && (
+                  <h3 className="text-sm font-semibold text-white transition-opacity duration-300 whitespace-nowrap">Utilities</h3>
+                )}
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSidebarOpen(!sidebarOpen);
+                }}
+                className="p-2 text-white hover:bg-[#0D9488] rounded-md transition-colors flex-shrink-0 mr-1 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#14B8A6]"
+                title={sidebarOpen ? 'Collapse' : 'Expand'}
+              >
+                {sidebarOpen ? (
+                  <HiOutlineChevronLeft className="w-5 h-5 transition-transform duration-300" />
+                ) : (
+                  <HiOutlineChevronRight className="w-5 h-5 transition-transform duration-300" />
+                )}
+              </button>
+            </div>
+
+            {/* Collapsed View - Icon Buttons */}
+            {!sidebarOpen && (
+              <div className="flex-1 flex flex-col items-center justify-start py-4 space-y-2 overflow-y-auto">
+                <button
+                  onClick={() => navigate('/dashboard')}
+                  className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                  title="Back to Dashboard"
+                >
+                  <HiOutlineArrowLeft className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={fetchOpportunity}
+                  disabled={loading}
+                  className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                  title="Refresh"
+                >
+                  <HiOutlineRefresh className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+                <div className="h-px w-8 bg-gray-200 my-1"></div>
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={deleteLoading}
+                  className="p-2.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                  title="Delete"
+                >
+                  <HiOutlineTrash className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+
+            {/* Expanded View - Full Content */}
+            <div className={`flex-1 overflow-hidden transition-all duration-300 ease-in-out ${
+              sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none absolute inset-0'
+            }`}>
+              <div className="px-4 py-5 space-y-6 h-full overflow-y-auto custom-scrollbar">
+                {/* Quick Actions */}
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3">Quick Actions</h4>
+                  <div className="space-y-2.5">
+                    <button
+                      onClick={() => navigate('/dashboard')}
+                      className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-300 hover:border-gray-400 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                    >
+                      <HiOutlineArrowLeft className="w-4 h-4 mr-2" />
+                      Back to Dashboard
+                    </button>
+                    <button
+                      onClick={fetchOpportunity}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-300 hover:border-gray-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                    >
+                      <HiOutlineRefresh className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      disabled={deleteLoading}
+                      className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                    >
+                      <HiOutlineTrash className="w-4 h-4 mr-2" />
+                      Delete Opportunity
+                    </button>
+                  </div>
+                </div>
+
+                {/* Summary */}
+                {opportunity && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineChartBar className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                      Summary
+                    </h4>
+                    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700">Status</span>
+                        <span className={`text-xs font-bold px-2 py-1 rounded ${
+                          opportunity.status === 'completed' ? 'bg-green-100 text-green-700' :
+                          opportunity.status === 'processing' ? 'bg-yellow-100 text-yellow-700' :
+                          opportunity.status === 'failed' ? 'bg-red-100 text-red-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {opportunity.status}
+                        </span>
+                      </div>
+                      <div className="h-px bg-gray-200"></div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700">CLINs</span>
+                        <span className="text-sm font-bold text-gray-900">{opportunity.clins?.length || 0}</span>
+                      </div>
+                      <div className="h-px bg-gray-200"></div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700">Documents</span>
+                        <span className="text-sm font-bold text-gray-900">{opportunity.documents?.length || 0}</span>
+                      </div>
+                      <div className="h-px bg-gray-200"></div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700">Deadlines</span>
+                        <span className="text-sm font-bold text-gray-900">{opportunity.deadlines?.length || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Navigation */}
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3">Navigation</h4>
+                  <div className="space-y-2 text-sm text-gray-600 bg-gray-50 rounded-lg p-3 border border-gray-200">
+                    <p className="text-xs leading-relaxed">
+                      <span className="font-medium text-gray-700">Scroll:</span> View all sections of this opportunity.
+                    </p>
+                    <p className="text-xs leading-relaxed">
+                      <span className="font-medium text-gray-700">CLINs:</span> View extracted contract line items.
+                    </p>
+                    <p className="text-xs leading-relaxed">
+                      <span className="font-medium text-gray-700">Documents:</span> Access all downloaded files.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
         <main className="max-w-7xl mx-auto py-4 sm:px-6 lg:px-8">
           <div className="px-4 py-4 sm:px-0">
             {/* Title Section */}
@@ -331,7 +585,7 @@ const OpportunityDetail = () => {
                   <div className="bg-white rounded-lg border-2 border-blue-400 shadow-sm p-4">
                     <div className="flex items-start space-x-3">
                       <div className="relative flex-shrink-0">
-                        <HiOutlineSparkles className="w-5 h-5 text-blue-600 animate-pulse" />
+                        <HiOutlineSparkles className="w-5 h-5 text-blue-600" />
                       </div>
                       <div className="flex-1 space-y-4">
                         <div>
@@ -344,12 +598,12 @@ const OpportunityDetail = () => {
                               <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
                                 opportunity.title || opportunity.description || opportunity.deadlines?.length > 0
                                   ? 'bg-green-100 text-green-600' 
-                                  : 'bg-blue-100 text-blue-600 animate-pulse'
+                                  : 'bg-blue-100 text-blue-600'
                               }`}>
                                 {opportunity.title || opportunity.description || opportunity.deadlines?.length > 0 ? (
                                   <HiOutlineCheckCircle className="w-4 h-4" />
                                 ) : (
-                                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
+                                  <HiOutlineGlobe className="w-4 h-4" />
                                 )}
                             </div>
                               <div className="flex-1 min-w-0">
@@ -370,15 +624,15 @@ const OpportunityDetail = () => {
                                 opportunity.documents && opportunity.documents.length > 0 
                                   ? 'bg-green-100 text-green-600' 
                                   : (opportunity.title || opportunity.description) && opportunity.status === 'processing'
-                                    ? 'bg-blue-100 text-blue-600 animate-pulse'
+                                    ? 'bg-blue-100 text-blue-600'
                                     : 'bg-gray-100 text-gray-400'
                               }`}>
                                 {opportunity.documents && opportunity.documents.length > 0 ? (
                                   <HiOutlineCheckCircle className="w-4 h-4" />
                                 ) : (opportunity.title || opportunity.description) && opportunity.status === 'processing' ? (
-                                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
+                                  <HiOutlineDownload className="w-4 h-4" />
                                 ) : (
-                                  <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+                                  <HiOutlineDownload className="w-4 h-4 text-gray-400" />
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
@@ -403,7 +657,7 @@ const OpportunityDetail = () => {
                             <div className="flex items-start space-x-3">
                               <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
                                 opportunity.documents && opportunity.documents.length > 0 && opportunity.status === 'processing' && !opportunity.clins
-                                  ? 'bg-blue-100 text-blue-600 animate-pulse'
+                                  ? 'bg-blue-100 text-blue-600'
                                   : opportunity.clins && opportunity.clins.length > 0
                                     ? 'bg-green-100 text-green-600'
                                     : 'bg-gray-100 text-gray-400'
@@ -411,9 +665,9 @@ const OpportunityDetail = () => {
                                 {opportunity.clins && opportunity.clins.length > 0 ? (
                                   <HiOutlineCheckCircle className="w-4 h-4" />
                                 ) : opportunity.documents && opportunity.documents.length > 0 && opportunity.status === 'processing' && !opportunity.clins ? (
-                                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
+                                  <HiOutlineDocumentText className="w-4 h-4" />
                                 ) : (
-                                  <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+                                  <HiOutlineDocumentText className="w-4 h-4 text-gray-400" />
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
@@ -446,20 +700,9 @@ const OpportunityDetail = () => {
                                 {opportunity.clins && opportunity.clins.length > 0 ? (
                                   <HiOutlineCheckCircle className="w-4 h-4" />
                                 ) : opportunity.documents && opportunity.documents.length > 0 && opportunity.status === 'processing' ? (
-                                  <div className="relative flex items-center justify-center">
-                                    <svg 
-                                      className="w-4 h-4 text-red-500" 
-                                      fill="currentColor" 
-                                      viewBox="0 0 24 24"
-                                      style={{
-                                        animation: 'heartbeat 1.5s ease-in-out infinite'
-                                      }}
-                                    >
-                                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                                    </svg>
-                                  </div>
+                                  <HiOutlineSparkles className="w-4 h-4" />
                                 ) : (
-                                  <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+                                  <HiOutlineSparkles className="w-4 h-4 text-gray-400" />
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
@@ -481,7 +724,7 @@ const OpportunityDetail = () => {
                                   <div className="mt-2">
                                     <div className="w-full bg-gray-200 rounded-full h-1.5">
                                       <div 
-                                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-500 animate-pulse"
+                                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
                                         style={{ width: '75%' }}
                                       ></div>
                                     </div>
@@ -500,7 +743,7 @@ const OpportunityDetail = () => {
                                 {opportunity.status === 'completed' ? (
                                   <HiOutlineCheckCircle className="w-4 h-4" />
                                 ) : (
-                                  <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+                                  <HiOutlineCheckCircle className="w-4 h-4 text-gray-400" />
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
@@ -684,90 +927,138 @@ const OpportunityDetail = () => {
                       {opportunity.clins.map((clin) => (
                         <div
                           key={clin.id}
-                          className="p-4 bg-gray-50 rounded-lg border-2 border-gray-200 hover:border-blue-300 transition-colors"
+                          className="bg-white rounded-lg border-2 border-gray-200 hover:border-[#14B8A6] hover:shadow-md transition-all duration-200 overflow-hidden"
                         >
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center space-x-2 flex-wrap">
-                              <h3 className="text-sm font-semibold text-gray-900">
-                                CLIN {clin.clin_number}
-                              </h3>
-                              {clin.base_item_number && (
-                                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                                  Base Item: {clin.base_item_number}
-                                </span>
-                              )}
-                              {clin.clin_name && (
-                                <span className="text-xs text-gray-600">- {clin.clin_name}</span>
+                          {/* CLIN Header */}
+                          <div className="bg-gradient-to-r from-[#14B8A6] to-[#0D9488] px-5 py-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <div className="flex items-center space-x-3">
+                                <div className="bg-white/20 backdrop-blur-sm rounded-lg px-3 py-1.5">
+                                  <span className="text-white font-bold text-lg tracking-wide">
+                                    CLIN {clin.clin_number}
+                                  </span>
+                                </div>
+                                {clin.base_item_number && (
+                                  <span className="text-xs text-white/90 bg-white/10 px-2.5 py-1 rounded-md font-medium">
+                                    Base: {clin.base_item_number}
+                                  </span>
+                                )}
+                              </div>
+                              {clin.extended_price && (
+                                <div className="text-right">
+                                  <div className="text-xs text-white/80 font-medium">Total Price</div>
+                                  <div className="text-white font-bold text-lg">
+                                    ${clin.extended_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </div>
+                                </div>
                               )}
                             </div>
+                            {clin.clin_name && (
+                              <div className="mt-2 text-sm text-white/95 font-medium">
+                                {clin.clin_name}
+                              </div>
+                            )}
                           </div>
 
-                          <div className="space-y-3">
-                            {/* Product Details */}
-                            {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity || clin.contract_type || clin.extended_price) && (
-                              <div className="space-y-2">
-                                <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Product Details</h4>
-                                <div className="pl-2 space-y-1.5 text-sm text-gray-700">
+                          {/* CLIN Content */}
+                          <div className="p-5 space-y-4">
+                            {/* Product Details Section */}
+                            {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity || clin.contract_type) && (
+                              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                <div className="flex items-center space-x-2 mb-3">
+                                  <HiOutlineSparkles className="w-4 h-4 text-[#14B8A6]" />
+                                  <h4 className="text-sm font-semibold text-gray-900">Product Details</h4>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 text-sm">
                                   {clin.product_name && (
-                                    <div><span className="font-medium">Name:</span> {clin.product_name}</div>
-                                  )}
-                                  {clin.product_description && (
-                                    <div className="text-xs text-gray-600 whitespace-pre-wrap"><span className="font-medium">Supplies/Services:</span> {clin.product_description}</div>
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium min-w-[110px] flex-shrink-0">Name:</span>
+                                      <span className="text-gray-900 font-semibold">{clin.product_name}</span>
+                                    </div>
                                   )}
                                   {clin.manufacturer_name && (
-                                    <div><span className="font-medium">Manufacturer:</span> {clin.manufacturer_name}</div>
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium min-w-[110px] flex-shrink-0">Manufacturer:</span>
+                                      <span className="text-gray-900">{clin.manufacturer_name}</span>
+                                    </div>
                                   )}
-                                  {(clin.part_number || clin.model_number) && (
-                                    <div className="flex items-center space-x-3">
-                                      {clin.part_number && (
-                                        <span><span className="font-medium">Part #:</span> {clin.part_number}</span>
-                                      )}
-                                      {clin.model_number && (
-                                        <span><span className="font-medium">Model #:</span> {clin.model_number}</span>
-                                      )}
+                                  {clin.part_number && (
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium min-w-[110px] flex-shrink-0">Part #:</span>
+                                      <span className="text-gray-900 font-mono text-xs">{clin.part_number}</span>
+                                    </div>
+                                  )}
+                                  {clin.model_number && (
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium min-w-[110px] flex-shrink-0">Model #:</span>
+                                      <span className="text-gray-900 font-mono text-xs">{clin.model_number}</span>
                                     </div>
                                   )}
                                   {clin.quantity && (
-                                    <div>
-                                      <span className="font-medium">Quantity:</span> {clin.quantity}
-                                      {clin.unit_of_measure && ` ${clin.unit_of_measure}`}
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium min-w-[110px] flex-shrink-0">Quantity:</span>
+                                      <span className="text-gray-900 font-semibold">
+                                        {clin.quantity}
+                                        {clin.unit_of_measure && (
+                                          <span className="text-gray-600 font-normal ml-1">{clin.unit_of_measure}</span>
+                                        )}
+                                      </span>
                                     </div>
                                   )}
                                   {clin.contract_type && (
-                                    <div>
-                                      <span className="font-medium">Contract Type:</span> {clin.contract_type}
-                                    </div>
-                                  )}
-                                  {clin.extended_price && (
-                                    <div>
-                                      <span className="font-medium">Extended Price:</span> ${clin.extended_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium min-w-[110px] flex-shrink-0">Contract Type:</span>
+                                      <span className="text-gray-900">{clin.contract_type}</span>
                                     </div>
                                   )}
                                 </div>
+                                {clin.product_description && (
+                                  <div className="mt-3 pt-3 border-t border-gray-200">
+                                    <div className="text-xs text-gray-500 font-medium mb-1.5">Supplies/Services:</div>
+                                    <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-gray-200 italic">
+                                      {clin.product_description}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
 
-                            {/* Service Details */}
+                            {/* Service Details Section */}
                             {(clin.service_description || clin.scope_of_work || clin.timeline || clin.service_requirements) && (
-                              <div className="space-y-2">
-                                <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Service Details</h4>
-                                <div className="pl-2 space-y-1.5 text-sm text-gray-700">
+                              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                                <div className="flex items-center space-x-2 mb-3">
+                                  <HiOutlineDocumentText className="w-4 h-4 text-blue-600" />
+                                  <h4 className="text-sm font-semibold text-gray-900">Service Details</h4>
+                                </div>
+                                <div className="space-y-3 text-sm">
                                   {clin.service_description && (
-                                    <div className="text-xs text-gray-600 whitespace-pre-wrap">{clin.service_description}</div>
+                                    <div>
+                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Description:</div>
+                                      <div className="text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-blue-200">
+                                        {clin.service_description}
+                                      </div>
+                                    </div>
                                   )}
                                   {clin.scope_of_work && (
                                     <div>
-                                      <span className="font-medium">Scope:</span> 
-                                      <div className="text-xs text-gray-600 whitespace-pre-wrap mt-0.5">{clin.scope_of_work}</div>
+                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Scope of Work:</div>
+                                      <div className="text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-blue-200">
+                                        {clin.scope_of_work}
+                                      </div>
                                     </div>
                                   )}
                                   {clin.timeline && (
-                                    <div><span className="font-medium">Timeline:</span> {clin.timeline}</div>
+                                    <div className="flex items-start space-x-2">
+                                      <span className="text-gray-500 font-medium min-w-[100px]">Timeline:</span>
+                                      <span className="text-gray-900">{clin.timeline}</span>
+                                    </div>
                                   )}
                                   {clin.service_requirements && (
                                     <div>
-                                      <span className="font-medium">Requirements:</span>
-                                      <div className="text-xs text-gray-600 whitespace-pre-wrap mt-0.5">{clin.service_requirements}</div>
+                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Requirements:</div>
+                                      <div className="text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-blue-200">
+                                        {clin.service_requirements}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
@@ -860,7 +1151,7 @@ const OpportunityDetail = () => {
                       {opportunity.documents.map((doc) => (
                         <div
                           key={doc.id}
-                          className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border-2 border-gray-200 hover:bg-gray-100 transition-colors group"
+                          className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border-2 border-gray-200 hover:bg-gray-100 hover:border-gray-300 transition-all duration-200 group focus-within:ring-2 focus-within:ring-[#14B8A6] focus-within:ring-offset-2"
                         >
                           <div className="flex items-center space-x-2.5 min-w-0 flex-1">
                             {getFileIcon(doc.file_type)}
@@ -875,7 +1166,7 @@ const OpportunityDetail = () => {
                           </div>
                           <button
                             onClick={() => handleViewDocument(doc.id, doc.file_type)}
-                            className="ml-3 p-2 text-[#14B8A6] bg-white border-2 border-[#14B8A6] rounded-lg hover:bg-teal-50 transition-colors flex-shrink-0"
+                            className="ml-3 p-2 text-[#14B8A6] bg-white border-2 border-[#14B8A6] rounded-lg hover:bg-teal-50 transition-colors flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
                             title="View Document"
                           >
                             <HiOutlineDocumentText className="w-4 h-4" />
@@ -973,6 +1264,7 @@ const OpportunityDetail = () => {
             </div>
           </div>
         </main>
+        </div>
 
         {/* Delete Confirmation Modal */}
         {showDeleteConfirm && (
