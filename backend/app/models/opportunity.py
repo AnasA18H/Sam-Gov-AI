@@ -45,6 +45,10 @@ class Opportunity(Base):
     status = Column(String(50), default="pending", nullable=False)  # pending, processing, completed, failed
     error_message = Column(Text, nullable=True)
     
+    # Analysis flags
+    enable_document_analysis = Column(String(10), default="false", nullable=False)  # "true" or "false" as string
+    enable_clin_extraction = Column(String(10), default="false", nullable=False)  # "true" or "false" as string
+    
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

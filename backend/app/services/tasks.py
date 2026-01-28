@@ -72,23 +72,7 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                 logger.info(f"Updated opportunity title: {metadata['title'][:50]}")
             
             if metadata.get('notice_id'):
-                new_notice_id = metadata['notice_id']
-                
-                # Check if this notice_id already exists for another opportunity
-                existing_notice = db.query(Opportunity).filter(
-                    Opportunity.notice_id == new_notice_id,
-                    Opportunity.id != opportunity_id
-                ).first()
-                
-                if existing_notice:
-                    logger.warning(f"Skipping notice_id update: {new_notice_id} already exists for opportunity {existing_notice.id}")
-                elif not opportunity.notice_id or opportunity.notice_id != new_notice_id:
-                    opportunity.notice_id = new_notice_id
-                    metadata_updated = True
-                    logger.info(f"Updated opportunity notice_id: {new_notice_id}")
-                else:
-                    logger.info(f"Opportunity {opportunity_id} already has notice_id={opportunity.notice_id}, no update needed")
-                
+                opportunity.notice_id = metadata['notice_id']
                 # Only update sam_gov_id if not already set (for backward compatibility)
                 # Don't update if it's already set to avoid unique constraint violations
                 new_sam_gov_id = metadata['notice_id']
@@ -100,12 +84,13 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                     ).first()
                     if not existing:
                         opportunity.sam_gov_id = new_sam_gov_id
-                        metadata_updated = True
                         logger.info(f"Updated opportunity sam_gov_id: {new_sam_gov_id}")
                     else:
                         logger.warning(f"Skipping sam_gov_id update: {new_sam_gov_id} already exists for opportunity {existing.id}")
                 elif opportunity.sam_gov_id != new_sam_gov_id:
                     logger.warning(f"Opportunity {opportunity_id} already has sam_gov_id={opportunity.sam_gov_id}, not updating to {new_sam_gov_id}")
+                metadata_updated = True
+                logger.info(f"Updated opportunity notice_id: {metadata['notice_id']}")
             
             if metadata.get('description'):
                 opportunity.description = metadata['description']
@@ -238,7 +223,10 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             logger.info(f"Successfully scraped opportunity {opportunity_id}")
             
             # Trigger document analysis (will set status to "completed" when done)
-            analyze_documents.delay(opportunity_id)
+            # Check if analysis is enabled (stored in opportunity metadata)
+            enable_document_analysis = opportunity.enable_document_analysis.lower() == "true" if opportunity.enable_document_analysis else False
+            enable_clin_extraction = opportunity.enable_clin_extraction.lower() == "true" if opportunity.enable_clin_extraction else False
+            analyze_documents.delay(opportunity_id, enable_document_analysis, enable_clin_extraction)
             
             return {
                 "status": "success",
@@ -262,13 +250,15 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
 
 
 @celery_app.task(name="analyze_documents")
-def analyze_documents(opportunity_id: int):
+def analyze_documents(opportunity_id: int, enable_document_analysis: bool = False, enable_clin_extraction: bool = False):
     """
     Background task to analyze downloaded documents
     This will extract CLINs, classify solicitation type, etc.
     
     Args:
         opportunity_id: ID of the opportunity to analyze
+        enable_document_analysis: Whether to run document analysis (text extraction, classification, etc.)
+        enable_clin_extraction: Whether to extract CLINs from documents
     """
     db = SessionLocal()
     try:
@@ -276,6 +266,11 @@ def analyze_documents(opportunity_id: int):
         if not opportunity:
             logger.error(f"Opportunity {opportunity_id} not found")
             return {"status": "error", "message": "Opportunity not found"}
+        
+        # Check if document analysis is enabled
+        if not enable_document_analysis:
+            logger.info(f"Document analysis is DISABLED for opportunity {opportunity_id} - skipping analysis")
+            return {"status": "success", "message": "Document analysis disabled"}
         
         # Get all documents for this opportunity
         documents = db.query(Document).filter(Document.opportunity_id == opportunity_id).all()
@@ -294,7 +289,8 @@ def analyze_documents(opportunity_id: int):
         clins_found = []
         deadlines_found = []
         
-        # 1. Extract text from all documents sequentially (one at a time)
+        # 1. Extract text from all documents first (for batch processing)
+        document_texts = []  # List of (doc_name, text) tuples for batch CLIN extraction
         import time
         for doc_idx, doc in enumerate(documents, 1):
             # Check file type - also check extension for OTHER types
@@ -351,35 +347,9 @@ def analyze_documents(opportunity_id: int):
                     except Exception as debug_error:
                         logger.warning(f"Failed to save debug extract: {str(debug_error)}")
                     
-                    # Only extract CLINs from non-Q&A documents (solicitation, SOW, technical docs)
+                    # Collect documents for batch CLIN extraction (skip Q&A documents)
                     if not is_qa_document:
-                        # Use AI-only extraction (no table parsing, no regex fallback)
-                        doc_clins = analyzer.extract_clins(text, file_path=doc_file_path if doc.file_type == DocumentType.PDF else None)
-                        clins_found.extend(doc_clins)
-                        
-                        # Add small delay after processing each document to avoid rate limits
-                        if doc_idx < len(documents):
-                            time.sleep(1)  # 1 second delay between documents
-                        
-                        # DEBUG: Save CLIN extraction results
-                        if doc_clins:
-                            try:
-                                clin_debug_file = debug_dir / f"{doc.id}_{doc.file_name}_clins.txt"
-                                with open(clin_debug_file, 'w', encoding='utf-8') as f:
-                                    f.write(f"CLINs Extracted from: {doc.file_name}\n")
-                                    f.write(f"Total CLINs: {len(doc_clins)}\n")
-                                    f.write("=" * 80 + "\n")
-                                    for i, clin in enumerate(doc_clins, 1):
-                                        f.write(f"\nCLIN {i}:\n")
-                                        f.write("-" * 80 + "\n")
-                                        for key, value in clin.items():
-                                            if value:
-                                                f.write(f"{key}: {value}\n")
-                                logger.info(f"DEBUG: Saved CLIN extraction results to {clin_debug_file}")
-                            except Exception as clin_debug_error:
-                                logger.warning(f"Failed to save CLIN debug extract: {str(clin_debug_error)}")
-                    else:
-                        logger.info(f"Skipping CLIN extraction from Q&A document: {doc.file_name}")
+                        document_texts.append((doc.file_name, text))
                     
                     # Extract deadlines from this document
                     doc_deadlines = analyzer.extract_deadlines(text)
@@ -389,6 +359,49 @@ def analyze_documents(opportunity_id: int):
             except Exception as e:
                 logger.error(f"Error extracting text from {doc.file_name}: {str(e)}", exc_info=True)
                 continue
+        
+        # 2. Extract CLINs from all documents in batch (single LLM call)
+        if enable_clin_extraction and document_texts:
+            logger.info(f"Batch extracting CLINs from {len(document_texts)} documents in a single LLM call")
+            try:
+                batch_clins = analyzer.extract_clins_batch(document_texts)
+                clins_found.extend(batch_clins)
+                logger.info(f"Batch extraction found {len(batch_clins)} CLINs")
+                
+                # DEBUG: Save batch CLIN extraction results
+                try:
+                    debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
+                    debug_dir.mkdir(parents=True, exist_ok=True)
+                    batch_clin_debug_file = debug_dir / "batch_clins.txt"
+                    with open(batch_clin_debug_file, 'w', encoding='utf-8') as f:
+                        f.write(f"Batch CLIN Extraction Results\n")
+                        f.write(f"Total Documents Processed: {len(document_texts)}\n")
+                        f.write(f"Total CLINs Found: {len(batch_clins)}\n")
+                        f.write("=" * 80 + "\n")
+                        for i, clin in enumerate(batch_clins, 1):
+                            f.write(f"\nCLIN {i}:\n")
+                            f.write("-" * 80 + "\n")
+                            for key, value in clin.items():
+                                if value:
+                                    f.write(f"{key}: {value}\n")
+                    logger.info(f"DEBUG: Saved batch CLIN extraction results to {batch_clin_debug_file}")
+                except Exception as batch_debug_error:
+                    logger.warning(f"Failed to save batch CLIN debug extract: {str(batch_debug_error)}")
+            except Exception as batch_error:
+                logger.error(f"Batch CLIN extraction failed: {str(batch_error)}", exc_info=True)
+                # Fallback: process documents individually if batch fails
+                logger.info("Falling back to individual document processing")
+                for doc_name, doc_text in document_texts:
+                    try:
+                        doc_clins = analyzer.extract_clins(doc_text)
+                        clins_found.extend(doc_clins)
+                    except Exception as fallback_error:
+                        logger.warning(f"Failed to extract CLINs from {doc_name}: {str(fallback_error)}")
+        else:
+            if not enable_clin_extraction:
+                logger.info("CLIN extraction is DISABLED - skipping")
+            elif not document_texts:
+                logger.info("No document texts available for CLIN extraction")
         
         combined_text = "\n\n".join(all_text)
         
@@ -401,7 +414,7 @@ def analyze_documents(opportunity_id: int):
                 "message": "No text extracted from documents"
             }
         
-        # 2. Classify solicitation type (product/service/hybrid)
+        # 3. Classify solicitation type (product/service/hybrid)
         logger.info("Classifying solicitation type...")
         classification, confidence = analyzer.classify_solicitation_type(
             text=combined_text,
@@ -413,7 +426,7 @@ def analyze_documents(opportunity_id: int):
         opportunity.classification_confidence = f"{confidence:.2f}"
         logger.info(f"Classification: {classification.value}, confidence: {confidence:.2f}")
         
-        # 3. Store CLINs in database
+        # 4. Store CLINs in database
         logger.info(f"Storing {len(clins_found)} CLINs...")
         for clin_data in clins_found:
             # Check if CLIN already exists for this opportunity

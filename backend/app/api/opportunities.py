@@ -32,6 +32,8 @@ router = APIRouter(prefix="/opportunities", tags=["opportunities"])
 async def create_opportunity(
     sam_gov_url: str = Form(..., description="SAM.gov opportunity URL"),
     files: Optional[List[UploadFile]] = File(None, description="Optional additional documents"),
+    enable_document_analysis: Optional[str] = Form("false", description="Enable document analysis (true/false)"),
+    enable_clin_extraction: Optional[str] = Form("false", description="Enable CLIN extraction (true/false)"),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -51,7 +53,9 @@ async def create_opportunity(
     new_opportunity = Opportunity(
         user_id=current_user.id,
         sam_gov_url=sam_gov_url,
-        status="pending"
+        status="pending",
+        enable_document_analysis=enable_document_analysis.lower() if enable_document_analysis else "false",
+        enable_clin_extraction=enable_clin_extraction.lower() if enable_clin_extraction else "false"
     )
     
     db.add(new_opportunity)

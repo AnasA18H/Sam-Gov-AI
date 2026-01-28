@@ -20,7 +20,17 @@ const Analyze = () => {
   const [files, setFiles] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [enableDocumentAnalysis, setEnableDocumentAnalysis] = useState(false);
+  const [enableClinExtraction, setEnableClinExtraction] = useState(false);
   const navigate = useNavigate();
+
+  // Auto-disable CLIN extraction if document analysis is disabled
+  const handleDocumentAnalysisToggle = (enabled) => {
+    setEnableDocumentAnalysis(enabled);
+    if (!enabled) {
+      setEnableClinExtraction(false);
+    }
+  };
 
   const handleFileChange = (e) => {
     const selectedFiles = Array.from(e.target.files);
@@ -49,6 +59,8 @@ const Analyze = () => {
       // Create FormData for multipart/form-data request (to support file uploads)
       const formData = new FormData();
       formData.append('sam_gov_url', samGovUrl);
+      formData.append('enable_document_analysis', enableDocumentAnalysis ? 'true' : 'false');
+      formData.append('enable_clin_extraction', enableClinExtraction ? 'true' : 'false');
       
       // Add files if any selected
       if (files && files.length > 0) {
@@ -228,6 +240,77 @@ const Analyze = () => {
                   <p className="mt-2 text-xs text-gray-500">
                     Upload additional PDF or Word documents related to this solicitation
                   </p>
+                </div>
+
+                {/* Analysis Options */}
+                <div className="space-y-4 pt-4 border-t border-gray-200">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                      Analysis Options
+                    </label>
+                    <div className="space-y-3">
+                      {/* Document Analysis Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium text-gray-900">Document Analysis</span>
+                            <span className="text-xs text-gray-500">(Text extraction, classification)</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Extract text from documents and classify solicitation type
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDocumentAnalysisToggle(!enableDocumentAnalysis)}
+                          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2 ${
+                            enableDocumentAnalysis ? 'bg-[#14B8A6]' : 'bg-gray-300'
+                          }`}
+                          role="switch"
+                          aria-checked={enableDocumentAnalysis}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              enableDocumentAnalysis ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {/* CLIN Extraction Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium text-gray-900">CLIN Extraction</span>
+                            <span className="text-xs text-gray-500">(Requires Document Analysis)</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Extract Contract Line Item Numbers using AI (Claude/Groq)
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEnableClinExtraction(!enableClinExtraction)}
+                          disabled={!enableDocumentAnalysis}
+                          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2 ${
+                            enableClinExtraction && enableDocumentAnalysis ? 'bg-[#14B8A6]' : 'bg-gray-300'
+                          } ${!enableDocumentAnalysis ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          role="switch"
+                          aria-checked={enableClinExtraction}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              enableClinExtraction && enableDocumentAnalysis ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-xs text-gray-500">
+                      <strong>Note:</strong> Document Analysis must be enabled for CLIN Extraction to work. 
+                      Disable both to test scraping only.
+                    </p>
+                  </div>
                 </div>
 
                 {/* Action Buttons */}
