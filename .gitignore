@@ -138,6 +138,13 @@ Desktop.ini
 SAM.gov_files/
 SAM.gov.html
 
+# Google Cloud Service Account Keys (NEVER commit these!)
+extras/*.json
+extras/*-*.json
+*service*account*.json
+*service*accout*.txt
+service accout.txt
+
 # Images (root level - ignore, but allow in frontend/public/assets/)
 cover.png
 Login.jpg

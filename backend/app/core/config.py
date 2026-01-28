@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     SENTRY_DSN: str = ""
     
     # Anthropic / LLM (using Claude models)
-    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", """")
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")  # Claude 3 Haiku model
     
     # Groq / LLM Fallback (using Groq models)
