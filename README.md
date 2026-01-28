@@ -28,8 +28,10 @@
 |------------|-------------|
 | **Automated Scraping** | Extracts data directly from SAM.gov opportunity pages using Playwright |
 | **Hybrid Document Analysis** | Table parsing for structured forms (SF1449, SF30) + LLM extraction for unstructured text (SOW, amendments) |
-| **AI Classification** | Groq-powered Llama models classify solicitations as Product/Service/Both with confidence scores |
-| **CLIN Extraction** | Intelligent extraction of Contract Line Item Numbers with full product/service details |
+| **AI Classification** | Claude (Haiku) + Groq (Llama 3.1) powered classification of solicitations as Product/Service/Both with confidence scores |
+| **CLIN Extraction** | Intelligent extraction of Contract Line Item Numbers with full product/service details (Claude primary, Groq fallback) |
+| **Smart Text Extraction** | Google Document AI for scanned PDFs, pytesseract OCR fallback, pdfplumber for text-based PDFs |
+| **Configurable Analysis** | Enable/disable document analysis and CLIN extraction via UI toggles (disabled by default for testing) |
 | **Deadline Tracking** | Automated deadline extraction with timezone support from pages and documents |
 | **Contact Management** | Automatic extraction and display of primary/alternative contacts |
 
@@ -64,14 +66,19 @@
 <summary><strong>Advanced Document Analysis</strong></summary>
 
 - **Hybrid Extraction Approach**:
-  - Table parsing for structured forms (SF1449, SF30) using camelot-py/pdfplumber
-  - LLM-powered extraction using Groq (Llama 3.1-8B) for unstructured text (SOW, amendments)
+  - Table parsing for structured forms (SF1449, SF30) using pdfplumber
+  - LLM-powered extraction using Claude 3 Haiku (primary) + Groq Llama 3.1 (fallback) for unstructured text (SOW, amendments)
   - Regex fallback for edge cases
-- Text extraction from PDF, Word, and Excel documents
+- **Smart Text Extraction**:
+  - Google Document AI for high-quality OCR on scanned PDFs
+  - pytesseract OCR with image preprocessing as fallback
+  - pdfplumber for text-based PDFs
+  - Support for PDF, Word, Excel, PowerPoint, Images, RTF, Markdown
 - AI-powered classification (Product/Service/Both) with confidence scoring
-- CLIN extraction with product/service details, quantities, part numbers
+- CLIN extraction with product/service details, quantities, part numbers (Claude primary, Groq fallback)
 - Deadline extraction from documents (complements page metadata)
 - Optional file uploads with SAM.gov URL analysis
+- **Configurable Analysis**: Enable/disable document analysis and CLIN extraction via UI (disabled by default)
 
 </details>
 
@@ -143,10 +150,16 @@
 
 | Library | Purpose |
 |---------|---------|
-| **pdfplumber** | PDF text extraction |
-| **camelot-py** | Table extraction from PDFs |
+| **pdfplumber** | PDF text extraction (text-based PDFs) |
+| **PyPDF2** | PDF manipulation and splitting |
+| **Google Document AI** | Cloud-based OCR for scanned PDFs |
+| **pytesseract** | Local OCR with image preprocessing |
+| **opencv-python** | Image preprocessing for OCR |
+| **pdf2image** | PDF to image conversion for OCR |
 | **python-docx** | Word document parsing |
+| **python-pptx** | PowerPoint document parsing |
 | **openpyxl** | Excel file handling |
+| **pandas** | CSV and advanced Excel processing |
 
 </details>
 
@@ -155,7 +168,9 @@
 
 | Technology | Purpose |
 |------------|---------|
-| **Groq + LangChain** | LLM-powered extraction (Llama 3.1-8B) |
+| **Claude 3 Haiku (Anthropic)** | Primary LLM for CLIN extraction and classification |
+| **Groq + LangChain** | Fallback LLM-powered extraction (Llama 3.1-70B) |
+| **LangChain** | LLM orchestration framework |
 | **spaCy** | NLP for classification |
 | **scikit-learn** | Machine learning algorithms |
 | **Transformers** | Pre-trained NLP models |
@@ -238,15 +253,32 @@ REDIS_URL=redis://localhost:6379/0
 JWT_SECRET_KEY=your-secret-key-here
 SECRET_KEY=your-app-secret-key
 
-# Groq API (Optional - for LLM extraction)
+# CLIN Extraction Settings
+# Anthropic Claude (Primary LLM for CLIN extraction)
+ANTHROPIC_API_KEY=your-anthropic-api-key
+ANTHROPIC_MODEL=claude-3-haiku-20240307
+
+# Groq (Fallback LLM for CLIN extraction)
 GROQ_API_KEY=your-groq-api-key
-GROQ_MODEL=llama-3.1-8b-instant
+GROQ_MODEL=llama-3.1-70b-versatile
+
+# Text Extraction Settings
+# Google Document AI (for high-quality OCR and text extraction from scanned PDFs)
+GOOGLE_SERVICE_ACCOUNT_JSON=extras/your-service-account.json
+GOOGLE_PROJECT_ID=your-project-id
+GOOGLE_PROCESSOR_ID=your-processor-id
+GOOGLE_LOCATION=us
+GOOGLE_DOCAI_ENABLED=True
 ```
 
 ### Step 5: Run Migrations
 
 ```bash
+# Automated (recommended)
 ./scripts/run_migrations.sh
+
+# Or manually
+alembic upgrade head
 ```
 
 ### Step 6: Frontend Setup
@@ -270,10 +302,11 @@ cd ..
 
 The script automatically:
 - ✓ Checks prerequisites
+- ✓ Verifies Python packages are installed
 - ✓ Ensures data directories exist
 - ✓ Verifies database connection
-- ✓ Runs migrations
-- ✓ Starts all required services
+- ✓ Runs migrations (with fallback to direct alembic)
+- ✓ Starts all required services (backend, frontend, Celery worker)
 
 ### Manual Start
 
@@ -329,8 +362,10 @@ sam-project/
 │   │   ├── services/         # Business logic
 │   │   │   ├── tasks.py
 │   │   │   ├── sam_gov_scraper.py
-│   │   │   ├── document_downloader.py
-│   │   │   └── document_analyzer.py  # Hybrid extraction
+│   │   │   ├── document_downloader.py  # Smart download with disclaimer handling
+│   │   │   ├── document_analyzer.py    # Facade for text extraction and CLIN detection
+│   │   │   ├── text_extractor.py      # Text extraction from all formats
+│   │   │   └── clin_extractor.py      # CLIN detection (Claude + Groq)
 │   │   └── utils/
 │   └── migrations/           # Alembic migrations
 ├── frontend/
@@ -401,10 +436,12 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 
 # Response: {"access_token": "eyJ...", "token_type": "bearer"}
 
-# 2. Create Opportunity with Files
+# 2. Create Opportunity with Files and Analysis Options
 curl -X POST http://localhost:8000/api/v1/opportunities \
   -H "Authorization: Bearer eyJ..." \
   -F "sam_gov_url=https://sam.gov/workspace/contract/opp/.../view" \
+  -F "enable_document_analysis=true" \
+  -F "enable_clin_extraction=true" \
   -F "files=@/path/to/document1.pdf" \
   -F "files=@/path/to/document2.docx"
 ```
@@ -481,15 +518,27 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 |---------|--------|
 | User Authentication | ✓ |
 | SAM.gov Scraping | ✓ |
-| Document Downloads | ✓ |
+| Smart Document Downloads (with disclaimer handling) | ✓ |
 | Contact Info Extraction | ✓ |
-| Document Analysis | ✓ |
-| CLIN Extraction (Hybrid) | ✓ |
+| Multi-format Text Extraction (PDF, Word, Excel, PPT, Images) | ✓ |
+| Google Document AI Integration | ✓ |
+| OCR Support (pytesseract with preprocessing) | ✓ |
+| Document Analysis (configurable) | ✓ |
+| CLIN Extraction (Claude + Groq fallback) | ✓ |
 | Deadline Extraction | ✓ |
 | File Upload | ✓ |
-| Frontend UI | ✓ |
+| Frontend UI with Analysis Toggles | ✓ |
 
 **Phase 1 is 100% complete** - All MVP requirements met!
+
+### Recent Enhancements
+
+- ✅ **Configurable Analysis**: Document analysis and CLIN extraction can be enabled/disabled via UI (disabled by default for testing)
+- ✅ **Smart Text Extraction**: Google Document AI for scanned PDFs, intelligent routing between text-based and scanned PDFs
+- ✅ **Improved OCR**: pytesseract with advanced image preprocessing (denoising, contrast enhancement, deskewing)
+- ✅ **LLM Fallback**: Claude 3 Haiku as primary, Groq Llama 3.1 as fallback for CLIN extraction
+- ✅ **Disclaimer Handling**: Automatic detection and handling of disclaimer/agreement pages during document download
+- ✅ **Recursive Navigation**: Smart depth tracking (max 4 levels) for multi-page document downloads
 
 ### Phase 2: Research & Automation
 
@@ -510,12 +559,20 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 <details>
 <summary><strong>Analysis Pipeline</strong></summary>
 
-1. **Input**: User provides SAM.gov URL (+ optional files)
+1. **Input**: User provides SAM.gov URL (+ optional files) with analysis options
 2. **Scraping**: Playwright extracts metadata and downloads attachments
-3. **Document Classification**: Documents routed by type (SF1449, SF30, SOW, etc.)
-4. **Extraction**:
-   - Structured forms → Table parsing (camelot/pdfplumber)
-   - Unstructured text → LLM extraction (Groq + Llama)
+   - Handles disclaimer/agreement pages automatically
+   - Recursive navigation with depth tracking (max 4 levels)
+   - Smart PDF detection and download
+3. **Document Analysis** (if enabled):
+   - **Text Extraction**: 
+     - Text-based PDFs → pdfplumber
+     - Scanned PDFs → Google Document AI (with pytesseract fallback)
+     - Other formats → Format-specific extractors
+   - **Document Classification**: Documents routed by type (SF1449, SF30, SOW, etc.)
+4. **CLIN Extraction** (if enabled):
+   - Structured forms → Table parsing (pdfplumber)
+   - Unstructured text → LLM extraction (Claude 3 Haiku primary, Groq Llama 3.1 fallback)
    - Fallback → Regex extraction
 5. **Classification**: AI determines Product/Service/Both
 6. **Storage**: All data saved to database and displayed in UI
@@ -530,12 +587,13 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 - Directly parses CLIN table rows and columns
 
 **For Unstructured Documents (SOW, Amendments):**
-- Uses Groq LLM (Llama 3.1-8B) with LangChain
+- Primary: Claude 3 Haiku (Anthropic) with LangChain
+- Fallback: Groq LLM (Llama 3.1-70B) if Claude fails
 - Pydantic schemas ensure structured output
 - Extracts: CLIN numbers, descriptions, quantities, part numbers, manufacturers
 
 **Fallback:**
-- Regex-based pattern matching if other methods fail
+- Regex-based pattern matching if LLM methods fail
 
 </details>
 
