@@ -5,8 +5,7 @@
 # This script starts all required services for the application
 ###############################################################################
 
-# Don't exit on error - we handle errors manually
-set +e
+set -e
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -117,6 +116,20 @@ if [ ! -d "venv" ]; then
     exit 1
 fi
 
+# Check if requirements are installed
+if [ ! -f "venv/bin/python" ]; then
+    print_error "Python executable not found in venv!"
+    exit 1
+fi
+
+# Check if key packages are installed
+source venv/bin/activate
+if ! python -c "import fastapi" 2>/dev/null; then
+    print_warning "FastAPI not found in venv - installing requirements..."
+    pip install -q -r requirements.txt || print_error "Failed to install requirements"
+fi
+deactivate
+
 # Check if .env exists
 if [ ! -f ".env" ]; then
     print_error ".env file not found!"
@@ -199,8 +212,11 @@ print_info "Running database migrations..."
 if [ -f "scripts/run_migrations.sh" ]; then
     ./scripts/run_migrations.sh || print_warning "Migrations may have failed"
 else
-    print_warning "Migration script not found"
+    # Fallback: run alembic directly
+    print_info "Running alembic migrations directly..."
+    alembic upgrade head || print_warning "Migrations may have failed"
 fi
+print_success "Database migrations completed"
 
 ###############################################################################
 # Start Backend Server
@@ -228,40 +244,24 @@ else
     BACKEND_PID=$!
     echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
     
-    # Wait for backend to start with retries
+    # Wait for backend to start
     print_info "Waiting for backend to start..."
-    BACKEND_READY=false
-    MAX_RETRIES=10
-    RETRY_COUNT=0
-    
-    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-        sleep 2
-        RETRY_COUNT=$((RETRY_COUNT + 1))
-        
-        # Check if process is still running
-        if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
-            print_error "Backend server process died"
-            print_info "Check logs/backend.log for details"
-            rm -f "$BACKEND_PID_FILE"
-            exit 1
-        fi
-        
-        # Try health check with timeout
-        if curl -s -f --max-time 5 "$BACKEND_URL/health" &> /dev/null; then
-            BACKEND_READY=true
-            break
-        fi
-    done
+    sleep 3
     
     # Check if backend started successfully
-    if [ "$BACKEND_READY" = true ]; then
-        print_success "Backend server started (PID: $BACKEND_PID)"
-        print_info "Backend URL: $BACKEND_URL"
-        print_info "API Docs: $BACKEND_URL/docs"
+    if kill -0 "$BACKEND_PID" 2>/dev/null; then
+        if curl -s "$BACKEND_URL/health" &> /dev/null; then
+            print_success "Backend server started (PID: $BACKEND_PID)"
+            print_info "Backend URL: $BACKEND_URL"
+            print_info "API Docs: $BACKEND_URL/docs"
+        else
+            print_warning "Backend process started but health check failed"
+            print_info "Check logs/backend.log for details"
+        fi
     else
-        print_warning "Backend process started but health check failed after ${MAX_RETRIES} attempts"
-        print_info "Backend may still be starting up. Check logs/backend.log for details"
-        print_info "You can manually verify at: $BACKEND_URL/health"
+        print_error "Backend server failed to start"
+        print_info "Check logs/backend.log for details"
+        rm -f "$BACKEND_PID_FILE"
     fi
 fi
 
@@ -366,6 +366,11 @@ echo "  • Celery:   tail -f logs/celery.log"
 echo ""
 echo -e "${YELLOW}To stop all services:${NC}"
 echo "  Press Ctrl+C or run: ./stop.sh"
+echo ""
+echo -e "${YELLOW}Note:${NC}"
+echo "  • Document Analysis is disabled by default"
+echo "  • Enable it via the toggle buttons in the UI"
+echo "  • CLIN Extraction requires Document Analysis to be enabled"
 echo ""
 echo -e "${GREEN}Application is ready! Press Ctrl+C to stop all services.${NC}"
 echo ""
