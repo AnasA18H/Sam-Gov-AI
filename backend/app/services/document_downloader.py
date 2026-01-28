@@ -542,7 +542,13 @@ class DocumentDownloader:
                 'disclaimer', 'terms and conditions', 'terms of use', 'user agreement',
                 'privacy notice', 'privacy policy', 'you must agree', 'by continuing',
                 'by clicking', 'accept to continue', 'agree to continue', 'acknowledge',
-                'accept terms', 'agree to terms', 'i agree', 'i accept', 'accept and continue'
+                'accept terms', 'agree to terms', 'i agree', 'i accept', 'accept and continue',
+                # DoD/Government specific indicators
+                'department of defense', 'dod notice', 'consent banner', 'usg information system',
+                'u.s. government', 'government information system', 'authorized use only',
+                'pressing "ok"', 'press ok', 'click ok', 'press "ok"', 'click "ok"',
+                'notice and consent', 'consent to the following', 'routinely intercepts',
+                'monitoring communications', 'inspect and seize data'
             ]
             
             disclaimer_score = sum(1 for indicator in disclaimer_indicators if indicator in page_text)
@@ -555,8 +561,15 @@ class DocumentDownloader:
                any(indicator in page_url_lower for indicator in ['disclaimer', 'terms', 'agreement', 'privacy']):
                 disclaimer_score += 2
             
+            # Lower threshold for DoD/government consent banners (they're very specific)
+            # If we detect DoD-specific text, lower the threshold
+            dod_indicators = ['department of defense', 'dod notice', 'consent banner', 'usg information system']
+            has_dod_banner = any(indicator in page_text for indicator in dod_indicators)
+            
             # If we have strong indicators of a disclaimer page
-            if disclaimer_score >= 2:
+            # Lower threshold to 1 if DoD banner detected (they're very specific)
+            threshold = 1 if has_dod_banner else 2
+            if disclaimer_score >= threshold:
                 logger.info(f"Case Disclaimer: Disclaimer/agreement page detected (score: {disclaimer_score})")
                 
                 # Common agreement/disclaimer button texts (case-insensitive)
@@ -569,6 +582,7 @@ class DocumentDownloader:
                 ]
                 
                 # Look for buttons with agreement text
+                # Add more specific selectors for DoD/government pages
                 selectors_to_try = [
                     'button',
                     'input[type="button"]',
@@ -579,6 +593,19 @@ class DocumentDownloader:
                     '[role="button"]',
                     'a:has-text("continue")',
                     'a:has-text("proceed")',
+                    # DoD/government specific selectors
+                    'input[value*="OK" i]',
+                    'input[value*="Ok" i]',
+                    'input[value*="ok" i]',
+                    'button:has-text("OK")',
+                    'button:has-text("Ok")',
+                    'button:has-text("ok")',
+                    '[id*="ok" i]',
+                    '[id*="OK" i]',
+                    '[class*="ok" i]',
+                    '[class*="OK" i]',
+                    '[name*="ok" i]',
+                    '[name*="OK" i]',
                 ]
                 
                 disclaimer_handled = False
@@ -706,6 +733,70 @@ class DocumentDownloader:
                         logger.debug(f"Case Disclaimer: Error with selector '{selector}': {selector_error}")
                         continue
                 
+                # If we haven't found a button yet, try a more aggressive search for DoD pages
+                if not disclaimer_handled and has_dod_banner:
+                    logger.info(f"Case Disclaimer: DoD banner detected but no button found, trying aggressive search")
+                    try:
+                        # Search for any clickable element containing "OK" text
+                        all_clickable = self.page.query_selector_all('button, input[type="button"], input[type="submit"], a, [role="button"], [onclick]')
+                        for element in all_clickable:
+                            try:
+                                element_text = ''
+                                # Try multiple ways to get text
+                                inner = element.inner_text()
+                                if inner:
+                                    element_text = inner.strip().lower()
+                                
+                                if not element_text:
+                                    text_content = element.evaluate('el => el.textContent')
+                                    if text_content:
+                                        element_text = text_content.strip().lower()
+                                
+                                if not element_text:
+                                    value = element.get_attribute('value')
+                                    if value:
+                                        element_text = value.strip().lower()
+                                
+                                if not element_text:
+                                    aria_label = element.get_attribute('aria-label')
+                                    if aria_label:
+                                        element_text = aria_label.strip().lower()
+                                
+                                # Check if it contains "ok" or matches agreement phrases
+                                if 'ok' in element_text or any(phrase in element_text for phrase in ['agree', 'accept', 'continue', 'proceed', 'acknowledge']):
+                                    logger.info(f"Case Disclaimer: Found clickable element with text: '{element_text}'")
+                                    try:
+                                        element.scroll_into_view_if_needed()
+                                        self.page.wait_for_timeout(500)
+                                        element.click(timeout=10000)
+                                        logger.info(f"Case Disclaimer: Clicked element via aggressive search: '{element_text}'")
+                                        disclaimer_handled = True
+                                        self.page.wait_for_timeout(2000)
+                                        
+                                        current_url = self.page.url
+                                        if current_url != url:
+                                            new_url = current_url
+                                            logger.info(f"Case Disclaimer: Page navigated to: {new_url}")
+                                        break
+                                    except Exception as click_err:
+                                        try:
+                                            self.page.evaluate('el => el.click()', element)
+                                            logger.info(f"Case Disclaimer: Clicked element via JavaScript: '{element_text}'")
+                                            disclaimer_handled = True
+                                            self.page.wait_for_timeout(2000)
+                                            
+                                            current_url = self.page.url
+                                            if current_url != url:
+                                                new_url = current_url
+                                                logger.info(f"Case Disclaimer: Page navigated to: {new_url}")
+                                            break
+                                        except:
+                                            pass
+                            except Exception:
+                                continue
+                    except Exception as aggressive_error:
+                        logger.debug(f"Case Disclaimer: Error in aggressive search: {aggressive_error}")
+                
                 # If disclaimer was handled and we have a new URL, recursively call
                 if disclaimer_handled and new_url:
                     logger.info(f"Case Disclaimer: Recursively calling with new URL (depth {depth + 1}): {new_url}")
@@ -825,6 +916,7 @@ class DocumentDownloader:
                                     # If navigation fails because download started, that's actually good
                                     if "Download is starting" not in str(nav_error):
                                         raise
+                                # Download should be available after navigation
                             
                             download = download_info.value
                             file_path = opp_dir / self._sanitize_filename(pdf_name)
@@ -1258,12 +1350,29 @@ class DocumentDownloader:
             return False
     
     def _create_file_info(self, file_path: Path, url: str, file_size: int) -> Dict:
-        """Create file info dictionary"""
+        """Create file info dictionary with file type detection"""
+        # Determine file type from extension
+        file_type = 'unknown'
+        name_lower = file_path.name.lower()
+        if name_lower.endswith('.pdf'):
+            file_type = 'pdf'
+        elif name_lower.endswith(('.doc', '.docx')):
+            file_type = 'word'
+        elif name_lower.endswith(('.xls', '.xlsx')):
+            file_type = 'excel'
+        elif name_lower.endswith(('.txt', '.text')):
+            file_type = 'text'
+        elif name_lower.endswith(('.ppt', '.pptx')):
+            file_type = 'powerpoint'
+        elif name_lower.endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp')):
+            file_type = 'image'
+        
         return {
             'path': str(file_path),
             'relative_path': str(file_path.relative_to(self.storage_base_path.parent)),
             'size': file_size,
             'name': file_path.name,
+            'type': file_type,
             'url': url
         }
     

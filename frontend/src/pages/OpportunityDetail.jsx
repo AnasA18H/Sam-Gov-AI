@@ -63,7 +63,9 @@ const OpportunityDetail = () => {
       const url = window.URL.createObjectURL(blob);
       
       // For PDFs, open in new tab; for others, download
-      if (fileType === 'pdf') {
+      // Handle both enum values (from backend) and string values
+      const typeStr = typeof fileType === 'string' ? fileType.toLowerCase() : String(fileType).toLowerCase();
+      if (typeStr === 'pdf' || typeStr.includes('pdf')) {
         window.open(url, '_blank');
         // Clean up URL after a delay (blob URL will be freed when tab closes)
         setTimeout(() => window.URL.revokeObjectURL(url), 100);
@@ -236,16 +238,21 @@ const OpportunityDetail = () => {
   };
 
   const getFileIcon = (fileType) => {
-    switch (fileType) {
-      case 'pdf':
-        return <HiOutlineDocumentText className="w-5 h-5 text-red-600" />;
-      case 'word':
-        return <HiOutlineDocumentText className="w-5 h-5 text-blue-600" />;
-      case 'excel':
-        return <HiOutlineDocumentText className="w-5 h-5 text-green-600" />;
-      default:
-        return <HiOutlinePaperClip className="w-5 h-5 text-gray-600" />;
+    // Handle both enum values (from backend) and string values
+    const typeStr = typeof fileType === 'string' ? fileType.toLowerCase() : String(fileType).toLowerCase();
+    
+    // Check if it's a PDF (handle various formats: 'pdf', 'DocumentType.PDF', etc.)
+    if (typeStr === 'pdf' || typeStr.includes('pdf')) {
+      return <HiOutlineDocumentText className="w-5 h-5 text-red-600" />;
     }
+    if (typeStr === 'word' || typeStr.includes('word')) {
+      return <HiOutlineDocumentText className="w-5 h-5 text-blue-600" />;
+    }
+    if (typeStr === 'excel' || typeStr.includes('excel')) {
+      return <HiOutlineDocumentText className="w-5 h-5 text-green-600" />;
+    }
+    // Also check file name extension as fallback
+    return <HiOutlinePaperClip className="w-5 h-5 text-gray-600" />;
   };
 
   return (
@@ -612,7 +619,14 @@ const OpportunityDetail = () => {
                                 </p>
                                 <p className="text-xs text-gray-500 mt-0.5">
                                   {opportunity.title || opportunity.description || opportunity.deadlines?.length > 0
-                                    ? `Extracted: ${opportunity.title ? 'Title' : ''}${opportunity.title && opportunity.description ? ', ' : ''}${opportunity.description ? 'Description' : ''}${(opportunity.title || opportunity.description) && opportunity.deadlines?.length > 0 ? ', ' : ''}${opportunity.deadlines?.length > 0 ? `${opportunity.deadlines.length} Deadline(s)` : ''}`
+                                    ? (() => {
+                                        const parts = [];
+                                        if (opportunity.title) parts.push('Title');
+                                        if (opportunity.description) parts.push('Description');
+                                        if (opportunity.deadlines?.length > 0) parts.push(`${opportunity.deadlines.length} Deadline(s)`);
+                                        if (opportunity.primary_contact || opportunity.alternative_contact) parts.push('Contact Info');
+                                        return `Extracted: ${parts.join(', ')}`;
+                                      })()
                                     : 'Extracting title, description, deadlines, and contacts...'}
                                 </p>
                             </div>
@@ -650,6 +664,22 @@ const OpportunityDetail = () => {
                                       ? 'Downloading attachments from SAM.gov...'
                                       : 'Waiting for data scraping...'}
                                 </p>
+                                {opportunity.documents && opportunity.documents.length > 0 && opportunity.status === 'processing' && (
+                                  <div className="mt-1.5">
+                                    <div className="flex flex-wrap gap-1">
+                                      {opportunity.documents.slice(0, 3).map((doc, idx) => (
+                                        <span key={doc.id || idx} className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
+                                          {doc.file_name && doc.file_name.length > 20 ? doc.file_name.substring(0, 20) + '...' : (doc.file_name || 'Document')}
+                                        </span>
+                                      ))}
+                                      {opportunity.documents.length > 3 && (
+                                        <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
+                                          +{opportunity.documents.length - 3} more
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -682,7 +712,14 @@ const OpportunityDetail = () => {
                                   {opportunity.clins && opportunity.clins.length > 0
                                     ? 'Text extraction complete'
                                     : opportunity.documents && opportunity.documents.length > 0 && opportunity.status === 'processing'
-                                      ? 'Analyzing document content...'
+                                      ? (() => {
+                                          // Check if analysis is enabled
+                                          const analysisEnabled = opportunity.enable_document_analysis === 'true' || opportunity.enable_document_analysis === true;
+                                          if (!analysisEnabled) {
+                                            return 'Document analysis disabled - skipping text extraction';
+                                          }
+                                          return `Extracting text from ${opportunity.documents.length} document(s)...`;
+                                        })()
                                       : 'Waiting for documents...'}
                                 </p>
                               </div>
@@ -717,7 +754,19 @@ const OpportunityDetail = () => {
                                   {opportunity.clins && opportunity.clins.length > 0
                                     ? `Found ${opportunity.clins.length} CLIN(s)`
                                     : opportunity.documents && opportunity.documents.length > 0 && opportunity.status === 'processing'
-                                      ? `Processing ${opportunity.documents.length} document(s) sequentially using AI...`
+                                      ? (() => {
+                                          // Check if CLIN extraction is enabled
+                                          const clinEnabled = opportunity.enable_clin_extraction === 'true' || opportunity.enable_clin_extraction === true;
+                                          const analysisEnabled = opportunity.enable_document_analysis === 'true' || opportunity.enable_document_analysis === true;
+                                          
+                                          if (!analysisEnabled) {
+                                            return 'Document analysis disabled - CLIN extraction skipped';
+                                          }
+                                          if (!clinEnabled) {
+                                            return 'CLIN extraction disabled';
+                                          }
+                                          return `Processing ${opportunity.documents.length} document(s) sequentially using AI...`;
+                                        })()
                                       : 'Waiting for text extraction...'}
                                 </p>
                                 {opportunity.documents && opportunity.documents.length > 0 && opportunity.status === 'processing' && !opportunity.clins && (
@@ -756,8 +805,16 @@ const OpportunityDetail = () => {
                                 </p>
                                 <p className="text-xs text-gray-500 mt-0.5">
                                   {opportunity.status === 'completed'
-                                    ? 'All data extracted and ready!'
-                                    : 'Finalizing results...'}
+                                    ? (() => {
+                                        const parts = [];
+                                        if (opportunity.documents?.length > 0) parts.push(`${opportunity.documents.length} document(s)`);
+                                        if (opportunity.clins?.length > 0) parts.push(`${opportunity.clins.length} CLIN(s)`);
+                                        if (opportunity.deadlines?.length > 0) parts.push(`${opportunity.deadlines.length} deadline(s)`);
+                                        return parts.length > 0 ? `Complete: ${parts.join(', ')} extracted` : 'All data extracted and ready!';
+                                      })()
+                                    : opportunity.status === 'processing'
+                                      ? 'Finalizing results...'
+                                      : 'Waiting for analysis to complete...'}
                                 </p>
                               </div>
                             </div>
@@ -855,7 +912,7 @@ const OpportunityDetail = () => {
                       </div>
                     </div>
                     <div className="px-4 py-3">
-                      <p className={`text-sm text-gray-700 whitespace-pre-wrap leading-relaxed ${!isDescriptionExpanded ? 'line-clamp-3' : ''}`}>
+                      <p className={`text-sm text-gray-700 italic whitespace-pre-wrap leading-relaxed ${!isDescriptionExpanded ? 'line-clamp-3' : ''}`}>
                         {opportunity.description}
                       </p>
                       {opportunity.description.length > 200 && (
@@ -1159,6 +1216,11 @@ const OpportunityDetail = () => {
                               <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
                               <div className="flex items-center space-x-2 text-xs text-gray-500 mt-0.5">
                                 <span>{formatFileSize(doc.file_size)}</span>
+                                <span>•</span>
+                                {/* Show file type - handle enum values */}
+                                <span className="capitalize">
+                                  {String(doc.file_type).toLowerCase().replace('documenttype.', '').replace('_', ' ')}
+                                </span>
                                 <span>•</span>
                                 <span className="capitalize">{doc.source.replace('_', ' ')}</span>
                               </div>

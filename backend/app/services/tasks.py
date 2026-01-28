@@ -72,25 +72,38 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                 logger.info(f"Updated opportunity title: {metadata['title'][:50]}")
             
             if metadata.get('notice_id'):
-                opportunity.notice_id = metadata['notice_id']
+                new_notice_id = metadata['notice_id']
+                # Check if this notice_id already exists for another opportunity
+                existing_notice = db.query(Opportunity).filter(
+                    Opportunity.notice_id == new_notice_id,
+                    Opportunity.id != opportunity_id
+                ).first()
+                
+                if existing_notice:
+                    logger.warning(f"Skipping notice_id update: {new_notice_id} already exists for opportunity {existing_notice.id}")
+                elif opportunity.notice_id and opportunity.notice_id != new_notice_id:
+                    logger.warning(f"Opportunity {opportunity_id} already has notice_id={opportunity.notice_id}, not updating to {new_notice_id}")
+                else:
+                    opportunity.notice_id = new_notice_id
+                    metadata_updated = True
+                    logger.info(f"Updated opportunity notice_id: {new_notice_id}")
+                
                 # Only update sam_gov_id if not already set (for backward compatibility)
                 # Don't update if it's already set to avoid unique constraint violations
                 new_sam_gov_id = metadata['notice_id']
                 if not opportunity.sam_gov_id:
                     # Check if this sam_gov_id already exists for another opportunity
-                    existing = db.query(Opportunity).filter(
+                    existing_sam = db.query(Opportunity).filter(
                         Opportunity.sam_gov_id == new_sam_gov_id,
                         Opportunity.id != opportunity_id
                     ).first()
-                    if not existing:
+                    if not existing_sam:
                         opportunity.sam_gov_id = new_sam_gov_id
                         logger.info(f"Updated opportunity sam_gov_id: {new_sam_gov_id}")
                     else:
-                        logger.warning(f"Skipping sam_gov_id update: {new_sam_gov_id} already exists for opportunity {existing.id}")
+                        logger.warning(f"Skipping sam_gov_id update: {new_sam_gov_id} already exists for opportunity {existing_sam.id}")
                 elif opportunity.sam_gov_id != new_sam_gov_id:
                     logger.warning(f"Opportunity {opportunity_id} already has sam_gov_id={opportunity.sam_gov_id}, not updating to {new_sam_gov_id}")
-                metadata_updated = True
-                logger.info(f"Updated opportunity notice_id: {metadata['notice_id']}")
             
             if metadata.get('description'):
                 opportunity.description = metadata['description']
@@ -128,6 +141,7 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             if metadata_updated:
                 try:
                     db.commit()
+                    db.refresh(opportunity)  # Refresh to ensure frontend gets latest data
                     logger.info(f"Committed metadata updates for opportunity {opportunity_id}")
                 except Exception as e:
                     db.rollback()
@@ -212,6 +226,7 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                     logger.info(f"DEBUG: Added document to DB: {doc.file_name} (path: {doc.file_path})")
                 
                 db.commit()
+                db.refresh(opportunity)  # Refresh to ensure frontend gets latest data
                 logger.info(f"DEBUG: Committed {len(downloaded_files)} documents to database")
             else:
                 logger.warning(f"DEBUG: No attachments to download - attachments list was empty or None!")
@@ -270,6 +285,10 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         # Check if document analysis is enabled
         if not enable_document_analysis:
             logger.info(f"Document analysis is DISABLED for opportunity {opportunity_id} - skipping analysis")
+            # Set status to completed since scraping is done
+            opportunity.status = "completed"
+            db.commit()
+            db.refresh(opportunity)
             return {"status": "success", "message": "Document analysis disabled"}
         
         # Get all documents for this opportunity
@@ -277,6 +296,10 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         
         if not documents:
             logger.warning(f"No documents found for opportunity {opportunity_id}")
+            # Set status to completed since there's nothing to analyze
+            opportunity.status = "completed"
+            db.commit()
+            db.refresh(opportunity)
             return {"status": "success", "message": "No documents to analyze"}
         
         logger.info(f"Starting document analysis for opportunity {opportunity_id} ({len(documents)} documents)")
@@ -323,6 +346,11 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                     doc_file_path = Path(settings.PROJECT_ROOT) / doc.file_path
                 
                 logger.info(f"Attempting to extract text from: {doc.file_path} (absolute: {doc_file_path})")
+                # Commit progress periodically so frontend can see updates
+                if doc_idx % 2 == 0:  # Commit every 2 documents
+                    db.commit()
+                    db.refresh(opportunity)
+                
                 text = analyzer.extract_text(doc.file_path)
                 if text and text.strip():
                     all_text.append(text)
