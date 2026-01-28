@@ -67,10 +67,13 @@ if LANGCHAIN_AVAILABLE and PYDANTIC_V1_AVAILABLE:
         unit: Optional[str] = V1Field(None, description="The unit of measure for the quantity. Common values: 'Each', 'Lot', 'Set', 'Unit', 'EA'. Extract exactly as written in the document.")
         contract_type: Optional[str] = V1Field(None, description="Contract type or pricing arrangement. Examples: 'Firm Fixed Price', 'Cost Plus Fixed Fee', 'FFP', 'CPFF'. Extract if clearly stated in the CLIN row or table.")
         extended_price: Optional[float] = V1Field(None, description="Extended price or total price for the line item. This may be calculated (quantity × unit price) or explicitly stated. Extract as a numeric value without currency symbols (e.g., 150.00, 18750.00).")
-        part_number: Optional[str] = V1Field(None, description="Manufacturer part number if specified. Extract if present in the item details.")
-        model_number: Optional[str] = V1Field(None, description="Product model number if specified. Extract if present in the item details.")
-        manufacturer: Optional[str] = V1Field(None, description="Manufacturer name if specified. Extract company or brand name if mentioned for this specific CLIN.")
+        part_number: Optional[str] = V1Field(None, description="Manufacturer part number if specified. Extract from 'Part Number', 'P/N', 'Part No.' fields, or from Bill of Materials (BOM) in technical drawings. Examples: 'RTVX2C', '50032173', '55222BF'.")
+        model_number: Optional[str] = V1Field(None, description="Product model number if specified. Extract from 'Model Number', 'Model', or product descriptions. Examples: 'X1100C Diesel', 'REV E'.")
+        manufacturer: Optional[str] = V1Field(None, description="Manufacturer name or brand name if specified. Extract from 'Brand Name', 'Manufacturer', 'by [Company]' patterns, or Q&A responses. Examples: 'Kubota', 'Leuze Electronics'. If custom/specification-based, extract 'Custom' or 'Per specifications'.")
         product_name: Optional[str] = V1Field(None, description="Short product name or title. This is often a condensed version of the description (e.g., 'Stack and Rack Carts', 'Desktop Computers'). Extract if clearly distinguishable from the full description.")
+        drawing_number: Optional[str] = V1Field(None, description="Technical drawing number or reference if specified. Extract from 'Drawing', 'DWG NO', 'Attachment' references. Examples: '55222AD REV E', 'Drawing 55222AD'.")
+        scope_of_work: Optional[str] = V1Field(None, description="Scope of work or service requirements for this CLIN. Extract from Statement of Work (SOW) sections, performance requirements, or service descriptions. Include timeline, testing requirements, acceptance criteria if mentioned.")
+        delivery_timeline: Optional[str] = V1Field(None, description="Delivery timeline or schedule requirements. Extract phrases like 'within X days', 'X days after contract award', 'staggered delivery', 'preferred delivery time'. Examples: '60 days after contract award', 'Within 30 days'.")
         source_document: Optional[str] = V1Field(None, description="Name or identifier of the document where this CLIN was found. Used when processing multiple documents together.")
     
     class CLINExtractionResult(V1BaseModel):
@@ -188,15 +191,22 @@ class CLINExtractor:
                 document_prompt = document_instruction + document_text
                 
                 # Use LangChain 1.x API: with_structured_output
-                # Request a list of CLINItems
+                # Use CLINExtractionResult which wraps the list of CLINItems
                 try:
                     # Try function_calling first (better compatibility), fallback to json_schema
                     try:
-                        structured_llm = llm_to_use.with_structured_output(TypingList[CLINItem], method="function_calling")
+                        structured_llm = llm_to_use.with_structured_output(CLINExtractionResult, method="function_calling")
                     except Exception as method_error:
                         logger.debug(f"{llm_name} function_calling failed, trying json_schema: {str(method_error)}")
-                        structured_llm = llm_to_use.with_structured_output(TypingList[CLINItem], method="json_schema")
-                    result = structured_llm.invoke(document_prompt)
+                        structured_llm = llm_to_use.with_structured_output(CLINExtractionResult, method="json_schema")
+                    extraction_result = structured_llm.invoke(document_prompt)
+                    # Extract the list from the result
+                    if isinstance(extraction_result, CLINExtractionResult):
+                        result = extraction_result.clins
+                    elif isinstance(extraction_result, dict) and 'clins' in extraction_result:
+                        result = extraction_result['clins']
+                    else:
+                        result = extraction_result if isinstance(extraction_result, list) else []
                 except Exception as e:
                     # Check if it's a rate limit error
                     error_str = str(e).lower()
@@ -345,11 +355,21 @@ Find and extract ALL Contract Line Item Numbers (CLINs) regardless of format or 
 - Table rows with numerical identifiers
 - Sections titled "Schedule of Supplies/Services"
 
-### DATA TO EXTRACT (4 fields per CLIN):
+### DATA TO EXTRACT (Core + Enhanced fields per CLIN):
+**Core Fields (Required):**
 1. **CLIN Number**: The exact identifier (e.g., "0001", "0001AA", "0001AB", "Line Item 1")
 2. **Item Description**: Full product/service description text
 3. **Quantity**: Numeric value (digits only, ignore text like "Lot" or "as required")
 4. **Unit of Measure**: Exact unit (e.g., "Each", "Lot", "Set", "EA", "Unit")
+
+**Enhanced Fields (Extract if available):**
+5. **Manufacturer/Brand Name**: Extract from "Brand Name", "Manufacturer", "by [Company]" patterns, or Q&A responses
+6. **Part Number**: Extract from "Part Number", "P/N", "Part No." fields, or Bill of Materials (BOM)
+7. **Model Number**: Extract from "Model Number", "Model", or product descriptions
+8. **Drawing Number**: Extract technical drawing references like "Drawing 55222AD REV E"
+9. **Product Name**: Short product title (e.g., "Stack and Rack Carts")
+10. **Scope of Work**: Service requirements, performance specs, usage specifications from SOW sections
+11. **Delivery Timeline**: Extract phrases like "within X days", "X days after contract award", "preferred delivery time"
 
 ## SEARCH LOCATIONS
 Scan ALL document sections for CLINs, especially:
@@ -374,7 +394,15 @@ Return structured data matching the CLINItem schema. Each CLIN must include:
 - "description" (string) - Full product/service description
 - "quantity" (number or null) - Numeric quantity if available
 - "unit" (string or null) - Unit of measure
-- Additional optional fields: base_item_number, contract_type, extended_price, part_number, model_number, manufacturer, product_name
+- **Enhanced fields** (extract if available):
+  - "manufacturer" (string) - Brand name or manufacturer (e.g., "Kubota", "Custom")
+  - "part_number" (string) - Part number from BOM or specifications (e.g., "RTVX2C", "55222BF")
+  - "model_number" (string) - Model number (e.g., "X1100C Diesel")
+  - "drawing_number" (string) - Technical drawing reference (e.g., "55222AD REV E")
+  - "product_name" (string) - Short product name (e.g., "Stack and Rack Carts")
+  - "scope_of_work" (string) - Service requirements, performance specs, usage specifications
+  - "delivery_timeline" (string) - Delivery schedule (e.g., "60 days after contract award")
+- Additional optional fields: base_item_number, contract_type, extended_price, source_document
 
 DOCUMENT TEXT:
 """
@@ -423,6 +451,9 @@ DOCUMENT TEXT:
                     part_number = item.part_number
                     model_number = item.model_number
                     manufacturer = item.manufacturer
+                    drawing_number = getattr(item, 'drawing_number', None)
+                    scope_of_work = getattr(item, 'scope_of_work', None)
+                    delivery_timeline = getattr(item, 'delivery_timeline', None)
                 elif isinstance(item, dict):
                     # Extract from dict (in case LLM returns dict instead of model)
                     item_number = item.get('item_number', '')
@@ -436,6 +467,9 @@ DOCUMENT TEXT:
                     part_number = item.get('part_number')
                     model_number = item.get('model_number')
                     manufacturer = item.get('manufacturer')
+                    drawing_number = item.get('drawing_number')
+                    scope_of_work = item.get('scope_of_work')
+                    delivery_timeline = item.get('delivery_timeline')
                 else:
                     continue
                 
@@ -476,6 +510,9 @@ DOCUMENT TEXT:
                         'manufacturer_name': str(manufacturer).strip() if manufacturer else None,
                         'part_number': str(part_number).strip() if part_number else None,
                         'model_number': str(model_number).strip() if model_number else None,
+                        'drawing_number': str(drawing_number).strip() if drawing_number else None,
+                        'scope_of_work': str(scope_of_work).strip() if scope_of_work else None,
+                        'delivery_timeline': str(delivery_timeline).strip() if delivery_timeline else None,
                     }
                     clins.append(clin_data)
                         
@@ -596,12 +633,22 @@ Find and extract ALL Contract Line Item Numbers (CLINs) from ALL documents regar
 - Table rows with numerical identifiers
 - Sections titled "Schedule of Supplies/Services"
 
-### DATA TO EXTRACT (5 fields per CLIN):
+### DATA TO EXTRACT (Core + Enhanced fields per CLIN):
+**Core Fields (Required):**
 1. **CLIN Number**: The exact identifier (e.g., "0001", "0001AA", "0001AB", "Line Item 1")
 2. **Item Description**: Full product/service description text
 3. **Quantity**: Numeric value (digits only, ignore text like "Lot" or "as required")
 4. **Unit of Measure**: Exact unit (e.g., "Each", "Lot", "Set", "EA", "Unit")
 5. **Source Document**: Name of the document where this CLIN was found
+
+**Enhanced Fields (Extract if available):**
+6. **Manufacturer/Brand Name**: Extract from "Brand Name", "Manufacturer", "by [Company]" patterns
+7. **Part Number**: Extract from "Part Number", "P/N", "Part No." fields, or Bill of Materials (BOM)
+8. **Model Number**: Extract from "Model Number", "Model", or product descriptions
+9. **Drawing Number**: Extract technical drawing references like "Drawing 55222AD REV E"
+10. **Product Name**: Short product title (e.g., "Stack and Rack Carts")
+11. **Scope of Work**: Service requirements, performance specs, usage specifications from SOW sections
+12. **Delivery Timeline**: Extract phrases like "within X days", "X days after contract award", "preferred delivery time"
 
 ## SEARCH LOCATIONS
 Scan ALL document sections for CLINs, especially:

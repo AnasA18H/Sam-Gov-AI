@@ -382,6 +382,26 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                     # Extract deadlines from this document
                     doc_deadlines = analyzer.extract_deadlines(text)
                     deadlines_found.extend(doc_deadlines)
+                    
+                    # Extract delivery requirements from this document
+                    doc_delivery = analyzer.extract_delivery_requirements(text)
+                    if doc_delivery:
+                        # Store delivery requirements (merge with existing)
+                        if not hasattr(analyzer, '_delivery_requirements'):
+                            analyzer._delivery_requirements = {}
+                        # Merge delivery requirements (LLM results take precedence)
+                        for key, value in doc_delivery.items():
+                            if value:
+                                if key == 'special_instructions' and isinstance(value, list):
+                                    if 'special_instructions' not in analyzer._delivery_requirements:
+                                        analyzer._delivery_requirements['special_instructions'] = []
+                                    analyzer._delivery_requirements['special_instructions'].extend(value)
+                                elif key == 'facility_constraints' and isinstance(value, dict):
+                                    if 'facility_constraints' not in analyzer._delivery_requirements:
+                                        analyzer._delivery_requirements['facility_constraints'] = {}
+                                    analyzer._delivery_requirements['facility_constraints'].update(value)
+                                else:
+                                    analyzer._delivery_requirements[key] = value
                 else:
                     logger.warning(f"No text extracted from {doc.file_name} (file exists: {doc_file_path.exists()})")
             except Exception as e:
@@ -479,9 +499,13 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                     contract_type=clin_data.get('contract_type'),
                     extended_price=clin_data.get('extended_price'),
                     service_description=clin_data.get('service_description'),
-                    scope_of_work=clin_data.get('scope_of_work'),
-                    timeline=clin_data.get('timeline'),
+                    scope_of_work=clin_data.get('scope_of_work') or clin_data.get('delivery_timeline'),  # Use delivery_timeline if scope_of_work not available
+                    timeline=clin_data.get('timeline') or clin_data.get('delivery_timeline'),  # Use delivery_timeline if timeline not available
                     service_requirements=clin_data.get('service_requirements'),
+                    additional_data={
+                        'drawing_number': clin_data.get('drawing_number'),
+                        'delivery_timeline': clin_data.get('delivery_timeline'),
+                    } if (clin_data.get('drawing_number') or clin_data.get('delivery_timeline')) else None,
                 )
                 db.add(clin)
             else:
@@ -499,7 +523,18 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                 if clin_data.get('extended_price') and not existing_clin.extended_price:
                     existing_clin.extended_price = clin_data['extended_price']
         
-        # 4. Store additional deadlines from documents
+        # 4. Store delivery requirements (if extracted)
+        delivery_requirements = getattr(analyzer, '_delivery_requirements', {})
+        if delivery_requirements:
+            logger.info(f"Storing delivery requirements...")
+            # Store delivery requirements in opportunity's additional_data or create separate field
+            # For now, store in opportunity description or create JSON field
+            if not opportunity.classification_codes:
+                opportunity.classification_codes = {}
+            opportunity.classification_codes['delivery_requirements'] = delivery_requirements
+            logger.info(f"Stored delivery requirements: {list(delivery_requirements.keys())}")
+        
+        # 5. Store additional deadlines from documents
         logger.info(f"Storing {len(deadlines_found)} deadlines from documents...")
         for deadline_data in deadlines_found:
             # Check if similar deadline already exists (avoid duplicates)

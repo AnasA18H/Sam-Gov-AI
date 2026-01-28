@@ -1,0 +1,52 @@
+Document: Attachment 002 - 2031ZA26Q00029 Carts Questions.xlsx
+File Path: backend/data/documents/145/Attachment 002 - 2031ZA26Q00029 Carts Questions.xlsx
+Document Type: DocumentType.EXCEL
+Source: DocumentSource.SAM_GOV
+Size: 17768 bytes
+================================================================================
+EXTRACTED TEXT:
+================================================================================
+
+--- Sheet: 2031ZA26Q00029  Questions ---
+Vendor Questions | BEP Responses
+Plate material type:  1018 cold rolled. Reason  | Standard commercially available material 
+Could Grade 50 A572, P&O (pickled & oiled) be substituted?  | Can be discussed post award, for proposal purposes please utilize material call outs from the drawing. 
+Surface Treatment:  Powder coat gloss black to spec provided.
+Does every component in the SOW get powder coated?  | Everything except the 5/8" rod, reflectors, and casters get powder coated.
+Drawings contradicting on call out.  5/8” Rod needs to be coated?  | No 
+Welding:  Full weld call outs where welding is inaccessible. main frame joint. Can one or the other be welded? Can Welding be Optimized for best strength and distortion such as Stich/ Skip Welding? Can we alternate inside to outside on these joints using the 2-2 call out? | Please provide details in proposal, government will review and determine if solution is technically acceptable.
+Pipe material (handle)
+    Could 3/4” sch 80 pipe ( 1.050 OD  .154 wall thickness) be substituted? | Yes 
+What is the intended use? | Store currency Sheets
+Do you currently use this cart now? | Yes 
+ What color of the cart is requested? Yellow, gray, blue or black? | Color is specified in the drawings 
+The maximum weight being loaded onto these carts  | Approximately 1500 lbs
+The timeline they are expecting for the delivery of 250 additional carts after the first two prototype carts have been approved. Would you be able to send STEP files or different types of 3D models for engineering to review? | No, CAD model will not be made available to vendors. Please utilize drawings. 
+Please advise on the preferred packing method for the carts: one per box or bulk packed on skids. Additionally, is there an established budget for the carts? | Skids or most efficient method for packing/delivery.
+We would like to clarify the scope of the bid. Does this requirement include on-site assembly and installation, or should pricing be limited to the manufactured racks only? Please confirm whether labor should be included. | Manufactured racks only, government is seeking finished goods per the drawing specification.
+Could you please provide the manufacturer’s name and model number, if available? | This is a custom cart per specifications in the drawing package 
+P/N 50032173 by Leuze Electronics has been discontinued in 2022 with no replacement. Please advise on how we should supply that portion of the assembly. Is there an acceptable alternative part already? | Drawings will be updated, and the solicitation will be extended. 
+For the security hood- are you requiring these as part of the offer? If so, do you have any available information on these? | There will be a separate solicitation posted soon. 
+Section IV (Final Acceptance) states that carts must be utilized for a minimum of 90 days without problems prior to final acceptance. Does the BEP intend to withhold 100% of the payment for each delivery grouping until this 90-day period expires, or will there be partial payments/invoicing upon the initial delivery and inspection at the Fort Worth facility? | 100% will be paid out once the product is accepted. Payment sturcutre request can be made in the quote.
+Section II states that the "locking mechanism will be provided by the BEP." However, Attachment B (Drawing 55222AD) lists several components like the V-BLOCK (Item 2), 5/8" ROD (Item 3), and Reflector (Item 4) in the Bill of Materials. Could the Government clarify which, if any, of the items listed on the drawing BOM are provided by the Government  versus which must be sourced/manufactured by the Contractor? | Contractor must provide all items on the BOM. 
+Section VII mentions a "staggered delivery schedule" to be agreed upon after the initial 2-cart test. Does the Government have a preferred minimum or maximum delivery cadence (e.g., 25 carts per month) that we should account for in our production planning? | This can be discussed the post award review. 
+To ensure the highest precision in jigging and fabrication, are 3D CAD models (such as .STEP or .IGES files) available for the cart and its components, or is the contractor required to work solely off the provided 2D PDF drawings? | Contractor is required to work solely off the 2d pdf drawings.
+The drawings specify powder coating per MIL-PRF-24712B. Does the Government require a formal certificate of process from a MIL-SPEC certified coater, or is a standard Certificate of Conformance (CoC) from the contractor sufficient? | No, CoC from contractor is sufficient
+For the 5 semi-trailer loads anticipated for the full delivery, are there specific height or dock requirements at the Fort Worth Currency Facility (WCF) that would preclude the use of standard 53-foot dry vans or flatbeds? | No
+Can base plate be made of three pieces instead of one bent piece? | Yes, please include details and deviations in the technical proposal. 
+Can the 3/16” sheets be changed to 7 ga cold rolled? | Yes, please include details and deviations in the technical proposal. 
+Can we get a security hood for testing | Yes, this can be discussed post award.
+The caster block shows material being 3/8” AISI but the drawing shows a thickness of ¾”.  Which one is correct? | Not sure where the referenced 3/8" is, 55222BF Rev A is marked as 0.75" thick.
+Is a kerf to the cut of the pieces, ok? If so, what is the tolerance? | Unsure, what is being referred to in regards to cutting. 
+Will you provide all noted standards for our reference? | No, the referenced standards are generally available. 
+Will you provide any documentation template that you need to fill out for testing results required? | Yes, this can be discussed post award but essentially the items will be checked against the technical specifications of the drawings. 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 

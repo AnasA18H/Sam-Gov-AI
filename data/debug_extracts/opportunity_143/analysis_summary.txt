@@ -1,0 +1,25 @@
+Opportunity Analysis Summary - ID: 143
+================================================================================
+
+Title: F-16 Circuit Cart Assembly
+Notice ID: None
+Status: completed
+Documents Analyzed: 3
+Classification: product
+Confidence: 0.95
+CLINs Extracted: 0
+Deadlines Extracted: 0
+
+================================================================================
+DOCUMENTS:
+================================================================================
+
+- SPRHA426R0191.pdf (DocumentType.PDF, 148522 bytes)
+
+- CDRLCPP.pdf (DocumentType.PDF, 206117 bytes)
+
+- SOW.pdf (DocumentType.PDF, 220053 bytes)
+
+================================================================================
+ALL CLINs EXTRACTED (0):
+================================================================================

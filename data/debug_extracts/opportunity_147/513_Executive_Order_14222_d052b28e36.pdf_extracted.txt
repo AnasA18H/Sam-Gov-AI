@@ -1,0 +1,9 @@
+Document: Executive_Order_14222_d052b28e36.pdf
+File Path: backend/data/documents/147/Executive_Order_14222_d052b28e36.pdf
+Document Type: DocumentType.OTHER
+Source: DocumentSource.SAM_GOV
+Size: 83218 bytes
+================================================================================
+EXTRACTED TEXT:
+================================================================================
+In accordance with Executive Order (EO) 14222, the WAWF Acceptor must provide justification for accepting the goods or services in question. Answers should be direct and to the point such as: "Reviewed items/services delivered against the contract requirements and accepted." Acceptors are responsible for their own justifications and being specific to the Receiving Report/ Invoice. Any questions should be directed to Service/ Agency Policy Leadership and not the PIEE Helpdesk. https://www.whitehouse.gov/presidential-actions/2025/02/implementing-the-presidents- department-of-government-efficiency-cost-efficiency-initiative/

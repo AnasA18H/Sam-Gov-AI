@@ -1,0 +1,21 @@
+Opportunity Analysis Summary - ID: 140
+================================================================================
+
+Title: 48--VALVE,GATE
+Notice ID: c2841597150
+Status: completed
+Documents Analyzed: 1
+Classification: product
+Confidence: 0.95
+CLINs Extracted: 0
+Deadlines Extracted: 0
+
+================================================================================
+DOCUMENTS:
+================================================================================
+
+- DLA LAND AND MARITIME.pdf (DocumentType.OTHER, 508006 bytes)
+
+================================================================================
+ALL CLINs EXTRACTED (0):
+================================================================================

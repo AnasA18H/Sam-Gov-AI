@@ -23,6 +23,7 @@ from ..core.config import settings
 from ..models.opportunity import SolicitationType
 from .text_extractor import TextExtractor
 from .clin_extractor import CLINExtractor
+from .delivery_extractor import DeliveryRequirementsExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class DocumentAnalyzer:
         self.nlp = None
         self.text_extractor = TextExtractor()
         self.clin_extractor = CLINExtractor(self.text_extractor)
+        self.delivery_extractor = DeliveryRequirementsExtractor()
         
         # Initialize spaCy (optional)
         if SPACY_AVAILABLE:
@@ -262,3 +264,15 @@ class DocumentAnalyzer:
         
         logger.info(f"Extracted {len(deadlines)} deadlines from document")
         return deadlines
+    
+    def extract_delivery_requirements(self, text: str) -> Dict:
+        """
+        Extract delivery requirements from document text
+        
+        Args:
+            text: Document text content
+            
+        Returns:
+            Dictionary with delivery requirements
+        """
+        return self.delivery_extractor.extract_delivery_requirements(text)

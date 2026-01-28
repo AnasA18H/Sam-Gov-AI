@@ -1,0 +1,27 @@
+Opportunity Analysis Summary - ID: 147
+================================================================================
+
+Title: Utility Carts
+Notice ID: None
+Status: completed
+Documents Analyzed: 4
+Classification: product
+Confidence: 0.95
+CLINs Extracted: 0
+Deadlines Extracted: 0
+
+================================================================================
+DOCUMENTS:
+================================================================================
+
+- W911S226U2477_S2P2_Brand_Name_or_Equal.pdf (DocumentType.OTHER, 180292 bytes)
+
+- Web Based Training for the PIEE Solicitation Module.txt (DocumentType.OTHER, 11838 bytes)
+
+- Registration Instructions for the PIEE Solicitation Module.pdf (DocumentType.OTHER, 523216 bytes)
+
+- Executive_Order_14222_d052b28e36.pdf (DocumentType.OTHER, 83218 bytes)
+
+================================================================================
+ALL CLINs EXTRACTED (0):
+================================================================================
