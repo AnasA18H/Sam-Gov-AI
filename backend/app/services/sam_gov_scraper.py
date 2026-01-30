@@ -77,11 +77,15 @@ class SAMGovScraper:
             metadata = self._extract_metadata()
             attachments = self._extract_attachments()
             
+            # Extract page text content for LLM analysis
+            page_text = self._extract_page_text()
+            
             return {
                 'success': True,
                 'metadata': metadata,
                 'attachments': attachments,
-                'opportunity_id': extract_opportunity_id(url)
+                'opportunity_id': extract_opportunity_id(url),
+                'page_text': page_text
             }
             
         except Exception as e:
@@ -571,6 +575,78 @@ class SAMGovScraper:
             logger.warning(f"Could not extract contacts: {str(e)}", exc_info=True)
         
         return None
+    
+    def _extract_page_text(self) -> Optional[str]:
+        """
+        Extract COMPLETE raw text content from the SAM.gov page for LLM analysis.
+        This is separate from metadata extraction - extracts ALL visible text from the page.
+        """
+        try:
+            # Get complete raw text from the entire page body
+            # This extracts ALL visible text including headers, descriptions, deadlines, etc.
+            try:
+                # Get all text from body element - this includes everything visible on the page
+                body = self.page.query_selector('body')
+                if body:
+                    # Use inner_text() to get all visible text content
+                    # This includes all text from all elements: headers, paragraphs, tables, lists, etc.
+                    complete_text = body.inner_text()
+                    
+                    if complete_text and len(complete_text.strip()) > 50:
+                        logger.info(f"Extracted {len(complete_text)} characters of complete raw text from SAM.gov page")
+                        return complete_text
+                    else:
+                        logger.warning(f"Extracted text too short ({len(complete_text) if complete_text else 0} chars)")
+                else:
+                    logger.warning("Could not find body element on SAM.gov page")
+            except Exception as body_error:
+                logger.warning(f"Error extracting text from body: {str(body_error)}")
+            
+            # Fallback: try to get page content using page.content() and extract text
+            try:
+                # Get HTML content and extract text from it
+                html_content = self.page.content()
+                # Try BeautifulSoup if available for better text extraction
+                try:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(html_content, 'html.parser')
+                    # Remove script and style elements
+                    for script in soup(["script", "style"]):
+                        script.decompose()
+                    text = soup.get_text()
+                    # Clean up whitespace
+                    lines = (line.strip() for line in text.splitlines())
+                    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                    text = '\n'.join(chunk for chunk in chunks if chunk)
+                    
+                    if text and len(text.strip()) > 50:
+                        logger.info(f"Extracted {len(text)} characters from SAM.gov page using BeautifulSoup fallback")
+                        return text
+                except ImportError:
+                    # BeautifulSoup not available - use simple regex to extract text from HTML
+                    import re
+                    # Remove script and style tags
+                    text = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+                    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+                    # Extract text content between tags
+                    text = re.sub(r'<[^>]+>', '\n', text)
+                    # Clean up whitespace
+                    lines = (line.strip() for line in text.splitlines())
+                    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                    text = '\n'.join(chunk for chunk in chunks if chunk)
+                    
+                    if text and len(text.strip()) > 50:
+                        logger.info(f"Extracted {len(text)} characters from SAM.gov page using regex fallback")
+                        return text
+            except Exception as html_error:
+                logger.warning(f"Error extracting text from HTML: {str(html_error)}")
+            
+            logger.warning("Could not extract text from SAM.gov page using any method")
+            return None
+                
+        except Exception as e:
+            logger.warning(f"Error extracting page text: {str(e)}")
+            return None
     
     def _extract_attachments(self) -> List[Dict]:
         """

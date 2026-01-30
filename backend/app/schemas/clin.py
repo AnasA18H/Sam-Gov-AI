@@ -2,7 +2,7 @@
 CLIN schemas
 """
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
 
@@ -46,7 +46,9 @@ class CLINResponse(BaseModel):
     scope_of_work: Optional[str]
     timeline: Optional[str]
     service_requirements: Optional[str]
+    additional_data: Optional[Dict[str, Any]] = None  # JSON field for drawing_number, delivery_timeline, etc.
     created_at: datetime
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

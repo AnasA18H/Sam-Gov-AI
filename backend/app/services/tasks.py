@@ -1,7 +1,9 @@
 """
 Celery background tasks
 """
+import re
 from pathlib import Path
+from typing import Optional
 from ..core.celery_app import celery_app
 from ..core.database import SessionLocal
 from ..core.config import settings
@@ -17,6 +19,16 @@ from dateutil import parser as dateutil_parser
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _truncate_string(value: Optional[str], max_length: int = 255) -> Optional[str]:
+    """Truncate string to max_length if it exceeds the limit"""
+    if not value:
+        return None
+    if len(value) <= max_length:
+        return value
+    # Truncate and add ellipsis
+    return value[:max_length - 3] + "..."
 
 
 @celery_app.task(name="scrape_sam_gov_opportunity")
@@ -56,8 +68,9 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             
             metadata = result.get('metadata', {})
             attachments = result.get('attachments', [])
+            sam_gov_page_text = result.get('page_text', '')  # SAM.gov page text for LLM analysis
             
-            logger.info(f"DEBUG: Scraping result - success: {result.get('success')}, metadata keys: {list(metadata.keys())}, attachments count: {len(attachments)}")
+            logger.info(f"DEBUG: Scraping result - success: {result.get('success')}, metadata keys: {list(metadata.keys())}, attachments count: {len(attachments)}, page text length: {len(sam_gov_page_text)}")
             logger.info(f"DEBUG: Extracted metadata - title: {metadata.get('title', 'None')[:50] if metadata.get('title') else 'None'}, description: {len(metadata.get('description', '')) if metadata.get('description') else 0} chars, agency: {metadata.get('agency', 'None')}")
             if attachments:
                 logger.info(f"DEBUG: Attachments found: {[att.get('name', att.get('url', 'unknown')) for att in attachments]}")
@@ -241,7 +254,7 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             # Check if analysis is enabled (stored in opportunity metadata)
             enable_document_analysis = opportunity.enable_document_analysis.lower() == "true" if opportunity.enable_document_analysis else False
             enable_clin_extraction = opportunity.enable_clin_extraction.lower() == "true" if opportunity.enable_clin_extraction else False
-            analyze_documents.delay(opportunity_id, enable_document_analysis, enable_clin_extraction)
+            analyze_documents.delay(opportunity_id, enable_document_analysis, enable_clin_extraction, sam_gov_page_text)
             
             return {
                 "status": "success",
@@ -265,7 +278,7 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
 
 
 @celery_app.task(name="analyze_documents")
-def analyze_documents(opportunity_id: int, enable_document_analysis: bool = False, enable_clin_extraction: bool = False):
+def analyze_documents(opportunity_id: int, enable_document_analysis: bool = False, enable_clin_extraction: bool = False, sam_gov_page_text: str = ''):
     """
     Background task to analyze downloaded documents
     This will extract CLINs, classify solicitation type, etc.
@@ -274,6 +287,7 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         opportunity_id: ID of the opportunity to analyze
         enable_document_analysis: Whether to run document analysis (text extraction, classification, etc.)
         enable_clin_extraction: Whether to extract CLINs from documents
+        sam_gov_page_text: Text content from SAM.gov page for LLM analysis
     """
     db = SessionLocal()
     try:
@@ -294,15 +308,23 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         # Get all documents for this opportunity
         documents = db.query(Document).filter(Document.opportunity_id == opportunity_id).all()
         
-        if not documents:
-            logger.warning(f"No documents found for opportunity {opportunity_id}")
+        # Check if we have SAM.gov page text or documents to analyze
+        has_sam_gov_text = sam_gov_page_text and sam_gov_page_text.strip()
+        
+        if not documents and not has_sam_gov_text:
+            logger.warning(f"No documents found and no SAM.gov page text for opportunity {opportunity_id}")
             # Set status to completed since there's nothing to analyze
             opportunity.status = "completed"
             db.commit()
             db.refresh(opportunity)
-            return {"status": "success", "message": "No documents to analyze"}
+            return {"status": "success", "message": "No documents or SAM.gov page text to analyze"}
         
-        logger.info(f"Starting document analysis for opportunity {opportunity_id} ({len(documents)} documents)")
+        if not documents:
+            logger.info(f"No documents found for opportunity {opportunity_id}, but SAM.gov page text is available - will analyze SAM.gov page only")
+        else:
+            logger.info(f"Starting document analysis for opportunity {opportunity_id} ({len(documents)} documents)")
+        
+        logger.info(f"Starting analysis for opportunity {opportunity_id} ({len(documents)} documents, SAM.gov page text: {'yes' if has_sam_gov_text else 'no'})")
         
         # Initialize document analyzer
         analyzer = DocumentAnalyzer()
@@ -379,93 +401,77 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                     if not is_qa_document:
                         document_texts.append((doc.file_name, text))
                     
-                    # Extract deadlines from this document
-                    doc_deadlines = analyzer.extract_deadlines(text)
-                    deadlines_found.extend(doc_deadlines)
+                    # Extract deadlines will be done later with LLM including SAM.gov page text
+                    # Skip individual document deadline extraction
                     
-                    # Extract delivery requirements from this document
-                    doc_delivery = analyzer.extract_delivery_requirements(text)
-                    if doc_delivery:
-                        # Store delivery requirements (merge with existing)
-                        if not hasattr(analyzer, '_delivery_requirements'):
-                            analyzer._delivery_requirements = {}
-                        # Merge delivery requirements (LLM results take precedence)
-                        for key, value in doc_delivery.items():
-                            if value:
-                                if key == 'special_instructions' and isinstance(value, list):
-                                    if 'special_instructions' not in analyzer._delivery_requirements:
-                                        analyzer._delivery_requirements['special_instructions'] = []
-                                    analyzer._delivery_requirements['special_instructions'].extend(value)
-                                elif key == 'facility_constraints' and isinstance(value, dict):
-                                    if 'facility_constraints' not in analyzer._delivery_requirements:
-                                        analyzer._delivery_requirements['facility_constraints'] = {}
-                                    analyzer._delivery_requirements['facility_constraints'].update(value)
-                                else:
-                                    analyzer._delivery_requirements[key] = value
+                    # Delivery requirements are now extracted as part of CLIN extraction
                 else:
                     logger.warning(f"No text extracted from {doc.file_name} (file exists: {doc_file_path.exists()})")
             except Exception as e:
                 logger.error(f"Error extracting text from {doc.file_name}: {str(e)}", exc_info=True)
                 continue
         
-        # 2. Extract CLINs from all documents in batch (single LLM call)
-        if enable_clin_extraction and document_texts:
-            logger.info(f"Batch extracting CLINs from {len(document_texts)} documents in a single LLM call")
-            try:
-                batch_clins = analyzer.extract_clins_batch(document_texts)
-                clins_found.extend(batch_clins)
-                logger.info(f"Batch extraction found {len(batch_clins)} CLINs")
-                
-                # DEBUG: Save batch CLIN extraction results
+        # 2. Extract CLINs from all documents + SAM.gov page in batch (single LLM call)
+        # Include SAM.gov page text if available
+        if enable_clin_extraction:
+            # Add SAM.gov page text as first document if available
+            if sam_gov_page_text and sam_gov_page_text.strip():
+                logger.info(f"Including SAM.gov page text ({len(sam_gov_page_text)} chars) in CLIN extraction")
+                document_texts.insert(0, ("SAM.gov Opportunity Page", sam_gov_page_text))
+            
+            # If no documents but we have SAM.gov page text, still try CLIN extraction
+            if document_texts:
+                logger.info(f"Batch extracting CLINs and deadlines from {len(document_texts)} sources (including SAM.gov page) in a single LLM call")
                 try:
-                    debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
-                    debug_dir.mkdir(parents=True, exist_ok=True)
-                    batch_clin_debug_file = debug_dir / "batch_clins.txt"
-                    with open(batch_clin_debug_file, 'w', encoding='utf-8') as f:
-                        f.write(f"Batch CLIN Extraction Results\n")
-                        f.write(f"Total Documents Processed: {len(document_texts)}\n")
-                        f.write(f"Total CLINs Found: {len(batch_clins)}\n")
-                        f.write("=" * 80 + "\n")
-                        for i, clin in enumerate(batch_clins, 1):
-                            f.write(f"\nCLIN {i}:\n")
-                            f.write("-" * 80 + "\n")
-                            for key, value in clin.items():
-                                if value:
-                                    f.write(f"{key}: {value}\n")
-                    logger.info(f"DEBUG: Saved batch CLIN extraction results to {batch_clin_debug_file}")
-                except Exception as batch_debug_error:
-                    logger.warning(f"Failed to save batch CLIN debug extract: {str(batch_debug_error)}")
-            except Exception as batch_error:
-                logger.error(f"Batch CLIN extraction failed: {str(batch_error)}", exc_info=True)
-                # Fallback: process documents individually if batch fails
-                logger.info("Falling back to individual document processing")
-                for doc_name, doc_text in document_texts:
+                    batch_clins, batch_deadlines = analyzer.extract_clins_batch(document_texts)
+                    clins_found.extend(batch_clins)
+                    deadlines_found.extend(batch_deadlines)
+                    logger.info(f"Batch extraction found {len(batch_clins)} CLINs and {len(batch_deadlines)} deadlines")
+                    
+                    # DEBUG: Save batch CLIN extraction results
                     try:
-                        doc_clins = analyzer.extract_clins(doc_text)
-                        clins_found.extend(doc_clins)
-                    except Exception as fallback_error:
-                        logger.warning(f"Failed to extract CLINs from {doc_name}: {str(fallback_error)}")
+                        debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
+                        debug_dir.mkdir(parents=True, exist_ok=True)
+                        batch_clin_debug_file = debug_dir / "batch_clins.txt"
+                        with open(batch_clin_debug_file, 'w', encoding='utf-8') as f:
+                            f.write(f"Batch CLIN Extraction Results\n")
+                            f.write(f"Total Documents Processed: {len(document_texts)}\n")
+                            f.write(f"Total CLINs Found: {len(batch_clins)}\n")
+                            f.write("=" * 80 + "\n")
+                            for i, clin in enumerate(batch_clins, 1):
+                                f.write(f"\nCLIN {i}:\n")
+                                f.write("-" * 80 + "\n")
+                                for key, value in clin.items():
+                                    if value:
+                                        f.write(f"{key}: {value}\n")
+                        logger.info(f"DEBUG: Saved batch CLIN extraction results to {batch_clin_debug_file}")
+                    except Exception as batch_debug_error:
+                        logger.warning(f"Failed to save batch CLIN debug extract: {str(batch_debug_error)}")
+                except Exception as batch_error:
+                    logger.error(f"Batch CLIN extraction failed: {str(batch_error)}", exc_info=True)
+                    # No fallback - we want all documents combined in one request
+                    logger.warning("CLIN extraction failed - no fallback to individual processing")
         else:
             if not enable_clin_extraction:
                 logger.info("CLIN extraction is DISABLED - skipping")
-            elif not document_texts:
-                logger.info("No document texts available for CLIN extraction")
+            elif not document_texts and not (sam_gov_page_text and sam_gov_page_text.strip()):
+                logger.info("No document texts or SAM.gov page text available for CLIN extraction")
         
+        # Deadlines are now extracted together with CLINs in the batch extraction above
+        # No separate deadline extraction needed
+        
+        # Combine document texts for classification (if needed)
         combined_text = "\n\n".join(all_text)
-        
-        if not combined_text:
-            logger.warning(f"No text extracted from any documents for opportunity {opportunity_id}")
-            return {
-                "status": "success",
-                "opportunity_id": opportunity_id,
-                "documents_analyzed": len(documents),
-                "message": "No text extracted from documents"
-            }
+        if sam_gov_page_text and sam_gov_page_text.strip():
+            if combined_text:
+                combined_text = f"=== SAM.gov Opportunity Page ===\n{sam_gov_page_text}\n\n{combined_text}"
+            else:
+                combined_text = f"=== SAM.gov Opportunity Page ===\n{sam_gov_page_text}"
         
         # 3. Classify solicitation type (product/service/hybrid)
         logger.info("Classifying solicitation type...")
         classification, confidence = analyzer.classify_solicitation_type(
-            text=combined_text,
+            text=combined_text if combined_text else "",
             title=opportunity.title,
             description=opportunity.description
         )
@@ -474,16 +480,50 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         opportunity.classification_confidence = f"{confidence:.2f}"
         logger.info(f"Classification: {classification.value}, confidence: {confidence:.2f}")
         
-        # 4. Store CLINs in database
-        logger.info(f"Storing {len(clins_found)} CLINs...")
+        # 4. Simple deduplication: merge CLINs with same number
+        deduplicated_clins = {}
         for clin_data in clins_found:
-            # Check if CLIN already exists for this opportunity
+            clin_number = clin_data.get('clin_number', '')
+            if not clin_number:
+                continue
+            
+            if clin_number not in deduplicated_clins:
+                deduplicated_clins[clin_number] = clin_data
+            else:
+                # Merge: fill in missing fields from new CLIN
+                existing = deduplicated_clins[clin_number]
+                for key in clin_data:
+                    if not existing.get(key) and clin_data.get(key):
+                        existing[key] = clin_data[key]
+                    # Prefer longer text fields
+                    elif key in ['product_description', 'scope_of_work', 'delivery_timeline']:
+                        if clin_data.get(key) and len(clin_data[key]) > len(existing.get(key, '')):
+                            existing[key] = clin_data[key]
+        
+        logger.info(f"Deduplicated {len(clins_found)} CLINs to {len(deduplicated_clins)} unique CLINs")
+        
+        # 5. Store CLINs in database
+        logger.info(f"Storing {len(deduplicated_clins)} CLINs...")
+        for clin_data in deduplicated_clins.values():
+            # Check if CLIN already exists
             existing_clin = db.query(CLIN).filter(
                 CLIN.opportunity_id == opportunity_id,
                 CLIN.clin_number == clin_data['clin_number']
             ).first()
             
+            # Prepare additional_data
+            additional_data = {}
+            if clin_data.get('drawing_number'):
+                additional_data['drawing_number'] = clin_data['drawing_number']
+            if clin_data.get('delivery_address'):
+                additional_data['delivery_address'] = clin_data['delivery_address']
+            if clin_data.get('special_delivery_instructions'):
+                additional_data['special_delivery_instructions'] = clin_data['special_delivery_instructions']
+            if clin_data.get('delivery_timeline'):
+                additional_data['delivery_timeline'] = clin_data['delivery_timeline']
+            
             if not existing_clin:
+                # Create new CLIN
                 clin = CLIN(
                     opportunity_id=opportunity.id,
                     clin_number=clin_data['clin_number'],
@@ -499,42 +539,64 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                     contract_type=clin_data.get('contract_type'),
                     extended_price=clin_data.get('extended_price'),
                     service_description=clin_data.get('service_description'),
-                    scope_of_work=clin_data.get('scope_of_work') or clin_data.get('delivery_timeline'),  # Use delivery_timeline if scope_of_work not available
-                    timeline=clin_data.get('timeline') or clin_data.get('delivery_timeline'),  # Use delivery_timeline if timeline not available
+                    scope_of_work=clin_data.get('scope_of_work'),
+                    timeline=_truncate_string(clin_data.get('delivery_timeline'), max_length=255),
                     service_requirements=clin_data.get('service_requirements'),
-                    additional_data={
-                        'drawing_number': clin_data.get('drawing_number'),
-                        'delivery_timeline': clin_data.get('delivery_timeline'),
-                    } if (clin_data.get('drawing_number') or clin_data.get('delivery_timeline')) else None,
+                    additional_data=additional_data if additional_data else None,
                 )
                 db.add(clin)
             else:
-                # Update existing CLIN if we have new information
-                if clin_data.get('base_item_number') and not existing_clin.base_item_number:
+                # Update existing CLIN - fill missing fields, prefer longer text
+                if not existing_clin.base_item_number and clin_data.get('base_item_number'):
                     existing_clin.base_item_number = clin_data['base_item_number']
-                if clin_data.get('product_name') and not existing_clin.product_name:
+                if not existing_clin.product_name and clin_data.get('product_name'):
                     existing_clin.product_name = clin_data['product_name']
-                if clin_data.get('product_description') and not existing_clin.product_description:
+                if not existing_clin.product_description and clin_data.get('product_description'):
                     existing_clin.product_description = clin_data['product_description']
-                if clin_data.get('manufacturer_name') and not existing_clin.manufacturer_name:
+                elif clin_data.get('product_description') and len(clin_data['product_description']) > len(existing_clin.product_description or ''):
+                    existing_clin.product_description = clin_data['product_description']
+                if not existing_clin.manufacturer_name and clin_data.get('manufacturer_name'):
                     existing_clin.manufacturer_name = clin_data['manufacturer_name']
-                if clin_data.get('contract_type') and not existing_clin.contract_type:
+                if not existing_clin.part_number and clin_data.get('part_number'):
+                    existing_clin.part_number = clin_data['part_number']
+                if not existing_clin.model_number and clin_data.get('model_number'):
+                    existing_clin.model_number = clin_data['model_number']
+                if not existing_clin.contract_type and clin_data.get('contract_type'):
                     existing_clin.contract_type = clin_data['contract_type']
-                if clin_data.get('extended_price') and not existing_clin.extended_price:
+                if not existing_clin.extended_price and clin_data.get('extended_price'):
                     existing_clin.extended_price = clin_data['extended_price']
+                if not existing_clin.service_description and clin_data.get('service_description'):
+                    existing_clin.service_description = clin_data['service_description']
+                if not existing_clin.scope_of_work and clin_data.get('scope_of_work'):
+                    existing_clin.scope_of_work = clin_data['scope_of_work']
+                elif clin_data.get('scope_of_work') and len(clin_data['scope_of_work']) > len(existing_clin.scope_of_work or ''):
+                    existing_clin.scope_of_work = clin_data['scope_of_work']
+                if not existing_clin.service_requirements and clin_data.get('service_requirements'):
+                    existing_clin.service_requirements = clin_data['service_requirements']
+                
+                # Update timeline
+                if clin_data.get('delivery_timeline'):
+                    if existing_clin.additional_data is None:
+                        existing_clin.additional_data = {}
+                    existing_clin.additional_data['delivery_timeline'] = clin_data['delivery_timeline']
+                    if not existing_clin.timeline or len(clin_data['delivery_timeline']) > len(existing_clin.timeline or ''):
+                        existing_clin.timeline = _truncate_string(clin_data['delivery_timeline'], max_length=255)
+                
+                # Update additional_data for drawing_number, delivery_address, special_delivery_instructions
+                if clin_data.get('drawing_number'):
+                    if existing_clin.additional_data is None:
+                        existing_clin.additional_data = {}
+                    existing_clin.additional_data['drawing_number'] = clin_data['drawing_number']
+                if clin_data.get('delivery_address'):
+                    if existing_clin.additional_data is None:
+                        existing_clin.additional_data = {}
+                    existing_clin.additional_data['delivery_address'] = clin_data['delivery_address']
+                if clin_data.get('special_delivery_instructions'):
+                    if existing_clin.additional_data is None:
+                        existing_clin.additional_data = {}
+                    existing_clin.additional_data['special_delivery_instructions'] = clin_data['special_delivery_instructions']
         
-        # 4. Store delivery requirements (if extracted)
-        delivery_requirements = getattr(analyzer, '_delivery_requirements', {})
-        if delivery_requirements:
-            logger.info(f"Storing delivery requirements...")
-            # Store delivery requirements in opportunity's additional_data or create separate field
-            # For now, store in opportunity description or create JSON field
-            if not opportunity.classification_codes:
-                opportunity.classification_codes = {}
-            opportunity.classification_codes['delivery_requirements'] = delivery_requirements
-            logger.info(f"Stored delivery requirements: {list(delivery_requirements.keys())}")
-        
-        # 5. Store additional deadlines from documents
+        # 4. Store additional deadlines from documents
         logger.info(f"Storing {len(deadlines_found)} deadlines from documents...")
         for deadline_data in deadlines_found:
             # Check if similar deadline already exists (avoid duplicates)

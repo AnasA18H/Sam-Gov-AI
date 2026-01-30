@@ -23,7 +23,6 @@ from ..core.config import settings
 from ..models.opportunity import SolicitationType
 from .text_extractor import TextExtractor
 from .clin_extractor import CLINExtractor
-from .delivery_extractor import DeliveryRequirementsExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +76,6 @@ class DocumentAnalyzer:
         self.nlp = None
         self.text_extractor = TextExtractor()
         self.clin_extractor = CLINExtractor(self.text_extractor)
-        self.delivery_extractor = DeliveryRequirementsExtractor()
         
         # Initialize spaCy (optional)
         if SPACY_AVAILABLE:
@@ -197,7 +195,7 @@ class DocumentAnalyzer:
     
     def extract_deadlines(self, text: str) -> List[Dict]:
         """
-        Extract deadlines from document text
+        Extract deadlines from document text using LLM (primary) with regex fallback
         
         Args:
             text: Document text content
@@ -205,6 +203,17 @@ class DocumentAnalyzer:
         Returns:
             List of deadline dictionaries
         """
+        # Try LLM-based extraction first
+        try:
+            llm_deadlines = self.clin_extractor.extract_deadlines_llm(text)
+            if llm_deadlines:
+                logger.info(f"LLM extracted {len(llm_deadlines)} deadlines")
+                return llm_deadlines
+        except Exception as e:
+            logger.warning(f"LLM deadline extraction failed, falling back to regex: {str(e)}")
+        
+        # Fallback to regex-based extraction
+        logger.info("Falling back to regex-based deadline extraction")
         deadlines = []
         
         deadline_pattern = r'(?:' + '|'.join(self.DEADLINE_KEYWORDS) + r')[:\s]*([^.\n]{10,200})'
@@ -265,14 +274,3 @@ class DocumentAnalyzer:
         logger.info(f"Extracted {len(deadlines)} deadlines from document")
         return deadlines
     
-    def extract_delivery_requirements(self, text: str) -> Dict:
-        """
-        Extract delivery requirements from document text
-        
-        Args:
-            text: Document text content
-            
-        Returns:
-            Dictionary with delivery requirements
-        """
-        return self.delivery_extractor.extract_delivery_requirements(text)
