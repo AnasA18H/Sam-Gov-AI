@@ -908,17 +908,17 @@ class DocumentDownloader:
                         is_pdf_url = pdf_url.lower().endswith('.pdf')
                         
                         if is_pdf_url:
-                            # For PDF URLs, use domcontentloaded and expect download
-                            with self.page.expect_download(timeout=30000) as download_info:
-                                try:
-                                    self.page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
-                                except Exception as nav_error:
-                                    # If navigation fails because download started, that's actually good
-                                    if "Download is starting" not in str(nav_error):
-                                        raise
+                        # For PDF URLs, use domcontentloaded and expect download
+                        with self.page.expect_download(timeout=30000) as download_info:
+                            try:
+                                self.page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
+                            except Exception as nav_error:
+                                # If navigation fails because download started, that's actually good
+                                if "Download is starting" not in str(nav_error):
+                                    raise
                                     # Download should be available after navigation
-                            
-                            download = download_info.value
+                        
+                        download = download_info.value
                         file_path = opp_dir / self._sanitize_filename(pdf_name)
                         download.save_as(str(file_path))
                         file_size = file_path.stat().st_size
