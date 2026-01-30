@@ -150,9 +150,16 @@ class TextExtractor:
                 total_chars = len(line.strip())
                 
                 # If line has very few letters relative to total chars, or is mostly special chars
+                # BUT: Be less aggressive - keep lines that might be CLIN tables (have numbers, CLIN patterns, etc.)
+                # Only skip if it's clearly garbage (no letters AND no meaningful numbers/patterns)
+                has_clin_pattern = bool(re.search(r'(CLIN|Item\s*(?:No|Number)|Line\s*Item|000\d|NSN)', line, re.IGNORECASE))
+                has_meaningful_numbers = bool(re.search(r'\d{3,}', line))  # At least 3 consecutive digits
+                
                 if total_chars > 10 and (letter_count < 3 or (alnum_count / total_chars) < 0.3):
-                    # This is likely garbage, skip it
-                    continue
+                    # Only skip if it doesn't have CLIN patterns or meaningful numbers
+                    if not has_clin_pattern and not has_meaningful_numbers:
+                        # This is likely garbage, skip it
+                        continue
             cleaned_lines.append(line)
         text = '\n'.join(cleaned_lines)
         
