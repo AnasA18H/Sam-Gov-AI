@@ -137,9 +137,9 @@ const Analyze = () => {
         {/* Main Content */}
         <main className="max-w-3xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
           <div className="bg-white rounded-lg border border-gray-200 shadow-lg">
-            <div className="px-6 py-5 border-b border-gray-200 bg-gray-50">
+            <div className="px-6 py-5 border-b border-gray-200 bg-green-100">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-gray-100 rounded-lg">
+                <div className="p-2 bg-green-200 rounded-lg">
                   <HiOutlineSearch className="w-6 h-6 text-gray-700" />
                 </div>
                 <div>
