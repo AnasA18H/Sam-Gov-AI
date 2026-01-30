@@ -1003,14 +1003,37 @@ const OpportunityDetail = () => {
                                   </span>
                                 )}
                               </div>
-                              {clin.extended_price && (
-                                <div className="text-right">
-                                  <div className="text-xs text-white/80 font-medium">Total Price</div>
-                                  <div className="text-white font-bold text-lg">
-                                    ${clin.extended_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              <div className="flex items-center space-x-3">
+                                {clin.extended_price && (
+                                  <div className="text-right">
+                                    <div className="text-xs text-white/80 font-medium">Total Price</div>
+                                    <div className="text-white font-bold text-lg">
+                                      ${clin.extended_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
+                                )}
+                                {(clin.additional_data?.delivery_timeline || clin.additional_data?.delivery_address || clin.additional_data?.special_delivery_instructions || clin.product_description || clin.scope_of_work || clin.service_description || clin.service_requirements) && (
+                                  <button
+                                    onClick={() => {
+                                      const newExpanded = new Set(expandedClins);
+                                      if (newExpanded.has(clin.id)) {
+                                        newExpanded.delete(clin.id);
+                                      } else {
+                                        newExpanded.add(clin.id);
+                                      }
+                                      setExpandedClins(newExpanded);
+                                    }}
+                                    className="text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors"
+                                    title={expandedClins.has(clin.id) ? 'Collapse' : 'Expand'}
+                                  >
+                                    {expandedClins.has(clin.id) ? (
+                                      <HiOutlineChevronUp className="w-5 h-5" />
+                                    ) : (
+                                      <HiOutlineChevronDown className="w-5 h-5" />
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             {clin.clin_name && (
                               <div className="mt-2 text-sm text-white/95 font-medium">
