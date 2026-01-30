@@ -102,6 +102,7 @@ const OpportunityDetail = () => {
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [expandedClins, setExpandedClins] = useState(new Set());
   const pollIntervalRef = useRef(null);
 
   const handleLogout = async () => {
@@ -1075,41 +1076,45 @@ const OpportunityDetail = () => {
                                       <span className="text-gray-900">{clin.contract_type}</span>
                                     </div>
                                   )}
-                                  {(clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline) && (
-                                    <div className="md:col-span-2">
-                                      <div className="flex items-center space-x-2 mb-2">
-                                        <HiOutlineClock className="w-4 h-4 text-gray-600" />
-                                        <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Delivery Timeline:</div>
-                                      </div>
-                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
-                                        {clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {(clin.additional_data?.delivery_address) && (
-                                    <div className="md:col-span-2">
-                                      <div className="flex items-center space-x-2 mb-2">
-                                        <HiOutlineLocationMarker className="w-4 h-4 text-gray-600" />
-                                        <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Delivery Address:</div>
-                                      </div>
-                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm font-mono">
-                                        {clin.additional_data.delivery_address}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {(clin.additional_data?.special_delivery_instructions) && (
-                                    <div className="md:col-span-2">
-                                      <div className="flex items-center space-x-2 mb-2">
-                                        <HiOutlineExclamationCircle className="w-4 h-4 text-gray-600" />
-                                        <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Special Delivery Instructions:</div>
-                                      </div>
-                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
-                                        {clin.additional_data.special_delivery_instructions}
-                                      </div>
-                                    </div>
+                                  {expandedClins.has(clin.id) && (
+                                    <>
+                                      {(clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline) && (
+                                        <div className="md:col-span-2">
+                                          <div className="flex items-center space-x-2 mb-2">
+                                            <HiOutlineClock className="w-4 h-4 text-gray-600" />
+                                            <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Delivery Timeline:</div>
+                                          </div>
+                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
+                                            {clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {(clin.additional_data?.delivery_address) && (
+                                        <div className="md:col-span-2">
+                                          <div className="flex items-center space-x-2 mb-2">
+                                            <HiOutlineLocationMarker className="w-4 h-4 text-gray-600" />
+                                            <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Delivery Address:</div>
+                                          </div>
+                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm font-mono">
+                                            {clin.additional_data.delivery_address}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {(clin.additional_data?.special_delivery_instructions) && (
+                                        <div className="md:col-span-2">
+                                          <div className="flex items-center space-x-2 mb-2">
+                                            <HiOutlineExclamationCircle className="w-4 h-4 text-gray-600" />
+                                            <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Special Delivery Instructions:</div>
+                                          </div>
+                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
+                                            {clin.additional_data.special_delivery_instructions}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </>
                                   )}
                                 </div>
-                                {clin.product_description && (
+                                {expandedClins.has(clin.id) && clin.product_description && (
                                   <div className="mt-3 pt-3 border-t border-gray-200">
                                     <div className="flex items-center space-x-2 mb-2">
                                       <HiOutlineTag className="w-4 h-4 text-gray-600" />
@@ -1124,7 +1129,7 @@ const OpportunityDetail = () => {
                             )}
 
                             {/* Service Details Section */}
-                            {(clin.service_description || clin.scope_of_work || clin.service_requirements) && (
+                            {expandedClins.has(clin.id) && (clin.service_description || clin.scope_of_work || clin.service_requirements) && (
                               <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                                 <div className="flex items-center space-x-2 mb-3">
                                   <HiOutlineDocumentText className="w-4 h-4 text-blue-600" />
