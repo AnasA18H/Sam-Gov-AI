@@ -1116,6 +1116,7 @@ const OpportunityDetail = () => {
                                     </>
                                   )}
                                 </div>
+                                <div className="mt-4 pt-3 border-t border-gray-200"></div>
                                 {expandedClins.has(clin.id) && clin.product_description && (
                                   <div className="mt-3 pt-3 border-t border-gray-200">
                                     <div className="flex items-center space-x-2 mb-2">
