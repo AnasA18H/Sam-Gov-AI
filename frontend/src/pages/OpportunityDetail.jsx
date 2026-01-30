@@ -1020,7 +1020,7 @@ const OpportunityDetail = () => {
                           {/* CLIN Content */}
                           <div className="p-5 space-y-4">
                             {/* Product Details Section */}
-                            {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity || clin.contract_type) && (
+                            {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity || clin.contract_type || (clin.additional_data && (clin.additional_data.drawing_number || clin.additional_data.delivery_timeline || clin.additional_data.delivery_address || clin.additional_data.special_delivery_instructions))) && (
                               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                                 <div className="flex items-center space-x-2 mb-3">
                                   <HiOutlineSparkles className="w-4 h-4 text-[#14B8A6]" />
@@ -1051,6 +1051,12 @@ const OpportunityDetail = () => {
                                       <span className="text-gray-900 font-mono text-xs">{clin.model_number}</span>
                                     </div>
                                   )}
+                                  {(clin.additional_data?.drawing_number || clin.drawing_number) && (
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium min-w-[110px] flex-shrink-0">Drawing #:</span>
+                                      <span className="text-gray-900 font-mono text-xs">{clin.additional_data?.drawing_number || clin.drawing_number}</span>
+                                    </div>
+                                  )}
                                   {clin.quantity && (
                                     <div className="flex items-start">
                                       <span className="text-gray-500 font-medium min-w-[110px] flex-shrink-0">Quantity:</span>
@@ -1068,6 +1074,30 @@ const OpportunityDetail = () => {
                                       <span className="text-gray-900">{clin.contract_type}</span>
                                     </div>
                                   )}
+                                  {(clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline) && (
+                                    <div className="md:col-span-2">
+                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Delivery Timeline:</div>
+                                      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                                        {clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {(clin.additional_data?.delivery_address) && (
+                                    <div className="md:col-span-2">
+                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Delivery Address:</div>
+                                      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                                        {clin.additional_data.delivery_address}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {(clin.additional_data?.special_delivery_instructions) && (
+                                    <div className="md:col-span-2">
+                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Special Delivery Instructions:</div>
+                                      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                                        {clin.additional_data.special_delivery_instructions}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                                 {clin.product_description && (
                                   <div className="mt-3 pt-3 border-t border-gray-200">
@@ -1081,7 +1111,7 @@ const OpportunityDetail = () => {
                             )}
 
                             {/* Service Details Section */}
-                            {(clin.service_description || clin.scope_of_work || clin.timeline || clin.service_requirements) && (
+                            {(clin.service_description || clin.scope_of_work || clin.service_requirements) && (
                               <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                                 <div className="flex items-center space-x-2 mb-3">
                                   <HiOutlineDocumentText className="w-4 h-4 text-blue-600" />
@@ -1102,12 +1132,6 @@ const OpportunityDetail = () => {
                                       <div className="text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-blue-200">
                                         {clin.scope_of_work}
                                       </div>
-                                    </div>
-                                  )}
-                                  {clin.timeline && (
-                                    <div className="flex items-start space-x-2">
-                                      <span className="text-gray-500 font-medium min-w-[100px]">Timeline:</span>
-                                      <span className="text-gray-900">{clin.timeline}</span>
                                     </div>
                                   )}
                                   {clin.service_requirements && (
@@ -1235,6 +1259,76 @@ const OpportunityDetail = () => {
                           </button>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Delivery Requirements */}
+                {opportunity.classification_codes?.delivery_requirements && (
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
+                        <HiOutlineOfficeBuilding className="w-5 h-5 mr-2 text-green-600" />
+                        Delivery Requirements
+                      </h2>
+                    </div>
+                    <div className="px-4 py-3 space-y-3">
+                      {opportunity.classification_codes.delivery_requirements.delivery_address && (
+                        <div className="pb-3 border-b border-gray-200">
+                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Delivery Address</h3>
+                          <div className="text-sm text-gray-900 space-y-1">
+                            {opportunity.classification_codes.delivery_requirements.delivery_address.facility_name && (
+                              <div className="font-semibold">{opportunity.classification_codes.delivery_requirements.delivery_address.facility_name}</div>
+                            )}
+                            {opportunity.classification_codes.delivery_requirements.delivery_address.street_address && (
+                              <div>{opportunity.classification_codes.delivery_requirements.delivery_address.street_address}</div>
+                            )}
+                            {(opportunity.classification_codes.delivery_requirements.delivery_address.city || 
+                              opportunity.classification_codes.delivery_requirements.delivery_address.state || 
+                              opportunity.classification_codes.delivery_requirements.delivery_address.zip_code) && (
+                              <div>
+                                {[
+                                  opportunity.classification_codes.delivery_requirements.delivery_address.city,
+                                  opportunity.classification_codes.delivery_requirements.delivery_address.state,
+                                  opportunity.classification_codes.delivery_requirements.delivery_address.zip_code
+                                ].filter(Boolean).join(', ')}
+                              </div>
+                            )}
+                            {opportunity.classification_codes.delivery_requirements.delivery_address.country && (
+                              <div className="text-xs text-gray-500">{opportunity.classification_codes.delivery_requirements.delivery_address.country}</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {opportunity.classification_codes.delivery_requirements.fob_terms && (
+                        <div className="pb-3 border-b border-gray-200">
+                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">FOB Terms</h3>
+                          <div className="text-sm text-gray-900 capitalize">{opportunity.classification_codes.delivery_requirements.fob_terms}</div>
+                        </div>
+                      )}
+                      {opportunity.classification_codes.delivery_requirements.delivery_timeline && (
+                        <div className="pb-3 border-b border-gray-200">
+                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">Delivery Timeline</h3>
+                          <div className="text-sm text-gray-900">{opportunity.classification_codes.delivery_requirements.delivery_timeline}</div>
+                        </div>
+                      )}
+                      {opportunity.classification_codes.delivery_requirements.packing_requirements && (
+                        <div className="pb-3 border-b border-gray-200">
+                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">Packing Requirements</h3>
+                          <div className="text-sm text-gray-900">{opportunity.classification_codes.delivery_requirements.packing_requirements}</div>
+                        </div>
+                      )}
+                      {opportunity.classification_codes.delivery_requirements.special_instructions && 
+                       opportunity.classification_codes.delivery_requirements.special_instructions.length > 0 && (
+                        <div>
+                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Special Instructions</h3>
+                          <ul className="text-sm text-gray-900 space-y-1 list-disc list-inside">
+                            {opportunity.classification_codes.delivery_requirements.special_instructions.map((instruction, idx) => (
+                              <li key={idx}>{instruction}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
