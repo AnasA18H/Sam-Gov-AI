@@ -1116,30 +1116,6 @@ const OpportunityDetail = () => {
                                     </>
                                   )}
                                 </div>
-                                {(clin.additional_data?.delivery_timeline || clin.additional_data?.delivery_address || clin.additional_data?.special_delivery_instructions || clin.product_description || clin.scope_of_work || clin.service_description || clin.service_requirements) && (
-                                  <div className="flex justify-center mt-4 pt-3 border-t border-gray-200">
-                                    <button
-                                      onClick={() => {
-                                        const newExpanded = new Set(expandedClins);
-                                        if (newExpanded.has(clin.id)) {
-                                          newExpanded.delete(clin.id);
-                                        } else {
-                                          newExpanded.add(clin.id);
-                                        }
-                                        setExpandedClins(newExpanded);
-                                      }}
-                                      className="flex items-center space-x-2 text-sm text-gray-600 hover:text-gray-900 font-medium transition-colors"
-                                      title={expandedClins.has(clin.id) ? 'Collapse' : 'Expand'}
-                                    >
-                                      <span>{expandedClins.has(clin.id) ? 'Show Less' : 'Show More'}</span>
-                                      {expandedClins.has(clin.id) ? (
-                                        <HiOutlineChevronUp className="w-4 h-4" />
-                                      ) : (
-                                        <HiOutlineChevronDown className="w-4 h-4" />
-                                      )}
-                                    </button>
-                                  </div>
-                                )}
                                 {expandedClins.has(clin.id) && clin.product_description && (
                                   <div className="mt-3 pt-3 border-t border-gray-200">
                                     <div className="flex items-center space-x-2 mb-2">
