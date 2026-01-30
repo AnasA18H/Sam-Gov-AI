@@ -495,10 +495,10 @@ DOCUMENT TEXT:
         """Extract CLINs from multiple documents - try all at once, else per document"""
         if not self.llm and not self.fallback_llm:
             logger.warning("No LLM available")
-            return []
+            return ([], [])
         
         if not documents:
-            return []
+            return ([], [])
         
         # Try all documents at once first - use raw text without cleaning
         all_text = []
@@ -507,7 +507,7 @@ DOCUMENT TEXT:
                 all_text.append(f"=== DOCUMENT: {doc_name} ===\n{doc_text}")
         
         if not all_text:
-            return []
+            return ([], [])
         
         combined_text = "\n\n".join(all_text)
         
@@ -689,7 +689,7 @@ DOCUMENTS:
             elif missing_fields_count > 0:
                 logger.debug(f"Found {missing_fields_count} missing fields ({missing_percentage:.1f}%) - below 20% threshold, skipping second pass")
         
-        return clins_dicts
+        return (clins_dicts, deadlines_dicts)
     
     def _count_missing_fields(self, clins: List[Dict]) -> tuple[int, int]:
         """Count how many important fields are missing across all CLINs
@@ -798,12 +798,12 @@ Return ONLY valid JSON matching this exact schema:
         
         try:
             # Try Claude first
-            filled_clins = self._extract_with_llm(prompt, use_claude=True)
+            filled_clins, _ = self._extract_with_llm(prompt, use_claude=True)  # Ignore deadlines in second pass
             
             # If failed, try Groq
             if not filled_clins and self.fallback_llm:
                 logger.info("Claude second pass failed, trying Groq...")
-                filled_clins = self._extract_with_llm(prompt, use_claude=False)
+                filled_clins, _ = self._extract_with_llm(prompt, use_claude=False)  # Ignore deadlines in second pass
             
             if filled_clins:
                 # Merge filled fields back into original CLINs
