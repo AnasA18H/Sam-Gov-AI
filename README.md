@@ -29,10 +29,13 @@
 | **Automated Scraping** | Extracts data directly from SAM.gov opportunity pages using Playwright |
 | **Hybrid Document Analysis** | Table parsing for structured forms (SF1449, SF30) + LLM extraction for unstructured text (SOW, amendments) |
 | **AI Classification** | Claude (Haiku) + Groq (Llama 3.1) powered classification of solicitations as Product/Service/Both with confidence scores |
-| **CLIN Extraction** | Intelligent extraction of Contract Line Item Numbers with full product/service details (Claude primary, Groq fallback) |
+| **CLIN Extraction** | Intelligent extraction of Contract Line Item Numbers with full product/service details, delivery requirements, and deadlines (Claude primary, Groq fallback). Combines all documents + SAM.gov page text in single LLM request |
 | **Smart Text Extraction** | Google Document AI for scanned PDFs, pytesseract OCR fallback, pdfplumber for text-based PDFs |
 | **Configurable Analysis** | Enable/disable document analysis and CLIN extraction via UI toggles (disabled by default for testing) |
-| **Deadline Tracking** | Automated deadline extraction with timezone support from pages and documents |
+| **Deadline Tracking** | LLM-based deadline extraction combined with CLIN extraction, with timezone support and deduplication |
+| **Delivery Requirements** | Integrated extraction of delivery addresses, special delivery instructions, and delivery timelines within CLIN data |
+| **Two-Pass Extraction** | Automatic second pass to fill missing fields when 20%+ of important fields are null |
+| **Robust JSON Parsing** | Advanced error recovery for malformed/truncated LLM responses with multiple fallback strategies |
 | **Contact Management** | Automatic extraction and display of primary/alternative contacts |
 
 ---
@@ -65,18 +68,28 @@
 <details>
 <summary><strong>Advanced Document Analysis</strong></summary>
 
-- **Hybrid Extraction Approach**:
-  - Table parsing for structured forms (SF1449, SF30) using pdfplumber
-  - LLM-powered extraction using Claude 3 Haiku (primary) + Groq Llama 3.1 (fallback) for unstructured text (SOW, amendments)
-  - Regex fallback for edge cases
+- **Unified LLM Extraction**:
+  - All documents + SAM.gov page text combined into single LLM request for comprehensive analysis
+  - Claude 3 Haiku (primary) + Groq Llama 3.1 (fallback) for CLIN, deadline, and delivery requirements extraction
+  - Two-pass extraction: Second pass automatically fills missing fields when 20%+ are null
+  - Robust JSON parsing with error recovery for malformed/truncated responses
 - **Smart Text Extraction**:
   - Google Document AI for high-quality OCR on scanned PDFs
   - pytesseract OCR with image preprocessing as fallback
   - pdfplumber for text-based PDFs
   - Support for PDF, Word, Excel, PowerPoint, Images, RTF, Markdown
+  - Raw text sent to LLM (no aggressive cleaning) to preserve all information
 - AI-powered classification (Product/Service/Both) with confidence scoring
-- CLIN extraction with product/service details, quantities, part numbers (Claude primary, Groq fallback)
-- Deadline extraction from documents (complements page metadata)
+- **Comprehensive CLIN Extraction**:
+  - Product/service details (name, description, manufacturer, part/model numbers, drawing numbers)
+  - Quantities and units of measure
+  - Scope of work (complete text extraction)
+  - Service requirements (detailed specifications)
+  - Delivery address (complete with facility name, street, city, state, ZIP)
+  - Special delivery instructions (testing requirements, schedules, constraints)
+  - Delivery timeline (complete phrases with dates and conditions)
+- **LLM-Based Deadline Extraction**: Combined with CLIN extraction, extracts submission deadlines, question deadlines, and other critical dates with timezone support
+- **SAM.gov Page Integration**: Raw page text included in analysis for opportunities with no attachments
 - Optional file uploads with SAM.gov URL analysis
 - **Configurable Analysis**: Enable/disable document analysis and CLIN extraction via UI (disabled by default)
 
@@ -168,9 +181,9 @@
 
 | Technology | Purpose |
 |------------|---------|
-| **Claude 3 Haiku (Anthropic)** | Primary LLM for CLIN extraction and classification |
-| **Groq + LangChain** | Fallback LLM-powered extraction (Llama 3.1-70B) |
-| **LangChain** | LLM orchestration framework |
+| **Claude 3 Haiku (Anthropic)** | Primary LLM for CLIN extraction, deadline extraction, and classification |
+| **Groq + LangChain** | Fallback LLM-powered extraction (Note: llama-3.1-70b-versatile is decommissioned, update to newer model) |
+| **LangChain** | LLM orchestration framework with structured output support |
 | **spaCy** | NLP for classification |
 | **scikit-learn** | Machine learning algorithms |
 | **Transformers** | Pre-trained NLP models |
@@ -259,6 +272,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key
 ANTHROPIC_MODEL=claude-3-haiku-20240307
 
 # Groq (Fallback LLM for CLIN extraction)
+# Note: llama-3.1-70b-versatile is decommissioned. Update to newer model (e.g., llama-3.3-70b-versatile)
 GROQ_API_KEY=your-groq-api-key
 GROQ_MODEL=llama-3.1-70b-versatile
 
@@ -533,12 +547,18 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 
 ### Recent Enhancements
 
+- ✅ **Unified CLIN & Deadline Extraction**: All documents + SAM.gov page text combined in single LLM request
+- ✅ **Delivery Requirements Integration**: Delivery addresses, special instructions, and timelines extracted within CLIN data
+- ✅ **Two-Pass Extraction**: Automatic second pass fills missing fields when 20%+ are null
+- ✅ **Robust JSON Parsing**: Advanced error recovery for malformed/truncated LLM responses with multiple fallback strategies
+- ✅ **SAM.gov Page Integration**: Raw page text included in analysis, even when no attachments available
 - ✅ **Configurable Analysis**: Document analysis and CLIN extraction can be enabled/disabled via UI (disabled by default for testing)
 - ✅ **Smart Text Extraction**: Google Document AI for scanned PDFs, intelligent routing between text-based and scanned PDFs
 - ✅ **Improved OCR**: pytesseract with advanced image preprocessing (denoising, contrast enhancement, deskewing)
 - ✅ **LLM Fallback**: Claude 3 Haiku as primary, Groq Llama 3.1 as fallback for CLIN extraction
 - ✅ **Disclaimer Handling**: Automatic detection and handling of disclaimer/agreement pages during document download
 - ✅ **Recursive Navigation**: Smart depth tracking (max 4 levels) for multi-page document downloads
+- ✅ **Enhanced Download Timeouts**: Increased timeouts (90s) and improved wait times for slow sites
 
 ### Phase 2: Research & Automation
 
@@ -570,30 +590,44 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
      - Scanned PDFs → Google Document AI (with pytesseract fallback)
      - Other formats → Format-specific extractors
    - **Document Classification**: Documents routed by type (SF1449, SF30, SOW, etc.)
-4. **CLIN Extraction** (if enabled):
-   - Structured forms → Table parsing (pdfplumber)
-   - Unstructured text → LLM extraction (Claude 3 Haiku primary, Groq Llama 3.1 fallback)
-   - Fallback → Regex extraction
-5. **Classification**: AI determines Product/Service/Both
-6. **Storage**: All data saved to database and displayed in UI
+4. **CLIN & Deadline Extraction** (if enabled):
+   - **Combined Processing**: All document texts + SAM.gov page text sent to LLM in single request
+   - **Primary**: Claude 3 Haiku extracts CLINs, deadlines, and delivery requirements together
+   - **Fallback**: Groq Llama 3.1 if Claude fails
+   - **Two-Pass System**: If 20%+ fields are missing, second pass fills missing values
+   - **Robust Parsing**: Advanced JSON error recovery handles malformed/truncated responses
+   - Extracts: CLIN numbers, product details, quantities, manufacturers, part numbers, scope of work, service requirements, delivery addresses, special delivery instructions, delivery timelines, deadlines
+5. **Classification**: AI determines Product/Service/Both with confidence scoring
+6. **Storage**: All data saved to database with proper deduplication (CLINs and deadlines)
+7. **Display**: Data displayed in UI with collapsible CLIN sections and professional formatting
 
 </details>
 
 <details>
-<summary><strong>CLIN Extraction Methods</strong></summary>
+<summary><strong>CLIN & Deadline Extraction Process</strong></summary>
 
-**For Structured Forms (SF1449, SF30):**
-- Uses `camelot-py` or `pdfplumber` to extract tables
-- Directly parses CLIN table rows and columns
+**Unified Extraction Approach:**
+- All documents + SAM.gov page text are combined and sent to LLM in a single request
+- Claude 3 Haiku (primary) extracts CLINs, deadlines, and delivery requirements together
+- Groq Llama 3.1 (fallback) used if Claude fails
+- LangChain with structured output ensures JSON format compliance
 
-**For Unstructured Documents (SOW, Amendments):**
-- Primary: Claude 3 Haiku (Anthropic) with LangChain
-- Fallback: Groq LLM (Llama 3.1-70B) if Claude fails
-- Pydantic schemas ensure structured output
-- Extracts: CLIN numbers, descriptions, quantities, part numbers, manufacturers
+**Extracted Fields:**
+- **CLIN Data**: Numbers, descriptions, quantities, units, product names, manufacturers, part/model numbers, drawing numbers, contract types
+- **Scope & Requirements**: Complete scope of work text, detailed service requirements
+- **Delivery Information**: Complete delivery addresses, special delivery instructions, delivery timelines
+- **Deadlines**: Submission deadlines, question deadlines, with dates, times, timezones, and types
 
-**Fallback:**
-- Regex-based pattern matching if LLM methods fail
+**Two-Pass System:**
+- First pass extracts all available data
+- If 20%+ of important fields are null, second pass specifically targets missing fields
+- Ensures maximum data completeness
+
+**Error Handling:**
+- Robust JSON parsing with multiple fallback strategies
+- Handles truncated/malformed JSON responses
+- Extracts partial data even from incomplete responses
+- Individual CLIN object extraction if outer JSON structure is broken
 
 </details>
 

@@ -411,11 +411,13 @@ class DocumentDownloader:
                 try:
                     # For direct PDF URLs, expect download BEFORE navigating
                     # This handles the case where navigation triggers immediate download
-                    with self.page.expect_download(timeout=30000) as download_info:
+                    with self.page.expect_download(timeout=90000) as download_info:
                         # Use 'networkidle' or 'domcontentloaded' instead of 'load' for PDFs
                         # because PDFs trigger downloads and don't fully "load" as pages
                         try:
                             self.page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                            # Add extra wait after navigation for sites that process before download
+                            self.page.wait_for_timeout(3000)
                         except Exception as nav_error:
                             # If navigation fails because download started, that's actually good
                             # The download_info should have the download
@@ -478,8 +480,10 @@ class DocumentDownloader:
                                 pdf_src = urljoin(self.page.url, pdf_src)
                             
                             logger.info(f"Case 1: Found PDF viewer with src: {pdf_src}")
-                            with self.page.expect_download(timeout=30000) as download_info:
+                            with self.page.expect_download(timeout=90000) as download_info:
                                 self.page.goto(pdf_src, wait_until='domcontentloaded', timeout=60000)
+                                # Add extra wait after navigation for sites that process before download
+                                self.page.wait_for_timeout(3000)
                             
                             download = download_info.value
                             file_path = opp_dir / filename
@@ -691,8 +695,8 @@ class DocumentDownloader:
                                             logger.info(f"Case Disclaimer: Clicked agreement button: '{button_text}'")
                                             disclaimer_handled = True
                                             
-                                            # Wait for navigation or page update
-                                            self.page.wait_for_timeout(2000)
+                                            # Wait for navigation or page update (increased for slower sites)
+                                            self.page.wait_for_timeout(5000)
                                             
                                             # Check if URL changed (navigation happened)
                                             current_url = self.page.url
@@ -708,7 +712,7 @@ class DocumentDownloader:
                                                 self.page.evaluate('el => el.click()', button)
                                                 logger.info(f"Case Disclaimer: Clicked agreement button via JavaScript: '{button_text}'")
                                                 disclaimer_handled = True
-                                                self.page.wait_for_timeout(2000)
+                                                self.page.wait_for_timeout(5000)
                                                 
                                                 current_url = self.page.url
                                                 if current_url != url:
@@ -866,7 +870,7 @@ class DocumentDownloader:
                         try:
                             logger.info(f"Case 2: Trying to click link element")
                             # For JavaScript-based links, we might need to wait for download differently
-                            with self.page.expect_download(timeout=30000) as download_info:
+                            with self.page.expect_download(timeout=90000) as download_info:
                                 # Scroll element into view first
                                 link_element.scroll_into_view_if_needed()
                                 self.page.wait_for_timeout(500)
@@ -908,24 +912,26 @@ class DocumentDownloader:
                         is_pdf_url = pdf_url.lower().endswith('.pdf')
                         
                         if is_pdf_url:
-                        # For PDF URLs, use domcontentloaded and expect download
-                        with self.page.expect_download(timeout=30000) as download_info:
-                            try:
-                                self.page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
-                            except Exception as nav_error:
-                                # If navigation fails because download started, that's actually good
-                                if "Download is starting" not in str(nav_error):
-                                    raise
-                                    # Download should be available after navigation
+                            # For PDF URLs, use domcontentloaded and expect download
+                            with self.page.expect_download(timeout=90000) as download_info:
+                                try:
+                                    self.page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
+                                    # Add extra wait after navigation for sites that process before download
+                                    self.page.wait_for_timeout(3000)
+                                except Exception as nav_error:
+                                    # If navigation fails because download started, that's actually good
+                                    if "Download is starting" not in str(nav_error):
+                                        raise
+                                        # Download should be available after navigation
                         
-                        download = download_info.value
-                        file_path = opp_dir / self._sanitize_filename(pdf_name)
-                        download.save_as(str(file_path))
-                        file_size = file_path.stat().st_size
-                        
-                        if file_size > 0 and self._is_valid_pdf(file_path):
-                            logger.info(f"Case 2: Successfully downloaded PDF via navigation: {pdf_name} ({file_size} bytes)")
-                            return self._create_file_info(file_path, url, file_size)
+                            download = download_info.value
+                            file_path = opp_dir / self._sanitize_filename(pdf_name)
+                            download.save_as(str(file_path))
+                            file_size = file_path.stat().st_size
+                            
+                            if file_size > 0 and self._is_valid_pdf(file_path):
+                                logger.info(f"Case 2: Successfully downloaded PDF via navigation: {pdf_name} ({file_size} bytes)")
+                                return self._create_file_info(file_path, url, file_size)
                         else:
                             # Not a direct PDF URL - might be a page that leads to PDF
                             # Navigate and check if it's a new page (not a direct download)

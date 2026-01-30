@@ -283,37 +283,100 @@ class CLINExtractor:
             except json.JSONDecodeError as json_err:
                 logger.error(f"{llm_name} JSON parsing failed: {json_err}")
                 logger.debug(f"Content preview: {content[:500] if 'content' in locals() else 'N/A'}")
-                # Try to find and extract clins and deadlines arrays
+                # Try multiple fallback strategies to extract partial data
+                clins_list = []
+                deadlines_list = []
+                
                 try:
-                    # Look for clins array directly
-                    clins_match = re.search(r'"clins"\s*:\s*\[(.*?)\]', content, re.DOTALL)
-                    deadlines_match = re.search(r'"deadlines"\s*:\s*\[(.*?)\]', content, re.DOTALL)
+                    # Strategy 1: Try to repair common JSON errors
+                    repaired_json = extracted_json if 'extracted_json' in locals() else content
                     
-                    clins_list = []
-                    deadlines_list = []
+                    # Fix unclosed strings (common in truncated responses)
+                    repaired_json = re.sub(r'("special_delivery_instructions":\s*"[^"]*?)([^"]*)$', r'\1"', repaired_json, flags=re.MULTILINE)
+                    repaired_json = re.sub(r'("delivery_address":\s*"[^"]*?)([^"]*)$', r'\1"', repaired_json, flags=re.MULTILINE)
+                    repaired_json = re.sub(r'("delivery_timeline":\s*"[^"]*?)([^"]*)$', r'\1"', repaired_json, flags=re.MULTILINE)
                     
-                    if clins_match:
-                        # Try to parse as array
-                        array_str = '[' + clins_match.group(1) + ']'
-                        try:
-                            clins_list = json.loads(array_str)
-                            logger.info(f"{llm_name} extracted {len(clins_list)} CLINs from clins array directly")
-                        except:
-                            pass
+                    # Try to close incomplete JSON structures
+                    open_braces = repaired_json.count('{')
+                    close_braces = repaired_json.count('}')
+                    open_brackets = repaired_json.count('[')
+                    close_brackets = repaired_json.count(']')
                     
-                    if deadlines_match:
-                        # Try to parse deadlines array
-                        array_str = '[' + deadlines_match.group(1) + ']'
-                        try:
-                            deadlines_list = json.loads(array_str)
-                            logger.info(f"{llm_name} extracted {len(deadlines_list)} deadlines from deadlines array directly")
-                        except:
-                            pass
+                    # Add missing closing brackets/braces
+                    repaired_json += ']' * (open_brackets - close_brackets)
+                    repaired_json += '}' * (open_braces - close_braces)
                     
-                    return (clins_list if isinstance(clins_list, list) else [], deadlines_list if isinstance(deadlines_list, list) else [])
-                except:
-                    pass
-                return ([], [])
+                    try:
+                        parsed = json.loads(repaired_json)
+                        if isinstance(parsed, dict):
+                            clins_list = parsed.get('clins', []) if isinstance(parsed.get('clins'), list) else []
+                            deadlines_list = parsed.get('deadlines', []) if isinstance(parsed.get('deadlines'), list) else []
+                        logger.info(f"{llm_name} extracted {len(clins_list)} CLINs after JSON repair")
+                    except:
+                        pass
+                except Exception as repair_err:
+                    logger.debug(f"JSON repair failed: {repair_err}")
+                
+                # Strategy 2: Extract individual CLIN objects even if outer structure is broken
+                if not clins_list:
+                    try:
+                        # Find all CLIN objects in the content
+                        clin_pattern = r'\{\s*"item_number"\s*:\s*"[^"]+".*?\}'
+                        clin_matches = re.finditer(clin_pattern, content, re.DOTALL)
+                        
+                        for match in clin_matches:
+                            clin_str = match.group(0)
+                            # Try to close incomplete objects
+                            open_braces = clin_str.count('{')
+                            close_braces = clin_str.count('}')
+                            clin_str += '}' * (open_braces - close_braces)
+                            
+                            try:
+                                clin_obj = json.loads(clin_str)
+                                if isinstance(clin_obj, dict) and 'item_number' in clin_obj:
+                                    clins_list.append(clin_obj)
+                            except:
+                                # Try to extract fields individually with regex
+                                item_num_match = re.search(r'"item_number"\s*:\s*"([^"]+)"', clin_str)
+                                if item_num_match:
+                                    clin_obj = {'item_number': item_num_match.group(1)}
+                                    # Extract other fields
+                                    for field in ['product_name', 'manufacturer', 'part_number', 'delivery_address', 'special_delivery_instructions', 'delivery_timeline']:
+                                        field_match = re.search(f'"{field}"\\s*:\\s*"([^"]*)"', clin_str)
+                                        if field_match:
+                                            clin_obj[field] = field_match.group(1)
+                                    clins_list.append(clin_obj)
+                        
+                        if clins_list:
+                            logger.info(f"{llm_name} extracted {len(clins_list)} CLINs using individual object extraction")
+                    except Exception as extract_err:
+                        logger.debug(f"Individual CLIN extraction failed: {extract_err}")
+                
+                # Strategy 3: Try to find and extract clins array directly (original fallback)
+                if not clins_list:
+                    try:
+                        clins_match = re.search(r'"clins"\s*:\s*\[(.*?)\]', content, re.DOTALL)
+                        deadlines_match = re.search(r'"deadlines"\s*:\s*\[(.*?)\]', content, re.DOTALL)
+                        
+                        if clins_match:
+                            array_str = '[' + clins_match.group(1) + ']'
+                            try:
+                                clins_list = json.loads(array_str)
+                                logger.info(f"{llm_name} extracted {len(clins_list)} CLINs from clins array directly")
+                            except:
+                                pass
+                        
+                        if deadlines_match:
+                            array_str = '[' + deadlines_match.group(1) + ']'
+                            try:
+                                deadlines_list = json.loads(array_str)
+                                logger.info(f"{llm_name} extracted {len(deadlines_list)} deadlines from deadlines array directly")
+                            except:
+                                pass
+                    except:
+                        pass
+                
+                return (clins_list if isinstance(clins_list, list) else [], deadlines_list if isinstance(deadlines_list, list) else [])
             except Exception as fallback_error:
                 logger.error(f"{llm_name} JSON fallback failed: {fallback_error}")
                 return ([], [])
