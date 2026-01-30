@@ -919,13 +919,13 @@ class DocumentDownloader:
                                     # Download should be available after navigation
                             
                             download = download_info.value
-                            file_path = opp_dir / self._sanitize_filename(pdf_name)
-                            download.save_as(str(file_path))
-                            file_size = file_path.stat().st_size
-                            
-                            if file_size > 0 and self._is_valid_pdf(file_path):
-                                logger.info(f"Case 2: Successfully downloaded PDF via navigation: {pdf_name} ({file_size} bytes)")
-                                return self._create_file_info(file_path, url, file_size)
+                        file_path = opp_dir / self._sanitize_filename(pdf_name)
+                        download.save_as(str(file_path))
+                        file_size = file_path.stat().st_size
+                        
+                        if file_size > 0 and self._is_valid_pdf(file_path):
+                            logger.info(f"Case 2: Successfully downloaded PDF via navigation: {pdf_name} ({file_size} bytes)")
+                            return self._create_file_info(file_path, url, file_size)
                         else:
                             # Not a direct PDF URL - might be a page that leads to PDF
                             # Navigate and check if it's a new page (not a direct download)
