@@ -916,7 +916,7 @@ class DocumentDownloader:
                                     # If navigation fails because download started, that's actually good
                                     if "Download is starting" not in str(nav_error):
                                         raise
-                                # Download should be available after navigation
+                                    # Download should be available after navigation
                             
                             download = download_info.value
                             file_path = opp_dir / self._sanitize_filename(pdf_name)
@@ -931,16 +931,16 @@ class DocumentDownloader:
                             # Navigate and check if it's a new page (not a direct download)
                             # If depth allows, recursively apply all cases
                             if depth < 4 and original_url and opportunity_id:
-                                logger.info(f"Case 2: Link is not direct PDF, navigating and reapplying cases (depth {depth + 1})")
-                                current_url_before = self.page.url
-                                self.page.goto(pdf_url, wait_until='load', timeout=60000)
-                                self.page.wait_for_timeout(2000)
-                                current_url_after = self.page.url
-                                
-                                # If URL changed, recursively apply all cases
-                                if current_url_after != current_url_before:
-                                    logger.info(f"Case 2: Navigated to new page, recursively applying cases")
-                                    return self._download_with_playwright(current_url_after, opportunity_id, filename, opp_dir, depth=depth + 1, original_url=original_url)
+                                    logger.info(f"Case 2: Link is not direct PDF, navigating and reapplying cases (depth {depth + 1})")
+                                    current_url_before = self.page.url
+                                    self.page.goto(pdf_url, wait_until='load', timeout=60000)
+                                    self.page.wait_for_timeout(2000)
+                                    current_url_after = self.page.url
+                                    
+                                    # If URL changed, recursively apply all cases
+                                    if current_url_after != current_url_before:
+                                        logger.info(f"Case 2: Navigated to new page, recursively applying cases")
+                                        return self._download_with_playwright(current_url_after, opportunity_id, filename, opp_dir, depth=depth + 1, original_url=original_url)
                             
                     except Exception as e:
                         logger.warning(f"Case 2: Direct navigation also failed: {e}")
