@@ -154,7 +154,7 @@ const Analyze = () => {
             </div>
             <div className="px-6 py-4 rounded-b-lg">
 
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 {error && (
                   <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm flex items-center space-x-2">
                     <HiOutlineX className="w-5 h-5 flex-shrink-0" />
@@ -243,9 +243,9 @@ const Analyze = () => {
                 </div>
 
                 {/* Analysis Options */}
-                <div className="space-y-4 pt-4 border-t border-gray-200">
+                <div className="space-y-3 pt-3 border-t border-gray-200">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Analysis Options
                     </label>
                     <div className="space-y-3">
@@ -278,7 +278,7 @@ const Analyze = () => {
                       </div>
 
                       {/* CLIN Extraction Toggle */}
-                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border border-gray-200">
                         <div className="flex-1">
                           <div className="flex items-center space-x-2">
                             <span className="text-sm font-medium text-gray-900">CLIN Extraction</span>
@@ -314,7 +314,7 @@ const Analyze = () => {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="pt-4 flex items-center justify-end space-x-3 border-t border-gray-200">
+                <div className="pt-3 flex items-center justify-end space-x-3 border-t border-gray-200">
                   <button
                     type="button"
                     onClick={() => navigate('/dashboard')}
