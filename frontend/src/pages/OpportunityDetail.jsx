@@ -1176,7 +1176,7 @@ const OpportunityDetail = () => {
                                         <HiOutlineDocumentText className="w-4 h-4 text-gray-600" />
                                         <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Scope of Work:</div>
                                       </div>
-                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
+                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm font-bold italic">
                                         {clin.scope_of_work}
                                       </div>
                                     </div>
