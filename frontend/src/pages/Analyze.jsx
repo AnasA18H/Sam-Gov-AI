@@ -135,9 +135,9 @@ const Analyze = () => {
         </nav>
 
         {/* Main Content */}
-        <main className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
+        <main className="max-w-3xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
           <div className="bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-200 bg-[#14B8A6] rounded-t-lg">
+            <div className="px-6 py-4 border-b border-gray-200 bg-[#14B8A6] rounded-t-lg">
               <div className="flex items-center space-x-3">
                 <div className="p-2 bg-white/20 rounded-lg">
                   <HiOutlineSearch className="w-6 h-6 text-white" />
@@ -152,7 +152,7 @@ const Analyze = () => {
                 </div>
               </div>
             </div>
-            <div className="px-6 py-6 rounded-b-lg">
+            <div className="px-6 py-4 rounded-b-lg">
 
               <form onSubmit={handleSubmit} className="space-y-6">
                 {error && (
