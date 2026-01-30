@@ -152,7 +152,7 @@ const Analyze = () => {
                 </div>
               </div>
             </div>
-            <div className="px-6 py-6">
+            <div className="px-6 py-6 rounded-b-lg">
 
               <form onSubmit={handleSubmit} className="space-y-6">
                 {error && (
