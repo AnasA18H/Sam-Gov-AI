@@ -137,16 +137,16 @@ const Analyze = () => {
         {/* Main Content */}
         <main className="max-w-3xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
           <div className="bg-white rounded-lg border border-gray-200 shadow-lg">
-            <div className="px-6 py-5 border-b border-gray-200 bg-green-100">
+            <div className="px-6 py-5 border-b border-gray-200 bg-[#14B8A6]">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-green-200 rounded-lg">
-                  <HiOutlineSearch className="w-6 h-6 text-gray-700" />
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <HiOutlineSearch className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-gray-900">
+                  <h1 className="text-xl font-semibold text-white">
                     Analyze SAM.gov Opportunity
                   </h1>
-                  <p className="text-sm text-gray-500 mt-0.5">
+                  <p className="text-sm text-white/90 mt-0.5">
                     Enter a SAM.gov solicitation URL to begin automated analysis
                   </p>
                 </div>
