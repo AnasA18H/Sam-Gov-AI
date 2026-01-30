@@ -1111,8 +1111,11 @@ const OpportunityDetail = () => {
                                 </div>
                                 {clin.product_description && (
                                   <div className="mt-3 pt-3 border-t border-gray-200">
-                                    <div className="text-xs text-gray-500 font-medium mb-1.5">Supplies/Services:</div>
-                                    <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-gray-200 italic">
+                                    <div className="flex items-center space-x-2 mb-2">
+                                      <HiOutlineTag className="w-4 h-4 text-green-600" />
+                                      <div className="text-xs font-semibold text-green-700 uppercase tracking-wide">Supplies/Services:</div>
+                                    </div>
+                                    <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-green-50 p-4 rounded-lg border-l-4 border-green-500 shadow-sm italic">
                                       {clin.product_description}
                                     </div>
                                   </div>
