@@ -33,6 +33,7 @@ import {
   HiOutlineChartBar,
   HiOutlineX,
   HiOutlineLogout,
+  HiOutlineLocationMarker,
 } from 'react-icons/hi';
 
 const OpportunityDetail = () => {
@@ -1076,24 +1077,33 @@ const OpportunityDetail = () => {
                                   )}
                                   {(clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline) && (
                                     <div className="md:col-span-2">
-                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Delivery Timeline:</div>
-                                      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                                      <div className="flex items-center space-x-2 mb-2">
+                                        <HiOutlineClock className="w-4 h-4 text-amber-600" />
+                                        <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Delivery Timeline:</div>
+                                      </div>
+                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-amber-50 p-4 rounded-lg border-l-4 border-amber-500 shadow-sm">
                                         {clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}
                                       </div>
                                     </div>
                                   )}
                                   {(clin.additional_data?.delivery_address) && (
                                     <div className="md:col-span-2">
-                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Delivery Address:</div>
-                                      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                                      <div className="flex items-center space-x-2 mb-2">
+                                        <HiOutlineLocationMarker className="w-4 h-4 text-blue-600" />
+                                        <div className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Delivery Address:</div>
+                                      </div>
+                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500 shadow-sm font-mono">
                                         {clin.additional_data.delivery_address}
                                       </div>
                                     </div>
                                   )}
                                   {(clin.additional_data?.special_delivery_instructions) && (
                                     <div className="md:col-span-2">
-                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Special Delivery Instructions:</div>
-                                      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                                      <div className="flex items-center space-x-2 mb-2">
+                                        <HiOutlineExclamationCircle className="w-4 h-4 text-purple-600" />
+                                        <div className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Special Delivery Instructions:</div>
+                                      </div>
+                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-purple-50 p-4 rounded-lg border-l-4 border-purple-500 shadow-sm">
                                         {clin.additional_data.special_delivery_instructions}
                                       </div>
                                     </div>
@@ -1128,8 +1138,11 @@ const OpportunityDetail = () => {
                                   )}
                                   {clin.scope_of_work && (
                                     <div>
-                                      <div className="text-xs text-gray-500 font-medium mb-1.5">Scope of Work:</div>
-                                      <div className="text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-3 rounded border border-blue-200">
+                                      <div className="flex items-center space-x-2 mb-2">
+                                        <HiOutlineDocumentText className="w-4 h-4 text-indigo-600" />
+                                        <div className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Scope of Work:</div>
+                                      </div>
+                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-indigo-50 p-4 rounded-lg border-l-4 border-indigo-500 shadow-sm">
                                         {clin.scope_of_work}
                                       </div>
                                     </div>
