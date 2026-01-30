@@ -1086,7 +1086,7 @@ const OpportunityDetail = () => {
                                             <HiOutlineClock className="w-4 h-4 text-gray-600" />
                                             <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Delivery Timeline:</div>
                                           </div>
-                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
+                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm italic">
                                             {clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}
                                           </div>
                                         </div>
@@ -1108,7 +1108,7 @@ const OpportunityDetail = () => {
                                             <HiOutlineExclamationCircle className="w-4 h-4 text-gray-600" />
                                             <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Special Delivery Instructions:</div>
                                           </div>
-                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
+                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm italic">
                                             {clin.additional_data.special_delivery_instructions}
                                           </div>
                                         </div>
