@@ -16,6 +16,7 @@ from .document_downloader import DocumentDownloader
 from .document_analyzer import DocumentAnalyzer
 from datetime import datetime
 from dateutil import parser as dateutil_parser
+from sqlalchemy import func
 import logging
 
 logger = logging.getLogger(__name__)
@@ -596,14 +597,70 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                         existing_clin.additional_data = {}
                     existing_clin.additional_data['special_delivery_instructions'] = clin_data['special_delivery_instructions']
         
-        # 4. Store additional deadlines from documents
-        logger.info(f"Storing {len(deadlines_found)} deadlines from documents...")
+        # 4. Deduplicate deadlines before storing
+        deduplicated_deadlines = []
+        seen_deadlines = set()
+        
         for deadline_data in deadlines_found:
-            # Check if similar deadline already exists (avoid duplicates)
+            if not deadline_data.get('due_date'):
+                continue
+            
+            # Parse and normalize date
+            due_date = deadline_data['due_date']
+            if isinstance(due_date, str):
+                due_date = dateutil_parser.parse(due_date)
+            
+            # Normalize date to date-only for comparison (ignore time component)
+            if hasattr(due_date, 'date'):
+                date_key = due_date.date()
+            elif isinstance(due_date, datetime):
+                date_key = due_date.date()
+            else:
+                date_key = due_date
+            
+            deadline_type = deadline_data.get('deadline_type', 'submission')
+            due_time = deadline_data.get('due_time') or ''
+            timezone = deadline_data.get('timezone') or ''
+            
+            # Create unique key: (date, deadline_type, due_time, timezone)
+            unique_key = (date_key, deadline_type, due_time, timezone)
+            
+            if unique_key not in seen_deadlines:
+                seen_deadlines.add(unique_key)
+                deduplicated_deadlines.append(deadline_data)
+            else:
+                logger.debug(f"Skipping duplicate deadline: {date_key} {deadline_type} {due_time} {timezone}")
+        
+        logger.info(f"Deduplicated {len(deadlines_found)} deadlines to {len(deduplicated_deadlines)} unique deadlines")
+        
+        # 5. Store deduplicated deadlines
+        logger.info(f"Storing {len(deduplicated_deadlines)} deadlines from documents...")
+        for deadline_data in deduplicated_deadlines:
+            # Parse date
+            due_date = deadline_data['due_date']
+            if isinstance(due_date, str):
+                due_date = dateutil_parser.parse(due_date)
+            
+            # Normalize date to date-only for comparison
+            if hasattr(due_date, 'date'):
+                date_key = due_date.date()
+            elif isinstance(due_date, datetime):
+                date_key = due_date.date()
+            else:
+                date_key = due_date
+            
+            deadline_type = deadline_data.get('deadline_type', 'submission')
+            due_time = deadline_data.get('due_time') or ''
+            timezone = deadline_data.get('timezone') or ''
+            
+            # Check if similar deadline already exists in database (avoid duplicates)
+            # Compare by date (date only), deadline_type, due_time, and timezone
             existing_deadline = db.query(Deadline).filter(
                 Deadline.opportunity_id == opportunity_id,
-                Deadline.due_date == deadline_data['due_date'],
-                Deadline.deadline_type == deadline_data.get('deadline_type')
+                func.date(Deadline.due_date) == date_key,
+                Deadline.deadline_type == deadline_type,
+                Deadline.due_time == due_time,
+                Deadline.timezone == timezone
             ).first()
             
             if not existing_deadline:
@@ -617,6 +674,8 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                     is_primary=deadline_data.get('is_primary', False)
                 )
                 db.add(deadline)
+            else:
+                logger.debug(f"Deadline already exists in database: {date_key} {deadline_type} {due_time} {timezone}")
         
         # Update status to completed AFTER analysis is done
         opportunity.status = "completed"
