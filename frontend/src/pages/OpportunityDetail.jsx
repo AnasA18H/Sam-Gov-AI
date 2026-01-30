@@ -1078,10 +1078,10 @@ const OpportunityDetail = () => {
                                   {(clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline) && (
                                     <div className="md:col-span-2">
                                       <div className="flex items-center space-x-2 mb-2">
-                                        <HiOutlineClock className="w-4 h-4 text-amber-600" />
-                                        <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Delivery Timeline:</div>
+                                        <HiOutlineClock className="w-4 h-4 text-gray-600" />
+                                        <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Delivery Timeline:</div>
                                       </div>
-                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-amber-50 p-4 rounded-lg border-l-4 border-amber-500 shadow-sm">
+                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
                                         {clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}
                                       </div>
                                     </div>
@@ -1089,10 +1089,10 @@ const OpportunityDetail = () => {
                                   {(clin.additional_data?.delivery_address) && (
                                     <div className="md:col-span-2">
                                       <div className="flex items-center space-x-2 mb-2">
-                                        <HiOutlineLocationMarker className="w-4 h-4 text-blue-600" />
-                                        <div className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Delivery Address:</div>
+                                        <HiOutlineLocationMarker className="w-4 h-4 text-gray-600" />
+                                        <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Delivery Address:</div>
                                       </div>
-                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500 shadow-sm font-mono">
+                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm font-mono">
                                         {clin.additional_data.delivery_address}
                                       </div>
                                     </div>
@@ -1100,10 +1100,10 @@ const OpportunityDetail = () => {
                                   {(clin.additional_data?.special_delivery_instructions) && (
                                     <div className="md:col-span-2">
                                       <div className="flex items-center space-x-2 mb-2">
-                                        <HiOutlineExclamationCircle className="w-4 h-4 text-purple-600" />
-                                        <div className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Special Delivery Instructions:</div>
+                                        <HiOutlineExclamationCircle className="w-4 h-4 text-gray-600" />
+                                        <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Special Delivery Instructions:</div>
                                       </div>
-                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-purple-50 p-4 rounded-lg border-l-4 border-purple-500 shadow-sm">
+                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
                                         {clin.additional_data.special_delivery_instructions}
                                       </div>
                                     </div>
@@ -1112,10 +1112,10 @@ const OpportunityDetail = () => {
                                 {clin.product_description && (
                                   <div className="mt-3 pt-3 border-t border-gray-200">
                                     <div className="flex items-center space-x-2 mb-2">
-                                      <HiOutlineTag className="w-4 h-4 text-green-600" />
-                                      <div className="text-xs font-semibold text-green-700 uppercase tracking-wide">Supplies/Services:</div>
+                                      <HiOutlineTag className="w-4 h-4 text-gray-600" />
+                                      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Supplies/Services:</div>
                                     </div>
-                                    <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-green-50 p-4 rounded-lg border-l-4 border-green-500 shadow-sm italic">
+                                    <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm italic">
                                       {clin.product_description}
                                     </div>
                                   </div>
@@ -1142,10 +1142,10 @@ const OpportunityDetail = () => {
                                   {clin.scope_of_work && (
                                     <div>
                                       <div className="flex items-center space-x-2 mb-2">
-                                        <HiOutlineDocumentText className="w-4 h-4 text-indigo-600" />
-                                        <div className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Scope of Work:</div>
+                                        <HiOutlineDocumentText className="w-4 h-4 text-gray-600" />
+                                        <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Scope of Work:</div>
                                       </div>
-                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-indigo-50 p-4 rounded-lg border-l-4 border-indigo-500 shadow-sm">
+                                      <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
                                         {clin.scope_of_work}
                                       </div>
                                     </div>
