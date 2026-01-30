@@ -1016,6 +1016,61 @@ Return ONLY valid JSON matching this exact schema:
         logger.info(f"Converted {len(result)} CLINs to dict format")
         return result
     
+    def _convert_deadlines_to_dicts(self, deadlines: List) -> List[Dict]:
+        """Convert DeadlineItem objects or dicts to standard dict format"""
+        result = []
+        
+        if not isinstance(deadlines, list):
+            logger.warning(f"Expected list for deadlines, got {type(deadlines)}")
+            return result
+        
+        for deadline in deadlines:
+            try:
+                deadline_dict = {}
+                
+                if isinstance(deadline, DeadlineItem):
+                    deadline_dict = {
+                        'due_date': deadline.due_date,
+                        'due_time': deadline.due_time,
+                        'timezone': deadline.timezone,
+                        'deadline_type': deadline.deadline_type,
+                        'description': deadline.description,
+                        'is_primary': deadline.is_primary,
+                    }
+                elif isinstance(deadline, dict):
+                    deadline_dict = {
+                        'due_date': deadline.get('due_date'),
+                        'due_time': deadline.get('due_time'),
+                        'timezone': deadline.get('timezone'),
+                        'deadline_type': deadline.get('deadline_type', 'submission'),
+                        'description': deadline.get('description'),
+                        'is_primary': deadline.get('is_primary', False),
+                    }
+                else:
+                    logger.debug(f"Skipping deadline: unexpected type {type(deadline)}")
+                    continue
+                
+                # Parse date string to datetime
+                if deadline_dict.get('due_date'):
+                    try:
+                        due_date_str = deadline_dict['due_date']
+                        if deadline_dict.get('due_time'):
+                            datetime_str = f"{due_date_str} {deadline_dict['due_time']}"
+                        else:
+                            datetime_str = due_date_str
+                        deadline_dict['due_date'] = dateutil.parser.parse(datetime_str, fuzzy=True, default=datetime(1900, 1, 1))
+                    except Exception as e:
+                        logger.warning(f"Could not parse deadline date: {deadline_dict.get('due_date')}, error: {e}")
+                        continue
+                
+                result.append(deadline_dict)
+            except Exception as e:
+                logger.warning(f"Error converting deadline: {e}", exc_info=True)
+                continue
+        
+        logger.info(f"Converted {len(result)} deadlines to dict format")
+        return result
+    
     def _safe_str(self, value) -> Optional[str]:
         """Safely convert value to string, handling None and empty values"""
         if value is None:
