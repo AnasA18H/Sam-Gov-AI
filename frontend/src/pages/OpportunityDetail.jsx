@@ -1078,9 +1078,10 @@ const OpportunityDetail = () => {
                                       <span className="text-gray-900">{clin.contract_type}</span>
                                     </div>
                                   )}
-                                  {expandedClins.has(clin.id) && (
-                                    <>
-                                      {(clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline) && (
+                                </div>
+                                {expandedClins.has(clin.id) && (
+                                  <div className="mt-4 pt-3 border-t border-gray-200">
+                                    {(clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline) && (
                                         <div className="md:col-span-2">
                                           <div className="flex items-center space-x-2 mb-2">
                                             <HiOutlineClock className="w-4 h-4 text-gray-600" />
@@ -1113,10 +1114,8 @@ const OpportunityDetail = () => {
                                           </div>
                                         </div>
                                       )}
-                                    </>
-                                  )}
-                                </div>
-                                <div className="mt-4 pt-3 border-t border-gray-200"></div>
+                                  </div>
+                                )}
                                 {expandedClins.has(clin.id) && clin.product_description && (
                                   <div className="mt-3 pt-3 border-t border-gray-200">
                                     <div className="flex items-center space-x-2 mb-2">
