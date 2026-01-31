@@ -7,6 +7,8 @@ from .opportunity import Opportunity
 from .clin import CLIN
 from .document import Document
 from .deadline import Deadline
+from .manufacturer import Manufacturer
+from .dealer import Dealer
 
 __all__ = [
     "User",
@@ -15,4 +17,6 @@ __all__ = [
     "CLIN",
     "Document",
     "Deadline",
+    "Manufacturer",
+    "Dealer",
 ]
