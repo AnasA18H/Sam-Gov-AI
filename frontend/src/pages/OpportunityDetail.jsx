@@ -523,6 +523,16 @@ const OpportunityDetail = () => {
                         <span className="text-sm font-medium text-gray-700">Deadlines</span>
                         <span className="text-sm font-bold text-gray-900">{opportunity.deadlines?.length || 0}</span>
                       </div>
+                      <div className="h-px bg-gray-200"></div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700">Manufacturers</span>
+                        <span className="text-sm font-bold text-gray-900">{opportunity.manufacturers?.length || 0}</span>
+                      </div>
+                      <div className="h-px bg-gray-200"></div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700">Dealers</span>
+                        <span className="text-sm font-bold text-gray-900">{opportunity.dealers?.length || 0}</span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1192,6 +1202,209 @@ const OpportunityDetail = () => {
                                 </button>
                               </div>
                             )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Manufacturers Section */}
+                {opportunity.manufacturers && opportunity.manufacturers.length > 0 && (
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
+                        <HiOutlineOfficeBuilding className="w-5 h-5 mr-2 text-purple-600" />
+                        Manufacturers ({opportunity.manufacturers.length})
+                      </h2>
+                    </div>
+                    <div className="p-4 space-y-3">
+                      {opportunity.manufacturers.map((manufacturer) => (
+                        <div
+                          key={manufacturer.id}
+                          className="bg-gray-50 rounded-lg border border-gray-200 p-4 hover:border-purple-300 transition-all"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <h3 className="text-sm font-semibold text-gray-900">{manufacturer.name}</h3>
+                                {manufacturer.cage_code && (
+                                  <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded font-mono">
+                                    CAGE: {manufacturer.cage_code}
+                                  </span>
+                                )}
+                                <span className={`text-xs px-2 py-0.5 rounded ${
+                                  manufacturer.research_status === 'completed' ? 'bg-green-100 text-green-700' :
+                                  manufacturer.research_status === 'in_progress' ? 'bg-yellow-100 text-yellow-700' :
+                                  manufacturer.research_status === 'failed' ? 'bg-red-100 text-red-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {manufacturer.research_status}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
+                                {manufacturer.part_number && (
+                                  <div>
+                                    <span className="font-medium">Part #:</span> <span className="font-mono">{manufacturer.part_number}</span>
+                                  </div>
+                                )}
+                                {manufacturer.nsn && (
+                                  <div>
+                                    <span className="font-medium">NSN:</span> <span className="font-mono">{manufacturer.nsn}</span>
+                                  </div>
+                                )}
+                                {manufacturer.website && (
+                                  <div className="flex items-center space-x-1">
+                                    <HiOutlineGlobe className="w-3 h-3" />
+                                    <a href={manufacturer.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700 truncate">
+                                      {manufacturer.website}
+                                    </a>
+                                    {manufacturer.website_verified && (
+                                      <HiOutlineCheckCircle className="w-3 h-3 text-green-600" title="Website Verified" />
+                                    )}
+                                  </div>
+                                )}
+                                {manufacturer.contact_email && (
+                                  <div className="flex items-center space-x-1">
+                                    <HiOutlineMail className="w-3 h-3" />
+                                    <a href={`mailto:${manufacturer.contact_email}`} className="text-blue-600 hover:text-blue-700 truncate">
+                                      {manufacturer.contact_email}
+                                    </a>
+                                  </div>
+                                )}
+                                {manufacturer.contact_phone && (
+                                  <div className="flex items-center space-x-1">
+                                    <HiOutlinePhone className="w-3 h-3" />
+                                    <a href={`tel:${manufacturer.contact_phone}`} className="text-gray-900">
+                                      {manufacturer.contact_phone}
+                                    </a>
+                                  </div>
+                                )}
+                                {manufacturer.address && (
+                                  <div className="flex items-start space-x-1 md:col-span-2">
+                                    <HiOutlineLocationMarker className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                    <span className="text-gray-700">{manufacturer.address}</span>
+                                  </div>
+                                )}
+                              </div>
+                              {manufacturer.research_source && (
+                                <div className="mt-2 text-xs text-gray-500">
+                                  Source: <span className="font-medium">{manufacturer.research_source.replace('_', ' ')}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Dealers Section */}
+                {opportunity.dealers && opportunity.dealers.length > 0 && (
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
+                        <HiOutlineOfficeBuilding className="w-5 h-5 mr-2 text-indigo-600" />
+                        Dealers/Distributors ({opportunity.dealers.length})
+                      </h2>
+                    </div>
+                    <div className="p-4 space-y-3">
+                      {opportunity.dealers.map((dealer) => (
+                        <div
+                          key={dealer.id}
+                          className="bg-gray-50 rounded-lg border border-gray-200 p-4 hover:border-indigo-300 transition-all"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-2 mb-2 flex-wrap">
+                                <h3 className="text-sm font-semibold text-gray-900">{dealer.company_name}</h3>
+                                {dealer.rank_score && (
+                                  <span className="text-xs px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">
+                                    Rank: {dealer.rank_score}/10
+                                  </span>
+                                )}
+                                <span className={`text-xs px-2 py-0.5 rounded ${
+                                  dealer.research_status === 'completed' ? 'bg-green-100 text-green-700' :
+                                  dealer.research_status === 'in_progress' ? 'bg-yellow-100 text-yellow-700' :
+                                  dealer.research_status === 'failed' ? 'bg-red-100 text-red-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {dealer.research_status}
+                                </span>
+                                {dealer.manufacturer_authorized && (
+                                  <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded font-medium">
+                                    Authorized
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
+                                {dealer.website && (
+                                  <div className="flex items-center space-x-1">
+                                    <HiOutlineGlobe className="w-3 h-3" />
+                                    <a href={dealer.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700 truncate">
+                                      {dealer.website}
+                                    </a>
+                                    {dealer.website_verified && (
+                                      <HiOutlineCheckCircle className="w-3 h-3 text-green-600" title="Website Verified" />
+                                    )}
+                                  </div>
+                                )}
+                                {dealer.contact_email && (
+                                  <div className="flex items-center space-x-1">
+                                    <HiOutlineMail className="w-3 h-3" />
+                                    <a href={`mailto:${dealer.contact_email}`} className="text-blue-600 hover:text-blue-700 truncate">
+                                      {dealer.contact_email}
+                                    </a>
+                                  </div>
+                                )}
+                                {dealer.contact_phone && (
+                                  <div className="flex items-center space-x-1">
+                                    <HiOutlinePhone className="w-3 h-3" />
+                                    <a href={`tel:${dealer.contact_phone}`} className="text-gray-900">
+                                      {dealer.contact_phone}
+                                    </a>
+                                  </div>
+                                )}
+                                {dealer.part_number && (
+                                  <div>
+                                    <span className="font-medium">Part #:</span> <span className="font-mono">{dealer.part_number}</span>
+                                  </div>
+                                )}
+                                {dealer.pricing_info && (
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium">Pricing:</span> <span className="text-gray-900 font-semibold">{dealer.pricing_info}</span>
+                                    {dealer.pricing_amount && (
+                                      <span className="ml-2 text-green-700 font-bold">
+                                        ${dealer.pricing_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {dealer.stock_status && (
+                                  <div>
+                                    <span className="font-medium">Stock:</span> <span className={`font-semibold ${
+                                      dealer.stock_status === 'in_stock' ? 'text-green-700' :
+                                      dealer.stock_status === 'out_of_stock' ? 'text-red-700' :
+                                      'text-gray-700'
+                                    }`}>
+                                      {dealer.stock_status.replace('_', ' ').toUpperCase()}
+                                    </span>
+                                  </div>
+                                )}
+                                {dealer.address && (
+                                  <div className="flex items-start space-x-1 md:col-span-2">
+                                    <HiOutlineLocationMarker className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                    <span className="text-gray-700">{dealer.address}</span>
+                                  </div>
+                                )}
+                              </div>
+                              {dealer.research_source && (
+                                <div className="mt-2 text-xs text-gray-500">
+                                  Source: <span className="font-medium">{dealer.research_source.replace('_', ' ')}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
