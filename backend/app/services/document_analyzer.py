@@ -107,30 +107,16 @@ class DocumentAnalyzer:
         """
         return self.text_extractor.extract_text(file_path)
     
-    def extract_clins(self, text: str, file_path: Optional[Path] = None) -> List[Dict]:
+    def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> Tuple[List[Dict], List[Dict], List[Dict], List[Dict]]:
         """
-        Extract CLINs using ONLY AI/LLM extraction.
-        No table extraction, no regex fallback - AI only.
-        
-        Args:
-            text: Document text content
-            file_path: Optional path to document file (not used, kept for compatibility)
-            
-        Returns:
-            List of CLIN dictionaries with extracted data
-        """
-        return self.clin_extractor.extract_clins(text, file_path)
-    
-    def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> List[Dict]:
-        """
-        Extract CLINs from multiple documents in a single LLM call.
+        Extract CLINs, deadlines, manufacturers, and dealers from multiple documents in a single LLM call.
         Sends all documents together for batch processing.
         
         Args:
             documents: List of tuples (document_name, document_text)
             
         Returns:
-            List of CLIN dictionaries with extracted data
+            Tuple of (clins, deadlines, manufacturers, dealers) - all extracted in one LLM call
         """
         return self.clin_extractor.extract_clins_batch(documents)
     

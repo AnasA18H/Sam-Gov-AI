@@ -11,9 +11,12 @@ from ..models.opportunity import Opportunity
 from ..models.document import Document, DocumentType, DocumentSource
 from ..models.deadline import Deadline
 from ..models.clin import CLIN
+from ..models.manufacturer import Manufacturer, ResearchStatus
 from .sam_gov_scraper import SAMGovScraper
 from .document_downloader import DocumentDownloader
 from .document_analyzer import DocumentAnalyzer
+from .research_service import save_extracted_manufacturers, save_extracted_dealers, save_external_dealers
+from .llm_external_research_service import LLMExternalResearchService
 from datetime import datetime
 from dateutil import parser as dateutil_parser
 from sqlalchemy import func
@@ -422,12 +425,16 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
             
             # If no documents but we have SAM.gov page text, still try CLIN extraction
             if document_texts:
-                logger.info(f"Batch extracting CLINs and deadlines from {len(document_texts)} sources (including SAM.gov page) in a single LLM call")
+                logger.info(f"Batch extracting CLINs, deadlines, manufacturers, and dealers from {len(document_texts)} sources (including SAM.gov page) in a single LLM call")
                 try:
-                    batch_clins, batch_deadlines = analyzer.extract_clins_batch(document_texts)
+                    batch_clins, batch_deadlines, batch_manufacturers, batch_dealers = analyzer.extract_clins_batch(document_texts)
                     clins_found.extend(batch_clins)
                     deadlines_found.extend(batch_deadlines)
-                    logger.info(f"Batch extraction found {len(batch_clins)} CLINs and {len(batch_deadlines)} deadlines")
+                    logger.info(f"Batch extraction found {len(batch_clins)} CLINs, {len(batch_deadlines)} deadlines, {len(batch_manufacturers)} manufacturers, {len(batch_dealers)} dealers")
+                    
+                    # Store manufacturers and dealers for later saving
+                    manufacturers_found = batch_manufacturers
+                    dealers_found = batch_dealers
                     
                     # DEBUG: Save batch CLIN extraction results
                     try:
@@ -597,7 +604,63 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                         existing_clin.additional_data = {}
                     existing_clin.additional_data['special_delivery_instructions'] = clin_data['special_delivery_instructions']
         
-        # 4. Deduplicate deadlines before storing
+        # Commit CLINs to database
+        db.commit()
+        logger.info("CLINs committed to database")
+        
+        # 4. Save Manufacturers and Dealers FROM DOCUMENTS (extracted together with CLINs)
+        logger.info("Phase 1: Saving manufacturers and dealers extracted FROM DOCUMENTS...")
+        try:
+            # Manufacturers and dealers were already extracted together with CLINs
+            manufacturers_found = batch_manufacturers if 'batch_manufacturers' in locals() else []
+            dealers_found = batch_dealers if 'batch_dealers' in locals() else []
+            
+            logger.info(f"Found {len(manufacturers_found)} manufacturers and {len(dealers_found)} dealers from document extraction")
+            
+            # Get CLINs for linking
+            db_clins = db.query(CLIN).filter(CLIN.opportunity_id == opportunity_id).all()
+            
+            # Save manufacturers to database
+            if manufacturers_found:
+                saved_manufacturers = save_extracted_manufacturers(
+                    db=db,
+                    opportunity_id=opportunity_id,
+                    manufacturers=manufacturers_found,
+                    clins=db_clins
+                )
+                logger.info(f"Saved {len(saved_manufacturers)} manufacturers to database (from documents)")
+            
+            # Save dealers to database
+            if dealers_found:
+                saved_manufacturers_list = db.query(Manufacturer).filter(
+                    Manufacturer.opportunity_id == opportunity_id
+                ).all()
+                saved_dealers = save_extracted_dealers(
+                    db=db,
+                    opportunity_id=opportunity_id,
+                    dealers=dealers_found,
+                    manufacturers=saved_manufacturers_list if manufacturers_found else None,
+                    clins=db_clins
+                )
+                logger.info(f"Saved {len(saved_dealers)} dealers to database (from documents)")
+            
+            # Phase 2: Trigger external web research for manufacturers needing website/contact info
+            manufacturers_needing_research = db.query(Manufacturer).filter(
+                Manufacturer.opportunity_id == opportunity_id,
+                Manufacturer.research_source == "document_extraction"
+            ).all()
+            
+            if manufacturers_needing_research:
+                logger.info(f"Phase 2: Triggering external research for {len(manufacturers_needing_research)} manufacturers")
+                # Trigger external research as background task
+                research_manufacturers_external.delay(opportunity_id)
+            else:
+                logger.info("No manufacturers found in documents - skipping external research")
+        except Exception as mfg_dealer_error:
+            logger.error(f"Error saving manufacturers/dealers: {str(mfg_dealer_error)}", exc_info=True)
+            # Don't fail the whole task if manufacturer/dealer saving fails
+        
+        # 5. Deduplicate deadlines before storing
         deduplicated_deadlines = []
         seen_deadlines = set()
         
@@ -633,7 +696,7 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         
         logger.info(f"Deduplicated {len(deadlines_found)} deadlines to {len(deduplicated_deadlines)} unique deadlines")
         
-        # 5. Store deduplicated deadlines
+        # 6. Store deduplicated deadlines
         logger.info(f"Storing {len(deduplicated_deadlines)} deadlines from documents...")
         for deadline_data in deduplicated_deadlines:
             # Parse date
@@ -738,6 +801,148 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
             opportunity.status = "failed"
             opportunity.error_message = f"Document analysis failed: {str(e)}"
             db.commit()
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="research_manufacturers_external")
+def research_manufacturers_external(opportunity_id: int):
+    """
+    Phase 2: External research for manufacturers found in documents
+    Uses LLM-guided web search to find websites, contact info, and authorized dealers
+    
+    Args:
+        opportunity_id: ID of the opportunity
+    """
+    db = SessionLocal()
+    try:
+        opportunity = db.query(Opportunity).filter(Opportunity.id == opportunity_id).first()
+        if not opportunity:
+            logger.error(f"Opportunity {opportunity_id} not found")
+            return {"status": "error", "message": "Opportunity not found"}
+        
+        # Get manufacturers that need external research (found in documents but missing website/contact)
+        manufacturers = db.query(Manufacturer).filter(
+            Manufacturer.opportunity_id == opportunity_id,
+            Manufacturer.research_source == "document_extraction"
+        ).all()
+        
+        if not manufacturers:
+            logger.info(f"No manufacturers found for external research (opportunity {opportunity_id})")
+            return {"status": "success", "message": "No manufacturers to research"}
+        
+        logger.info(f"Phase 2: Starting LLM-guided external research for {len(manufacturers)} manufacturers")
+        
+        # Load reference material for online search strategies
+        reference_text = None
+        try:
+            reference_file = Path(settings.PROJECT_ROOT) / "extras" / "ONLINE_SEARCH_GUIDE.md"
+            if reference_file.exists():
+                with open(reference_file, 'r', encoding='utf-8') as f:
+                    reference_text = f.read()
+                logger.info(f"Loaded online search guide: {len(reference_text)} characters")
+        except Exception as ref_error:
+            logger.warning(f"Failed to load online search guide: {str(ref_error)}")
+        
+        # Get CLINs for context
+        clins = db.query(CLIN).filter(CLIN.opportunity_id == opportunity_id).all()
+        clin_part_map = {clin.id: clin.part_number for clin in clins if clin.part_number}
+        
+        import time
+        with LLMExternalResearchService() as research_service:
+            for mfg_idx, manufacturer in enumerate(manufacturers, 1):
+                try:
+                    logger.info(f"[{mfg_idx}/{len(manufacturers)}] Researching: {manufacturer.name}")
+                    
+                    # Update status to in_progress
+                    manufacturer.research_status = ResearchStatus.IN_PROGRESS
+                    manufacturer.research_started_at = datetime.utcnow()
+                    db.commit()
+                    
+                    # Get part number from associated CLIN
+                    part_number = manufacturer.part_number
+                    if not part_number and manufacturer.clin_id and manufacturer.clin_id in clin_part_map:
+                        part_number = clin_part_map[manufacturer.clin_id]
+                    
+                    # Research manufacturer website and find dealers using LLM-guided search
+                    research_results = research_service.research_manufacturer_and_dealers(
+                        manufacturer=manufacturer,
+                        part_number=part_number,
+                        nsn=manufacturer.nsn,
+                        reference_text=reference_text
+                    )
+                    
+                    # Update manufacturer with results
+                    mfg_results = research_results.get('manufacturer', {})
+                    if mfg_results.get('website'):
+                        manufacturer.website = mfg_results['website']
+                        manufacturer.website_verified = mfg_results.get('website_verified', False)
+                        manufacturer.website_verification_date = datetime.utcnow()
+                    
+                    if mfg_results.get('contact_email'):
+                        manufacturer.contact_email = mfg_results['contact_email']
+                    
+                    if mfg_results.get('contact_phone'):
+                        manufacturer.contact_phone = mfg_results['contact_phone']
+                    
+                    if mfg_results.get('address'):
+                        manufacturer.address = mfg_results['address']
+                    
+                    if mfg_results.get('sam_gov_verified'):
+                        manufacturer.sam_gov_verified = True
+                        manufacturer.sam_gov_verification_date = datetime.utcnow()
+                    
+                    # Update research status
+                    manufacturer.research_status = ResearchStatus.COMPLETED
+                    manufacturer.research_completed_at = datetime.utcnow()
+                    manufacturer.research_source = "document_extraction,external_search"
+                    
+                    # Remove needs_external_research flag
+                    if manufacturer.additional_data:
+                        manufacturer.additional_data.pop('needs_external_research', None)
+                    
+                    db.commit()
+                    logger.info(f"Completed manufacturer research: {manufacturer.name}")
+                    logger.info(f"  Website: {bool(mfg_results.get('website'))}")
+                    logger.info(f"  Email: {bool(mfg_results.get('contact_email'))}")
+                    
+                    # Save dealers found for this manufacturer
+                    dealers_found = research_results.get('dealers', [])
+                    if dealers_found:
+                        logger.info(f"Found {len(dealers_found)} dealers for {manufacturer.name}")
+                        from .research_service import save_external_dealers
+                        saved_dealers = save_external_dealers(
+                            db=db,
+                            opportunity_id=opportunity_id,
+                            dealers=dealers_found,
+                            manufacturer=manufacturer,
+                            clins=clins
+                        )
+                        logger.info(f"Saved {len(saved_dealers)} dealers to database")
+                    
+                    # Rate limiting - wait between manufacturers
+                    if mfg_idx < len(manufacturers):
+                        time.sleep(5)  # 5 seconds between manufacturers
+                
+                except Exception as mfg_error:
+                    logger.error(f"Error researching manufacturer {manufacturer.name}: {str(mfg_error)}", exc_info=True)
+                    manufacturer.research_status = ResearchStatus.FAILED
+                    manufacturer.research_error = str(mfg_error)
+                    manufacturer.research_completed_at = datetime.utcnow()
+                    db.commit()
+                    continue
+        
+        logger.info(f"Phase 2 complete: External research finished for {len(manufacturers)} manufacturers")
+        
+        return {
+            "status": "success",
+            "opportunity_id": opportunity_id,
+            "manufacturers_researched": len(manufacturers)
+        }
+    
+    except Exception as e:
+        logger.error(f"Error in external research for opportunity {opportunity_id}: {str(e)}", exc_info=True)
         return {"status": "error", "message": str(e)}
     finally:
         db.close()

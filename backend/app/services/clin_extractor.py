@@ -66,9 +66,31 @@ if PYDANTIC_AVAILABLE:
         description: Optional[str] = V1Field(None, description="Brief description of what the deadline is for")
         is_primary: bool = V1Field(False, description="True if this is the primary submission deadline")
     
+    class ManufacturerInfo(V1BaseModel):
+        """Manufacturer information extracted from documents"""
+        name: str = V1Field(description="Manufacturer name (e.g., 'North Atlantic Industries Inc.', 'BAE Systems')")
+        cage_code: Optional[str] = V1Field(None, description="CAGE code if mentioned (e.g., '0VGU1', '12436')")
+        part_number: Optional[str] = V1Field(None, description="Part number associated with this manufacturer (e.g., '5388-F12')")
+        nsn: Optional[str] = V1Field(None, description="National Stock Number (NSN) if mentioned (e.g., '5998-01-505-7062')")
+        clin_number: Optional[str] = V1Field(None, description="CLIN number this manufacturer is associated with (e.g., '0001')")
+        source_location: Optional[str] = V1Field(None, description="Where this information was found (e.g., 'Qualified Sources Section', 'CLIN 0001 Description')")
+        notes: Optional[str] = V1Field(None, description="Additional notes about this manufacturer")
+    
+    class DealerInfo(V1BaseModel):
+        """Dealer/Distributor information extracted from documents"""
+        company_name: str = V1Field(description="Dealer/distributor company name (e.g., 'ASAP NSN Hub', 'AeroBase Group')")
+        part_number: Optional[str] = V1Field(None, description="Part number this dealer sells (e.g., '5388-F12')")
+        nsn: Optional[str] = V1Field(None, description="NSN if mentioned")
+        manufacturer_name: Optional[str] = V1Field(None, description="Manufacturer name this dealer is associated with")
+        clin_number: Optional[str] = V1Field(None, description="CLIN number this dealer is associated with")
+        source_location: Optional[str] = V1Field(None, description="Where this information was found")
+        notes: Optional[str] = V1Field(None, description="Additional notes about this dealer")
+    
     class CLINExtractionResult(V1BaseModel):
         clins: List[CLINItem] = V1Field(default_factory=list, description="List of CLINs")
         deadlines: List[DeadlineItem] = V1Field(default_factory=list, description="List of deadlines")
+        manufacturers: List[ManufacturerInfo] = V1Field(default_factory=list, description="List of manufacturers found in documents")
+        dealers: List[DealerInfo] = V1Field(default_factory=list, description="List of dealers/distributors found in documents")
 
 
 class CLINExtractor:
@@ -107,13 +129,13 @@ class CLINExtractor:
         """Clean text using text extractor"""
         return self.text_extractor._clean_text(text)
     
-    def _extract_with_llm(self, prompt: str, use_claude: bool = True) -> Tuple[List, List]:
-        """Extract CLINs and deadlines using LLM - returns tuple (clins, deadlines)"""
+    def _extract_with_llm(self, prompt: str, use_claude: bool = True) -> Tuple[List, List, List, List]:
+        """Extract CLINs, deadlines, manufacturers, and dealers using LLM - returns tuple (clins, deadlines, manufacturers, dealers)"""
         llm_to_use = self.llm if use_claude else self.fallback_llm
         llm_name = "Claude" if use_claude else "Groq"
         
         if not llm_to_use:
-            return ([], [])
+            return ([], [], [], [])
         
         # Prompt already includes JSON format instructions
         try:
@@ -167,22 +189,28 @@ class CLINExtractor:
             except Exception as debug_err:
                 logger.debug(f"Could not save raw structured output to file: {debug_err}")
             
-            # Extract clins and deadlines
+            # Extract clins, deadlines, manufacturers, and dealers
             clins_list = []
             deadlines_list = []
+            manufacturers_list = []
+            dealers_list = []
             
             if isinstance(result, CLINExtractionResult):
                 clins_list = result.clins if isinstance(result.clins, list) else []
                 deadlines_list = result.deadlines if hasattr(result, 'deadlines') and isinstance(result.deadlines, list) else []
+                manufacturers_list = result.manufacturers if hasattr(result, 'manufacturers') and isinstance(result.manufacturers, list) else []
+                dealers_list = result.dealers if hasattr(result, 'dealers') and isinstance(result.dealers, list) else []
             elif isinstance(result, dict):
                 clins_list = result.get('clins', [])
                 deadlines_list = result.get('deadlines', [])
+                manufacturers_list = result.get('manufacturers', [])
+                dealers_list = result.get('dealers', [])
             elif isinstance(result, list):
                 # If it's a list, assume it's CLINs (backward compatibility)
                 clins_list = result
             
-            # Return tuple: (clins, deadlines)
-            return (clins_list, deadlines_list if deadlines_list else [])
+            # Return tuple: (clins, deadlines, manufacturers, dealers)
+            return (clins_list, deadlines_list if deadlines_list else [], manufacturers_list if manufacturers_list else [], dealers_list if dealers_list else [])
         except Exception as e:
             logger.debug(f"{llm_name} structured output failed, trying direct JSON: {e}")
             # Fallback: direct JSON extraction with robust parsing
@@ -250,14 +278,16 @@ class CLINExtractor:
                 if not extracted_json:
                     logger.warning(f"{llm_name} could not extract JSON from response")
                     logger.debug(f"Content preview: {content[:500]}")
-                    return []
+                    return ([], [], [], [])
                 
                 # Parse JSON
                 parsed = json.loads(extracted_json)
                 
-                # Extract clins and deadlines arrays - handle various response formats
+                # Extract clins, deadlines, manufacturers, and dealers arrays - handle various response formats
                 clins_list = []
                 deadlines_list = []
+                manufacturers_list = []
+                dealers_list = []
                 
                 if isinstance(parsed, dict):
                     if 'clins' in parsed:
@@ -269,16 +299,20 @@ class CLINExtractor:
                     
                     if 'deadlines' in parsed:
                         deadlines_list = parsed['deadlines'] if isinstance(parsed['deadlines'], list) else []
+                    if 'manufacturers' in parsed:
+                        manufacturers_list = parsed['manufacturers'] if isinstance(parsed['manufacturers'], list) else []
+                    if 'dealers' in parsed:
+                        dealers_list = parsed['dealers'] if isinstance(parsed['dealers'], list) else []
                 elif isinstance(parsed, list):
                     # If it's a list, assume it's CLINs (backward compatibility)
                     clins_list = parsed
                 
                 if not isinstance(clins_list, list):
                     logger.warning(f"{llm_name} returned unexpected structure: {type(clins_list)}")
-                    return ([], [])
+                    return ([], [], [], [])
                 
-                logger.info(f"{llm_name} extracted {len(clins_list)} CLINs and {len(deadlines_list)} deadlines from JSON response")
-                return (clins_list, deadlines_list)
+                logger.info(f"{llm_name} extracted {len(clins_list)} CLINs, {len(deadlines_list)} deadlines, {len(manufacturers_list)} manufacturers, {len(dealers_list)} dealers from JSON response")
+                return (clins_list, deadlines_list, manufacturers_list, dealers_list)
                 
             except json.JSONDecodeError as json_err:
                 logger.error(f"{llm_name} JSON parsing failed: {json_err}")
@@ -311,7 +345,9 @@ class CLINExtractor:
                         if isinstance(parsed, dict):
                             clins_list = parsed.get('clins', []) if isinstance(parsed.get('clins'), list) else []
                             deadlines_list = parsed.get('deadlines', []) if isinstance(parsed.get('deadlines'), list) else []
-                        logger.info(f"{llm_name} extracted {len(clins_list)} CLINs after JSON repair")
+                            manufacturers_list = parsed.get('manufacturers', []) if isinstance(parsed.get('manufacturers'), list) else []
+                            dealers_list = parsed.get('dealers', []) if isinstance(parsed.get('dealers'), list) else []
+                        logger.info(f"{llm_name} extracted {len(clins_list)} CLINs, {len(deadlines_list)} deadlines, {len(manufacturers_list)} manufacturers, {len(dealers_list)} dealers after JSON repair")
                     except:
                         pass
                 except Exception as repair_err:
@@ -373,23 +409,41 @@ class CLINExtractor:
                                 logger.info(f"{llm_name} extracted {len(deadlines_list)} deadlines from deadlines array directly")
                             except:
                                 pass
+                        
+                        manufacturers_match = re.search(r'"manufacturers"\s*:\s*\[(.*?)\]', content, re.DOTALL)
+                        if manufacturers_match:
+                            array_str = '[' + manufacturers_match.group(1) + ']'
+                            try:
+                                manufacturers_list = json.loads(array_str)
+                                logger.info(f"{llm_name} extracted {len(manufacturers_list)} manufacturers from manufacturers array directly")
+                            except:
+                                pass
+                        
+                        dealers_match = re.search(r'"dealers"\s*:\s*\[(.*?)\]', content, re.DOTALL)
+                        if dealers_match:
+                            array_str = '[' + dealers_match.group(1) + ']'
+                            try:
+                                dealers_list = json.loads(array_str)
+                                logger.info(f"{llm_name} extracted {len(dealers_list)} dealers from dealers array directly")
+                            except:
+                                pass
                     except:
                         pass
                 
-                return (clins_list if isinstance(clins_list, list) else [], deadlines_list if isinstance(deadlines_list, list) else [])
+                return (clins_list if isinstance(clins_list, list) else [], deadlines_list if isinstance(deadlines_list, list) else [], manufacturers_list if isinstance(manufacturers_list, list) else [], dealers_list if isinstance(dealers_list, list) else [])
             except Exception as fallback_error:
                 logger.error(f"{llm_name} JSON fallback failed: {fallback_error}")
-                return ([], [])
+                return ([], [], [], [])
     
-    def extract_clins(self, text: str, file_path: Optional[str] = None) -> Tuple[List[Dict], List[Dict]]:
-        """Extract CLINs and deadlines from a single document"""
+    def extract_clins(self, text: str, file_path: Optional[str] = None) -> Tuple[List[Dict], List[Dict], List[Dict], List[Dict]]:
+        """Extract CLINs, deadlines, manufacturers, and dealers from a single document"""
         if not self.llm and not self.fallback_llm:
             logger.warning("No LLM available")
-            return ([], [])
+            return ([], [], [], [])
         
         # Use raw text without cleaning to preserve all information
         if not text or not text.strip():
-            return []
+            return ([], [], [], [])
         
         # Enhanced prompt for comprehensive CLIN extraction
         prompt = f"""You are a government contracting analyst. Analyze this solicitation document and extract ALL Contract Line Item Numbers (CLINs) and their complete details.
@@ -552,16 +606,23 @@ DOCUMENT TEXT:
             elif missing_fields_count > 0:
                 logger.debug(f"Found {missing_fields_count} missing fields ({missing_percentage:.1f}%) - below 20% threshold, skipping second pass")
         
-        return (clins_dicts, deadlines_dicts)
+        # For single document extraction, manufacturers/dealers are also extracted but not converted yet
+        # Convert them if they exist in the result
+        manufacturers_dicts = []
+        dealers_dicts = []
+        # Note: Single document extraction uses same prompt structure, so manufacturers/dealers should be in result
+        # But we need to extract them from the LLM response - for now return empty lists
+        # Full implementation would require updating the single-document prompt and extraction logic
+        return (clins_dicts, deadlines_dicts, manufacturers_dicts, dealers_dicts)
     
-    def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> Tuple[List[Dict], List[Dict]]:
-        """Extract CLINs from multiple documents - try all at once, else per document"""
+    def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> Tuple[List[Dict], List[Dict], List[Dict], List[Dict]]:
+        """Extract CLINs, deadlines, manufacturers, and dealers from multiple documents - returns tuple (clins, deadlines, manufacturers, dealers)"""
         if not self.llm and not self.fallback_llm:
             logger.warning("No LLM available")
-            return ([], [])
+            return ([], [], [], [])
         
         if not documents:
-            return ([], [])
+            return ([], [], [], [])
         
         # Try all documents at once first - use raw text without cleaning
         all_text = []
@@ -570,7 +631,7 @@ DOCUMENT TEXT:
                 all_text.append(f"=== DOCUMENT: {doc_name} ===\n{doc_text}")
         
         if not all_text:
-            return ([], [])
+            return ([], [], [], [])
         
         combined_text = "\n\n".join(all_text)
         
@@ -669,6 +730,37 @@ CRITICAL: You MUST extract ALL available information for EACH CLIN from ALL docu
 
 8. For Manufacturer/Part/Model: Search ALL documents for Bill of Materials (BOM), specification tables, Q&A documents, technical specifications, attachment lists, and any product detail sections.
 
+5. MANUFACTURER AND DEALER EXTRACTION (FROM DOCUMENTS ONLY):
+   CRITICAL: Extract ALL manufacturers and dealers/distributors that are EXPLICITLY MENTIONED in the documents.
+   DO NOT search external sources - only extract what is written in the provided documents.
+   
+   Look for manufacturers in:
+   - "Qualified Sources" or "Qualified Source(s)" sections
+   - CLIN descriptions and item details
+   - Bill of Materials (BOM) sections
+   - Specification tables
+   - Any sections mentioning manufacturers, suppliers, or distributors
+   
+   For EACH manufacturer found, extract:
+   - name (required): Full manufacturer name (e.g., "North Atlantic Industries Inc.", "BAE Systems")
+   - cage_code: CAGE code if mentioned (e.g., "0VGU1", "12436")
+   - part_number: Part number associated with this manufacturer (e.g., "5388-F12") - match to CLIN part numbers
+   - nsn: National Stock Number if mentioned (e.g., "5998-01-505-7062")
+   - clin_number: CLIN number this manufacturer is associated with (e.g., "0001")
+   - source_location: Where you found this information (e.g., "Qualified Sources Section, Page 3", "CLIN 0001 Description")
+   - notes: Any additional relevant information
+   
+   For EACH dealer/distributor found, extract:
+   - company_name (required): Full company name (e.g., "ASAP NSN Hub", "AeroBase Group")
+   - part_number: Part number this dealer sells - match to CLIN part numbers
+   - nsn: NSN if mentioned
+   - manufacturer_name: Manufacturer name this dealer is associated with
+   - clin_number: CLIN number this dealer is associated with
+   - source_location: Where you found this information
+   - notes: Any additional relevant information
+   
+   IMPORTANT: Only extract manufacturers/dealers that are EXPLICITLY WRITTEN in the documents. Do not infer or search externally.
+
 IMPORTANT RULES:
 - Extract ALL CLINs from ALL documents - search systematically through EACH document, do not skip any CLINs
 - Extract scope_of_work COMPLETELY - if found in ANY document's SOW sections, include the FULL text even if it's very long
@@ -719,13 +811,13 @@ DOCUMENTS:
             logger.info(f"  - {doc_name}")
         
         # Try Claude first with all documents combined
-        logger.info("Sending ALL documents combined in ONE request to Claude for CLIN and deadline extraction...")
-        all_clins, all_deadlines = self._extract_with_llm(prompt, use_claude=True)
+        logger.info("Sending ALL documents combined in ONE request to Claude for CLIN, deadline, manufacturer, and dealer extraction...")
+        all_clins, all_deadlines, all_manufacturers, all_dealers = self._extract_with_llm(prompt, use_claude=True)
         
         # If failed, try Groq
         if not all_clins and self.fallback_llm:
             logger.info("Claude batch failed, trying Groq with ALL documents combined...")
-            all_clins, all_deadlines = self._extract_with_llm(prompt, use_claude=False)
+            all_clins, all_deadlines, all_manufacturers, all_dealers = self._extract_with_llm(prompt, use_claude=False)
         
         # Log extraction results
         if all_clins:
@@ -738,9 +830,21 @@ DOCUMENTS:
         else:
             logger.info("No deadlines extracted from combined documents")
         
+        if all_manufacturers:
+            logger.info(f"Successfully extracted {len(all_manufacturers)} manufacturers from combined documents")
+        else:
+            logger.info("No manufacturers extracted from combined documents")
+        
+        if all_dealers:
+            logger.info(f"Successfully extracted {len(all_dealers)} dealers from combined documents")
+        else:
+            logger.info("No dealers extracted from combined documents")
+        
         # Convert to dicts
         clins_dicts = self._convert_to_dicts(all_clins)
         deadlines_dicts = self._convert_deadlines_to_dicts(all_deadlines)
+        manufacturers_dicts = self._convert_manufacturers_to_dicts(all_manufacturers)
+        dealers_dicts = self._convert_dealers_to_dicts(all_dealers)
         
         # Check if 20% or more fields are null - if so, do a second pass to fill missing values
         if clins_dicts:
@@ -752,7 +856,7 @@ DOCUMENTS:
             elif missing_fields_count > 0:
                 logger.debug(f"Found {missing_fields_count} missing fields ({missing_percentage:.1f}%) - below 20% threshold, skipping second pass")
         
-        return (clins_dicts, deadlines_dicts)
+        return (clins_dicts, deadlines_dicts, manufacturers_dicts, dealers_dicts)
     
     def _count_missing_fields(self, clins: List[Dict]) -> tuple[int, int]:
         """Count how many important fields are missing across all CLINs
@@ -1077,6 +1181,62 @@ Return ONLY valid JSON matching this exact schema:
                 continue
         
         logger.info(f"Converted {len(result)} CLINs to dict format")
+        return result
+    
+    def _convert_manufacturers_to_dicts(self, manufacturers: List) -> List[Dict]:
+        """Convert ManufacturerInfo objects to dicts"""
+        result = []
+        for mfg in manufacturers:
+            if hasattr(mfg, 'dict'):
+                result.append(mfg.dict())
+            elif isinstance(mfg, dict):
+                result.append(mfg)
+            else:
+                # Try to extract fields
+                mfg_dict = {}
+                if hasattr(mfg, 'name'):
+                    mfg_dict['name'] = mfg.name
+                if hasattr(mfg, 'cage_code'):
+                    mfg_dict['cage_code'] = mfg.cage_code
+                if hasattr(mfg, 'part_number'):
+                    mfg_dict['part_number'] = mfg.part_number
+                if hasattr(mfg, 'nsn'):
+                    mfg_dict['nsn'] = mfg.nsn
+                if hasattr(mfg, 'clin_number'):
+                    mfg_dict['clin_number'] = mfg.clin_number
+                if hasattr(mfg, 'source_location'):
+                    mfg_dict['source_location'] = mfg.source_location
+                if hasattr(mfg, 'notes'):
+                    mfg_dict['notes'] = mfg.notes
+                result.append(mfg_dict)
+        return result
+    
+    def _convert_dealers_to_dicts(self, dealers: List) -> List[Dict]:
+        """Convert DealerInfo objects to dicts"""
+        result = []
+        for dealer in dealers:
+            if hasattr(dealer, 'dict'):
+                result.append(dealer.dict())
+            elif isinstance(dealer, dict):
+                result.append(dealer)
+            else:
+                # Try to extract fields
+                dealer_dict = {}
+                if hasattr(dealer, 'company_name'):
+                    dealer_dict['company_name'] = dealer.company_name
+                if hasattr(dealer, 'part_number'):
+                    dealer_dict['part_number'] = dealer.part_number
+                if hasattr(dealer, 'nsn'):
+                    dealer_dict['nsn'] = dealer.nsn
+                if hasattr(dealer, 'manufacturer_name'):
+                    dealer_dict['manufacturer_name'] = dealer.manufacturer_name
+                if hasattr(dealer, 'clin_number'):
+                    dealer_dict['clin_number'] = dealer.clin_number
+                if hasattr(dealer, 'source_location'):
+                    dealer_dict['source_location'] = dealer.source_location
+                if hasattr(dealer, 'notes'):
+                    dealer_dict['notes'] = dealer.notes
+                result.append(dealer_dict)
         return result
     
     def _convert_deadlines_to_dicts(self, deadlines: List) -> List[Dict]:
