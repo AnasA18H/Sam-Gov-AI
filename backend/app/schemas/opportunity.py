@@ -41,6 +41,8 @@ class OpportunityDetailResponse(OpportunityResponse):
     documents: List["DocumentResponse"] = []
     deadlines: List["DeadlineResponse"] = []
     clins: List["CLINResponse"] = []
+    manufacturers: List["ManufacturerResponse"] = []
+    dealers: List["DealerResponse"] = []
     
     class Config:
         from_attributes = True
@@ -56,5 +58,7 @@ class OpportunityList(BaseModel):
 from ..schemas.document import DocumentResponse
 from ..schemas.deadline import DeadlineResponse
 from ..schemas.clin import CLINResponse
+from ..schemas.manufacturer import ManufacturerResponse
+from ..schemas.dealer import DealerResponse
 
 OpportunityDetailResponse.model_rebuild()
