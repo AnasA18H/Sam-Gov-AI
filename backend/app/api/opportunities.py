@@ -151,11 +151,13 @@ async def get_opportunity(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get a specific opportunity by ID with documents, deadlines, and CLINs"""
+    """Get a specific opportunity by ID with documents, deadlines, CLINs, manufacturers, and dealers"""
     opportunity = db.query(Opportunity).options(
         joinedload(Opportunity.documents),
         joinedload(Opportunity.deadlines),
-        joinedload(Opportunity.clins)
+        joinedload(Opportunity.clins),
+        joinedload(Opportunity.manufacturers),
+        joinedload(Opportunity.dealers)
     ).filter(
         Opportunity.id == opportunity_id,
         Opportunity.user_id == current_user.id

@@ -59,6 +59,8 @@ class Opportunity(Base):
     clins = relationship("CLIN", back_populates="opportunity", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="opportunity", cascade="all, delete-orphan")
     deadlines = relationship("Deadline", back_populates="opportunity", cascade="all, delete-orphan")
+    manufacturers = relationship("Manufacturer", back_populates="opportunity", cascade="all, delete-orphan")
+    dealers = relationship("Dealer", back_populates="opportunity", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Opportunity(id={self.id}, sam_gov_id={self.sam_gov_id}, type={self.solicitation_type})>"

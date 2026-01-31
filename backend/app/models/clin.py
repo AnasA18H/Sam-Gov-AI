@@ -45,6 +45,8 @@ class CLIN(Base):
     
     # Relationships
     opportunity = relationship("Opportunity", back_populates="clins")
+    manufacturers = relationship("Manufacturer", back_populates="clin", cascade="all, delete-orphan")
+    dealers = relationship("Dealer", back_populates="clin", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<CLIN(id={self.id}, clin_number={self.clin_number}, product={self.product_name})>"
