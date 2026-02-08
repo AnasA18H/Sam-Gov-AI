@@ -11,12 +11,10 @@ from ..models.opportunity import Opportunity
 from ..models.document import Document, DocumentType, DocumentSource
 from ..models.deadline import Deadline
 from ..models.clin import CLIN
-from ..models.manufacturer import Manufacturer, ResearchStatus
 from .sam_gov_scraper import SAMGovScraper
 from .document_downloader import DocumentDownloader
 from .document_analyzer import DocumentAnalyzer
-from .research_service import save_extracted_manufacturers, save_extracted_dealers, save_external_dealers
-from .llm_external_research_service import LLMExternalResearchService
+from .tavily_dealers import run_tavily_for_opportunity
 from datetime import datetime
 from dateutil import parser as dateutil_parser
 from sqlalchemy import func
@@ -33,6 +31,29 @@ def _truncate_string(value: Optional[str], max_length: int = 255) -> Optional[st
         return value
     # Truncate and add ellipsis
     return value[:max_length - 3] + "..."
+
+
+def _real_str(value: Optional[str]) -> Optional[str]:
+    """Return value only if it is a non-empty, non-placeholder string (no false values for CLIN fields)."""
+    if not value or not isinstance(value, str):
+        return None
+    s = value.strip()
+    if not s or s.upper() in ("N/A", "TBD", "UNKNOWN", "NULL", "NONE", "-", "--", "T.B.D.", "<UNKNOWN>"):
+        return None
+    return s
+
+
+def _display_name_from_description(desc: Optional[str], max_length: int = 200) -> Optional[str]:
+    """Derive a short display name from description (first line or first max_length chars) when product_name is missing."""
+    if not desc or not isinstance(desc, str):
+        return None
+    s = desc.strip()
+    if not s:
+        return None
+    first_line = s.split("\n")[0].strip()
+    if not first_line:
+        return None
+    return _truncate_string(first_line, max_length=max_length) or first_line[:max_length]
 
 
 @celery_app.task(name="scrape_sam_gov_opportunity")
@@ -425,16 +446,12 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
             
             # If no documents but we have SAM.gov page text, still try CLIN extraction
             if document_texts:
-                logger.info(f"Batch extracting CLINs, deadlines, manufacturers, and dealers from {len(document_texts)} sources (including SAM.gov page) in a single LLM call")
+                logger.info(f"Batch extracting CLINs and deadlines from {len(document_texts)} sources (including SAM.gov page) in a single LLM call")
                 try:
-                    batch_clins, batch_deadlines, batch_manufacturers, batch_dealers = analyzer.extract_clins_batch(document_texts)
+                    batch_clins, batch_deadlines = analyzer.extract_clins_batch(document_texts)
                     clins_found.extend(batch_clins)
                     deadlines_found.extend(batch_deadlines)
-                    logger.info(f"Batch extraction found {len(batch_clins)} CLINs, {len(batch_deadlines)} deadlines, {len(batch_manufacturers)} manufacturers, {len(batch_dealers)} dealers")
-                    
-                    # Store manufacturers and dealers for later saving
-                    manufacturers_found = batch_manufacturers
-                    dealers_found = batch_dealers
+                    logger.info(f"Batch extraction found {len(batch_clins)} CLINs and {len(batch_deadlines)} deadlines")
                     
                     # DEBUG: Save batch CLIN extraction results
                     try:
@@ -519,29 +536,36 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                 CLIN.clin_number == clin_data['clin_number']
             ).first()
             
-            # Prepare additional_data
+            # Prepare additional_data (only real values from document extraction)
             additional_data = {}
-            if clin_data.get('drawing_number'):
-                additional_data['drawing_number'] = clin_data['drawing_number']
-            if clin_data.get('delivery_address'):
-                additional_data['delivery_address'] = clin_data['delivery_address']
-            if clin_data.get('special_delivery_instructions'):
-                additional_data['special_delivery_instructions'] = clin_data['special_delivery_instructions']
-            if clin_data.get('delivery_timeline'):
-                additional_data['delivery_timeline'] = clin_data['delivery_timeline']
+            if _real_str(clin_data.get('drawing_number')):
+                additional_data['drawing_number'] = _real_str(clin_data['drawing_number'])
+            if _real_str(clin_data.get('delivery_address')):
+                additional_data['delivery_address'] = _real_str(clin_data['delivery_address'])
+            if _real_str(clin_data.get('special_delivery_instructions')):
+                additional_data['special_delivery_instructions'] = _real_str(clin_data['special_delivery_instructions'])
+            if _real_str(clin_data.get('delivery_timeline')):
+                additional_data['delivery_timeline'] = _real_str(clin_data['delivery_timeline'])
+            nsn_val = _real_str(clin_data.get('base_item_number') or clin_data.get('nsn'))
+            if nsn_val:
+                additional_data['nsn'] = nsn_val
             
             if not existing_clin:
-                # Create new CLIN
+                # Create new CLIN (only set fields when we have real values from document)
+                product_name = _real_str(clin_data.get('product_name'))
+                product_description = clin_data.get('product_description')
+                if not product_name and product_description:
+                    product_name = _display_name_from_description(product_description)
                 clin = CLIN(
                     opportunity_id=opportunity.id,
                     clin_number=clin_data['clin_number'],
-                    clin_name=clin_data.get('clin_name'),
-                    base_item_number=clin_data.get('base_item_number'),
-                    product_name=clin_data.get('product_name'),
-                    product_description=clin_data.get('product_description'),
-                    manufacturer_name=clin_data.get('manufacturer_name'),
-                    part_number=clin_data.get('part_number'),
-                    model_number=clin_data.get('model_number'),
+                    clin_name=_real_str(clin_data.get('clin_name')),
+                    base_item_number=nsn_val or _real_str(clin_data.get('base_item_number')),
+                    product_name=product_name,
+                    product_description=product_description,  # allow long text
+                    manufacturer_name=_real_str(clin_data.get('manufacturer_name')),
+                    part_number=_real_str(clin_data.get('part_number')),
+                    model_number=_real_str(clin_data.get('model_number')),
                     quantity=clin_data.get('quantity'),
                     unit_of_measure=clin_data.get('unit_of_measure'),
                     contract_type=clin_data.get('contract_type'),
@@ -554,21 +578,23 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                 )
                 db.add(clin)
             else:
-                # Update existing CLIN - fill missing fields, prefer longer text
-                if not existing_clin.base_item_number and clin_data.get('base_item_number'):
-                    existing_clin.base_item_number = clin_data['base_item_number']
-                if not existing_clin.product_name and clin_data.get('product_name'):
-                    existing_clin.product_name = clin_data['product_name']
+                # Update existing CLIN - fill missing fields only with real values from document
+                if not existing_clin.base_item_number and nsn_val:
+                    existing_clin.base_item_number = nsn_val
+                if not existing_clin.product_name and _real_str(clin_data.get('product_name')):
+                    existing_clin.product_name = _real_str(clin_data['product_name'])
+                elif not existing_clin.product_name and clin_data.get('product_description'):
+                    existing_clin.product_name = _display_name_from_description(clin_data['product_description'])
                 if not existing_clin.product_description and clin_data.get('product_description'):
                     existing_clin.product_description = clin_data['product_description']
                 elif clin_data.get('product_description') and len(clin_data['product_description']) > len(existing_clin.product_description or ''):
                     existing_clin.product_description = clin_data['product_description']
-                if not existing_clin.manufacturer_name and clin_data.get('manufacturer_name'):
-                    existing_clin.manufacturer_name = clin_data['manufacturer_name']
-                if not existing_clin.part_number and clin_data.get('part_number'):
-                    existing_clin.part_number = clin_data['part_number']
-                if not existing_clin.model_number and clin_data.get('model_number'):
-                    existing_clin.model_number = clin_data['model_number']
+                if not existing_clin.manufacturer_name and _real_str(clin_data.get('manufacturer_name')):
+                    existing_clin.manufacturer_name = _real_str(clin_data['manufacturer_name'])
+                if not existing_clin.part_number and _real_str(clin_data.get('part_number')):
+                    existing_clin.part_number = _real_str(clin_data['part_number'])
+                if not existing_clin.model_number and _real_str(clin_data.get('model_number')):
+                    existing_clin.model_number = _real_str(clin_data['model_number'])
                 if not existing_clin.contract_type and clin_data.get('contract_type'):
                     existing_clin.contract_type = clin_data['contract_type']
                 if not existing_clin.extended_price and clin_data.get('extended_price'):
@@ -591,76 +617,24 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                         existing_clin.timeline = _truncate_string(clin_data['delivery_timeline'], max_length=255)
                 
                 # Update additional_data for drawing_number, delivery_address, special_delivery_instructions
-                if clin_data.get('drawing_number'):
+                if nsn_val:
                     if existing_clin.additional_data is None:
                         existing_clin.additional_data = {}
-                    existing_clin.additional_data['drawing_number'] = clin_data['drawing_number']
-                if clin_data.get('delivery_address'):
+                    existing_clin.additional_data['nsn'] = nsn_val
+                if _real_str(clin_data.get('drawing_number')):
                     if existing_clin.additional_data is None:
                         existing_clin.additional_data = {}
-                    existing_clin.additional_data['delivery_address'] = clin_data['delivery_address']
-                if clin_data.get('special_delivery_instructions'):
+                    existing_clin.additional_data['drawing_number'] = _real_str(clin_data['drawing_number'])
+                if _real_str(clin_data.get('delivery_address')):
                     if existing_clin.additional_data is None:
                         existing_clin.additional_data = {}
-                    existing_clin.additional_data['special_delivery_instructions'] = clin_data['special_delivery_instructions']
+                    existing_clin.additional_data['delivery_address'] = _real_str(clin_data['delivery_address'])
+                if _real_str(clin_data.get('special_delivery_instructions')):
+                    if existing_clin.additional_data is None:
+                        existing_clin.additional_data = {}
+                    existing_clin.additional_data['special_delivery_instructions'] = _real_str(clin_data['special_delivery_instructions'])
         
-        # Commit CLINs to database
-        db.commit()
-        logger.info("CLINs committed to database")
-        
-        # 4. Save Manufacturers and Dealers FROM DOCUMENTS (extracted together with CLINs)
-        logger.info("Phase 1: Saving manufacturers and dealers extracted FROM DOCUMENTS...")
-        try:
-            # Manufacturers and dealers were already extracted together with CLINs
-            manufacturers_found = batch_manufacturers if 'batch_manufacturers' in locals() else []
-            dealers_found = batch_dealers if 'batch_dealers' in locals() else []
-            
-            logger.info(f"Found {len(manufacturers_found)} manufacturers and {len(dealers_found)} dealers from document extraction")
-            
-            # Get CLINs for linking
-            db_clins = db.query(CLIN).filter(CLIN.opportunity_id == opportunity_id).all()
-            
-            # Save manufacturers to database
-            if manufacturers_found:
-                saved_manufacturers = save_extracted_manufacturers(
-                    db=db,
-                    opportunity_id=opportunity_id,
-                    manufacturers=manufacturers_found,
-                    clins=db_clins
-                )
-                logger.info(f"Saved {len(saved_manufacturers)} manufacturers to database (from documents)")
-            
-            # Save dealers to database
-            if dealers_found:
-                saved_manufacturers_list = db.query(Manufacturer).filter(
-                    Manufacturer.opportunity_id == opportunity_id
-                ).all()
-                saved_dealers = save_extracted_dealers(
-                    db=db,
-                    opportunity_id=opportunity_id,
-                    dealers=dealers_found,
-                    manufacturers=saved_manufacturers_list if manufacturers_found else None,
-                    clins=db_clins
-                )
-                logger.info(f"Saved {len(saved_dealers)} dealers to database (from documents)")
-            
-            # Phase 2: Trigger external web research for manufacturers needing website/contact info
-            manufacturers_needing_research = db.query(Manufacturer).filter(
-                Manufacturer.opportunity_id == opportunity_id,
-                Manufacturer.research_source == "document_extraction"
-            ).all()
-            
-            if manufacturers_needing_research:
-                logger.info(f"Phase 2: Triggering external research for {len(manufacturers_needing_research)} manufacturers")
-                # Trigger external research as background task
-                research_manufacturers_external.delay(opportunity_id)
-            else:
-                logger.info("No manufacturers found in documents - skipping external research")
-        except Exception as mfg_dealer_error:
-            logger.error(f"Error saving manufacturers/dealers: {str(mfg_dealer_error)}", exc_info=True)
-            # Don't fail the whole task if manufacturer/dealer saving fails
-        
-        # 5. Deduplicate deadlines before storing
+        # 4. Deduplicate deadlines before storing
         deduplicated_deadlines = []
         seen_deadlines = set()
         
@@ -696,7 +670,7 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         
         logger.info(f"Deduplicated {len(deadlines_found)} deadlines to {len(deduplicated_deadlines)} unique deadlines")
         
-        # 6. Store deduplicated deadlines
+        # 5. Store deduplicated deadlines
         logger.info(f"Storing {len(deduplicated_deadlines)} deadlines from documents...")
         for deadline_data in deduplicated_deadlines:
             # Parse date
@@ -745,6 +719,14 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         
         # Commit all changes
         db.commit()
+        
+        # Next step: Tavily web search for manufacturer + dealers per CLIN (when CLIN extraction was enabled)
+        if enable_clin_extraction and len(deduplicated_clins) > 0:
+            try:
+                run_tavily_dealers_for_opportunity.delay(opportunity_id)
+                logger.info("Queued Tavily dealer search for opportunity %s (%s CLINs)", opportunity_id, len(deduplicated_clins))
+            except Exception as tavily_queue_err:
+                logger.warning("Failed to queue Tavily task for opportunity %s: %s", opportunity_id, tavily_queue_err)
         
         # DEBUG: Save analysis summary to file
         try:
@@ -806,143 +788,32 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         db.close()
 
 
-@celery_app.task(name="research_manufacturers_external")
-def research_manufacturers_external(opportunity_id: int):
+@celery_app.task(name="run_tavily_dealers_for_opportunity")
+def run_tavily_dealers_for_opportunity(opportunity_id: int):
     """
-    Phase 2: External research for manufacturers found in documents
-    Uses LLM-guided web search to find websites, contact info, and authorized dealers
-    
-    Args:
-        opportunity_id: ID of the opportunity
+    Run Tavily web search for each CLIN of an opportunity (manufacturer + dealers).
+    Called automatically after CLIN extraction. Results saved under data/tavily_results/opportunity_{id}/.
     """
     db = SessionLocal()
     try:
-        opportunity = db.query(Opportunity).filter(Opportunity.id == opportunity_id).first()
-        if not opportunity:
-            logger.error(f"Opportunity {opportunity_id} not found")
-            return {"status": "error", "message": "Opportunity not found"}
-        
-        # Get manufacturers that need external research (found in documents but missing website/contact)
-        manufacturers = db.query(Manufacturer).filter(
-            Manufacturer.opportunity_id == opportunity_id,
-            Manufacturer.research_source == "document_extraction"
-        ).all()
-        
-        if not manufacturers:
-            logger.info(f"No manufacturers found for external research (opportunity {opportunity_id})")
-            return {"status": "success", "message": "No manufacturers to research"}
-        
-        logger.info(f"Phase 2: Starting LLM-guided external research for {len(manufacturers)} manufacturers")
-        
-        # Load reference material for online search strategies
-        reference_text = None
-        try:
-            reference_file = Path(settings.PROJECT_ROOT) / "extras" / "ONLINE_SEARCH_GUIDE.md"
-            if reference_file.exists():
-                with open(reference_file, 'r', encoding='utf-8') as f:
-                    reference_text = f.read()
-                logger.info(f"Loaded online search guide: {len(reference_text)} characters")
-        except Exception as ref_error:
-            logger.warning(f"Failed to load online search guide: {str(ref_error)}")
-        
-        # Get CLINs for context
-        clins = db.query(CLIN).filter(CLIN.opportunity_id == opportunity_id).all()
-        clin_part_map = {clin.id: clin.part_number for clin in clins if clin.part_number}
-        
-        import time
-        with LLMExternalResearchService() as research_service:
-            for mfg_idx, manufacturer in enumerate(manufacturers, 1):
-                try:
-                    logger.info(f"[{mfg_idx}/{len(manufacturers)}] Researching: {manufacturer.name}")
-                    
-                    # Update status to in_progress
-                    manufacturer.research_status = ResearchStatus.IN_PROGRESS
-                    manufacturer.research_started_at = datetime.utcnow()
-                    db.commit()
-                    
-                    # Get part number from associated CLIN
-                    part_number = manufacturer.part_number
-                    if not part_number and manufacturer.clin_id and manufacturer.clin_id in clin_part_map:
-                        part_number = clin_part_map[manufacturer.clin_id]
-                    
-                    # Research manufacturer website and find dealers using LLM-guided search
-                    research_results = research_service.research_manufacturer_and_dealers(
-                        manufacturer=manufacturer,
-                        part_number=part_number,
-                        nsn=manufacturer.nsn,
-                        reference_text=reference_text
-                    )
-                    
-                    # Update manufacturer with results
-                    mfg_results = research_results.get('manufacturer', {})
-                    if mfg_results.get('website'):
-                        manufacturer.website = mfg_results['website']
-                        manufacturer.website_verified = mfg_results.get('website_verified', False)
-                        manufacturer.website_verification_date = datetime.utcnow()
-                    
-                    if mfg_results.get('contact_email'):
-                        manufacturer.contact_email = mfg_results['contact_email']
-                    
-                    if mfg_results.get('contact_phone'):
-                        manufacturer.contact_phone = mfg_results['contact_phone']
-                    
-                    if mfg_results.get('address'):
-                        manufacturer.address = mfg_results['address']
-                    
-                    if mfg_results.get('sam_gov_verified'):
-                        manufacturer.sam_gov_verified = True
-                        manufacturer.sam_gov_verification_date = datetime.utcnow()
-                    
-                    # Update research status
-                    manufacturer.research_status = ResearchStatus.COMPLETED
-                    manufacturer.research_completed_at = datetime.utcnow()
-                    manufacturer.research_source = "document_extraction,external_search"
-                    
-                    # Remove needs_external_research flag
-                    if manufacturer.additional_data:
-                        manufacturer.additional_data.pop('needs_external_research', None)
-                    
-                    db.commit()
-                    logger.info(f"Completed manufacturer research: {manufacturer.name}")
-                    logger.info(f"  Website: {bool(mfg_results.get('website'))}")
-                    logger.info(f"  Email: {bool(mfg_results.get('contact_email'))}")
-                    
-                    # Save dealers found for this manufacturer
-                    dealers_found = research_results.get('dealers', [])
-                    if dealers_found:
-                        logger.info(f"Found {len(dealers_found)} dealers for {manufacturer.name}")
-                        from .research_service import save_external_dealers
-                        saved_dealers = save_external_dealers(
-                            db=db,
-                            opportunity_id=opportunity_id,
-                            dealers=dealers_found,
-                            manufacturer=manufacturer,
-                            clins=clins
-                        )
-                        logger.info(f"Saved {len(saved_dealers)} dealers to database")
-                    
-                    # Rate limiting - wait between manufacturers
-                    if mfg_idx < len(manufacturers):
-                        time.sleep(5)  # 5 seconds between manufacturers
-                
-                except Exception as mfg_error:
-                    logger.error(f"Error researching manufacturer {manufacturer.name}: {str(mfg_error)}", exc_info=True)
-                    manufacturer.research_status = ResearchStatus.FAILED
-                    manufacturer.research_error = str(mfg_error)
-                    manufacturer.research_completed_at = datetime.utcnow()
-                    db.commit()
-                    continue
-        
-        logger.info(f"Phase 2 complete: External research finished for {len(manufacturers)} manufacturers")
-        
-        return {
-            "status": "success",
-            "opportunity_id": opportunity_id,
-            "manufacturers_researched": len(manufacturers)
-        }
-    
-    except Exception as e:
-        logger.error(f"Error in external research for opportunity {opportunity_id}: {str(e)}", exc_info=True)
-        return {"status": "error", "message": str(e)}
+        clins = db.query(CLIN).filter(CLIN.opportunity_id == opportunity_id).order_by(CLIN.id).all()
+        if not clins:
+            logger.warning("No CLINs found for opportunity %s; skipping Tavily search", opportunity_id)
+            return {"opportunity_id": opportunity_id, "clins_processed": 0, "reason": "no_clins"}
+        clins_list = [
+            {
+                "id": c.id,
+                "clin_number": c.clin_number,
+                "product_name": c.product_name,
+                "product_description": c.product_description,
+                "manufacturer_name": c.manufacturer_name,
+                "part_number": c.part_number,
+                "model_number": getattr(c, "model_number", None),
+            }
+            for c in clins
+        ]
+        result = run_tavily_for_opportunity(opportunity_id, clins_list)
+        logger.info("Tavily dealer search finished for opportunity %s: %s", opportunity_id, result)
+        return result
     finally:
         db.close()
