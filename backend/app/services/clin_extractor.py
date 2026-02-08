@@ -45,16 +45,46 @@ if PYDANTIC_AVAILABLE:
         unit: Optional[str] = V1Field(None, description="Unit of measure (e.g., 'Each', 'Lot')")
         product_name: Optional[str] = V1Field(None, description="Short product name")
         contract_type: Optional[str] = V1Field(None, description="Contract type (e.g., 'Firm Fixed Price')")
-        manufacturer: Optional[str] = V1Field(None, description="Manufacturer name")
-        part_number: Optional[str] = V1Field(None, description="Part number")
-        model_number: Optional[str] = V1Field(None, description="Model number")
-        drawing_number: Optional[str] = V1Field(None, description="Drawing number from filename or document")
+        manufacturer: Optional[str] = V1Field(
+            None,
+            description="Manufacturer company name (e.g. BAE Systems, North Atlantic Industries Inc.). "
+            "Use the organization/company name only—not CAGE codes alone. When the document lists "
+            "'Company Name - CAGE code' or 'qualified source(s): Company A - CAGE X / Company B - CAGE Y', "
+            "extract the company name(s). If the line item references only CAGE codes but the same document "
+            "lists company names with those CAGE codes elsewhere, use the corresponding company name(s)."
+        )
+        part_number: Optional[str] = V1Field(
+            None,
+            description="Manufacturer/vendor part number(s) ONLY when explicitly stated in the document. "
+            "Extract from 'Manufacturer Part Number', 'Part No', 'Part Number', 'P/N', or BOM/spec tables. "
+            "Do not include CAGE codes. Multiple: comma-separated. If not found in the document, leave null."
+        )
+        model_number: Optional[str] = V1Field(
+            None,
+            description="Model number or OEM model number ONLY when explicitly stated. "
+            "Extract from 'Model No', 'Model Number', 'M/N', 'OEM number'. If not found, leave null."
+        )
+        drawing_number: Optional[str] = V1Field(
+            None,
+            description="Drawing or technical document number when present. "
+            "Extract from filenames, 'Drawing Number', 'DWG', attachment names, or CDRL. If not found, leave null."
+        )
         scope_of_work: Optional[str] = V1Field(None, description="Complete scope of work text including all requirements")
         service_requirements: Optional[str] = V1Field(None, description="Service-specific requirements, SLAs, and service deliverables")
-        delivery_address: Optional[str] = V1Field(None, description="Complete delivery address including facility name, street address, city, state, ZIP code")
-        special_delivery_instructions: Optional[str] = V1Field(None, description="Special delivery instructions, requirements, or constraints")
-        delivery_timeline: Optional[str] = V1Field(None, description="Complete delivery timeline with full context including required delivery date")
-        base_item_number: Optional[str] = V1Field(None, description="Base item number")
+        delivery_address: Optional[str] = V1Field(None, description="Complete delivery address when present in document")
+        special_delivery_instructions: Optional[str] = V1Field(None, description="Special delivery instructions when present")
+        delivery_timeline: Optional[str] = V1Field(None, description="Complete delivery timeline when present")
+        base_item_number: Optional[str] = V1Field(
+            None,
+            description="National Stock Number (NSN) ONLY when explicitly stated in the document. "
+            "NSN format is typically XXXX-XX-XXX-XXXX (e.g. 5998-01-505-7062) or 13 digits. "
+            "Extract from 'NSN:', 'National Stock Number', 'Base item number', 'Schedule item'. "
+            "If the document does not contain an NSN for this line item, leave null. Do not guess or invent."
+        )
+        nsn: Optional[str] = V1Field(
+            None,
+            description="Alias for NSN (National Stock Number) if found; same as base_item_number. Use when document says 'NSN' explicitly. If not found, leave null."
+        )
         extended_price: Optional[float] = V1Field(None, description="Extended price")
         source_document: Optional[str] = V1Field(None, description="Document name where CLIN was found")
     
@@ -66,31 +96,9 @@ if PYDANTIC_AVAILABLE:
         description: Optional[str] = V1Field(None, description="Brief description of what the deadline is for")
         is_primary: bool = V1Field(False, description="True if this is the primary submission deadline")
     
-    class ManufacturerInfo(V1BaseModel):
-        """Manufacturer information extracted from documents"""
-        name: str = V1Field(description="Manufacturer name (e.g., 'North Atlantic Industries Inc.', 'BAE Systems')")
-        cage_code: Optional[str] = V1Field(None, description="CAGE code if mentioned (e.g., '0VGU1', '12436')")
-        part_number: Optional[str] = V1Field(None, description="Part number associated with this manufacturer (e.g., '5388-F12')")
-        nsn: Optional[str] = V1Field(None, description="National Stock Number (NSN) if mentioned (e.g., '5998-01-505-7062')")
-        clin_number: Optional[str] = V1Field(None, description="CLIN number this manufacturer is associated with (e.g., '0001')")
-        source_location: Optional[str] = V1Field(None, description="Where this information was found (e.g., 'Qualified Sources Section', 'CLIN 0001 Description')")
-        notes: Optional[str] = V1Field(None, description="Additional notes about this manufacturer")
-    
-    class DealerInfo(V1BaseModel):
-        """Dealer/Distributor information extracted from documents"""
-        company_name: str = V1Field(description="Dealer/distributor company name (e.g., 'ASAP NSN Hub', 'AeroBase Group')")
-        part_number: Optional[str] = V1Field(None, description="Part number this dealer sells (e.g., '5388-F12')")
-        nsn: Optional[str] = V1Field(None, description="NSN if mentioned")
-        manufacturer_name: Optional[str] = V1Field(None, description="Manufacturer name this dealer is associated with")
-        clin_number: Optional[str] = V1Field(None, description="CLIN number this dealer is associated with")
-        source_location: Optional[str] = V1Field(None, description="Where this information was found")
-        notes: Optional[str] = V1Field(None, description="Additional notes about this dealer")
-    
     class CLINExtractionResult(V1BaseModel):
         clins: List[CLINItem] = V1Field(default_factory=list, description="List of CLINs")
         deadlines: List[DeadlineItem] = V1Field(default_factory=list, description="List of deadlines")
-        manufacturers: List[ManufacturerInfo] = V1Field(default_factory=list, description="List of manufacturers found in documents")
-        dealers: List[DealerInfo] = V1Field(default_factory=list, description="List of dealers/distributors found in documents")
 
 
 class CLINExtractor:
@@ -129,13 +137,13 @@ class CLINExtractor:
         """Clean text using text extractor"""
         return self.text_extractor._clean_text(text)
     
-    def _extract_with_llm(self, prompt: str, use_claude: bool = True) -> Tuple[List, List, List, List]:
-        """Extract CLINs, deadlines, manufacturers, and dealers using LLM - returns tuple (clins, deadlines, manufacturers, dealers)"""
+    def _extract_with_llm(self, prompt: str, use_claude: bool = True) -> Tuple[List, List]:
+        """Extract CLINs and deadlines using LLM - returns tuple (clins, deadlines)"""
         llm_to_use = self.llm if use_claude else self.fallback_llm
         llm_name = "Claude" if use_claude else "Groq"
         
         if not llm_to_use:
-            return ([], [], [], [])
+            return ([], [])
         
         # Prompt already includes JSON format instructions
         try:
@@ -189,28 +197,22 @@ class CLINExtractor:
             except Exception as debug_err:
                 logger.debug(f"Could not save raw structured output to file: {debug_err}")
             
-            # Extract clins, deadlines, manufacturers, and dealers
+            # Extract clins and deadlines
             clins_list = []
             deadlines_list = []
-            manufacturers_list = []
-            dealers_list = []
             
             if isinstance(result, CLINExtractionResult):
                 clins_list = result.clins if isinstance(result.clins, list) else []
                 deadlines_list = result.deadlines if hasattr(result, 'deadlines') and isinstance(result.deadlines, list) else []
-                manufacturers_list = result.manufacturers if hasattr(result, 'manufacturers') and isinstance(result.manufacturers, list) else []
-                dealers_list = result.dealers if hasattr(result, 'dealers') and isinstance(result.dealers, list) else []
             elif isinstance(result, dict):
                 clins_list = result.get('clins', [])
                 deadlines_list = result.get('deadlines', [])
-                manufacturers_list = result.get('manufacturers', [])
-                dealers_list = result.get('dealers', [])
             elif isinstance(result, list):
                 # If it's a list, assume it's CLINs (backward compatibility)
                 clins_list = result
             
-            # Return tuple: (clins, deadlines, manufacturers, dealers)
-            return (clins_list, deadlines_list if deadlines_list else [], manufacturers_list if manufacturers_list else [], dealers_list if dealers_list else [])
+            # Return tuple: (clins, deadlines)
+            return (clins_list, deadlines_list if deadlines_list else [])
         except Exception as e:
             logger.debug(f"{llm_name} structured output failed, trying direct JSON: {e}")
             # Fallback: direct JSON extraction with robust parsing
@@ -278,16 +280,14 @@ class CLINExtractor:
                 if not extracted_json:
                     logger.warning(f"{llm_name} could not extract JSON from response")
                     logger.debug(f"Content preview: {content[:500]}")
-                    return ([], [], [], [])
+                    return []
                 
                 # Parse JSON
                 parsed = json.loads(extracted_json)
                 
-                # Extract clins, deadlines, manufacturers, and dealers arrays - handle various response formats
+                # Extract clins and deadlines arrays - handle various response formats
                 clins_list = []
                 deadlines_list = []
-                manufacturers_list = []
-                dealers_list = []
                 
                 if isinstance(parsed, dict):
                     if 'clins' in parsed:
@@ -299,20 +299,16 @@ class CLINExtractor:
                     
                     if 'deadlines' in parsed:
                         deadlines_list = parsed['deadlines'] if isinstance(parsed['deadlines'], list) else []
-                    if 'manufacturers' in parsed:
-                        manufacturers_list = parsed['manufacturers'] if isinstance(parsed['manufacturers'], list) else []
-                    if 'dealers' in parsed:
-                        dealers_list = parsed['dealers'] if isinstance(parsed['dealers'], list) else []
                 elif isinstance(parsed, list):
                     # If it's a list, assume it's CLINs (backward compatibility)
                     clins_list = parsed
                 
                 if not isinstance(clins_list, list):
                     logger.warning(f"{llm_name} returned unexpected structure: {type(clins_list)}")
-                    return ([], [], [], [])
+                    return ([], [])
                 
-                logger.info(f"{llm_name} extracted {len(clins_list)} CLINs, {len(deadlines_list)} deadlines, {len(manufacturers_list)} manufacturers, {len(dealers_list)} dealers from JSON response")
-                return (clins_list, deadlines_list, manufacturers_list, dealers_list)
+                logger.info(f"{llm_name} extracted {len(clins_list)} CLINs and {len(deadlines_list)} deadlines from JSON response")
+                return (clins_list, deadlines_list)
                 
             except json.JSONDecodeError as json_err:
                 logger.error(f"{llm_name} JSON parsing failed: {json_err}")
@@ -345,9 +341,7 @@ class CLINExtractor:
                         if isinstance(parsed, dict):
                             clins_list = parsed.get('clins', []) if isinstance(parsed.get('clins'), list) else []
                             deadlines_list = parsed.get('deadlines', []) if isinstance(parsed.get('deadlines'), list) else []
-                            manufacturers_list = parsed.get('manufacturers', []) if isinstance(parsed.get('manufacturers'), list) else []
-                            dealers_list = parsed.get('dealers', []) if isinstance(parsed.get('dealers'), list) else []
-                        logger.info(f"{llm_name} extracted {len(clins_list)} CLINs, {len(deadlines_list)} deadlines, {len(manufacturers_list)} manufacturers, {len(dealers_list)} dealers after JSON repair")
+                        logger.info(f"{llm_name} extracted {len(clins_list)} CLINs after JSON repair")
                     except:
                         pass
                 except Exception as repair_err:
@@ -409,41 +403,23 @@ class CLINExtractor:
                                 logger.info(f"{llm_name} extracted {len(deadlines_list)} deadlines from deadlines array directly")
                             except:
                                 pass
-                        
-                        manufacturers_match = re.search(r'"manufacturers"\s*:\s*\[(.*?)\]', content, re.DOTALL)
-                        if manufacturers_match:
-                            array_str = '[' + manufacturers_match.group(1) + ']'
-                            try:
-                                manufacturers_list = json.loads(array_str)
-                                logger.info(f"{llm_name} extracted {len(manufacturers_list)} manufacturers from manufacturers array directly")
-                            except:
-                                pass
-                        
-                        dealers_match = re.search(r'"dealers"\s*:\s*\[(.*?)\]', content, re.DOTALL)
-                        if dealers_match:
-                            array_str = '[' + dealers_match.group(1) + ']'
-                            try:
-                                dealers_list = json.loads(array_str)
-                                logger.info(f"{llm_name} extracted {len(dealers_list)} dealers from dealers array directly")
-                            except:
-                                pass
                     except:
                         pass
                 
-                return (clins_list if isinstance(clins_list, list) else [], deadlines_list if isinstance(deadlines_list, list) else [], manufacturers_list if isinstance(manufacturers_list, list) else [], dealers_list if isinstance(dealers_list, list) else [])
+                return (clins_list if isinstance(clins_list, list) else [], deadlines_list if isinstance(deadlines_list, list) else [])
             except Exception as fallback_error:
                 logger.error(f"{llm_name} JSON fallback failed: {fallback_error}")
-                return ([], [], [], [])
+                return ([], [])
     
-    def extract_clins(self, text: str, file_path: Optional[str] = None) -> Tuple[List[Dict], List[Dict], List[Dict], List[Dict]]:
-        """Extract CLINs, deadlines, manufacturers, and dealers from a single document"""
+    def extract_clins(self, text: str, file_path: Optional[str] = None) -> Tuple[List[Dict], List[Dict]]:
+        """Extract CLINs and deadlines from a single document"""
         if not self.llm and not self.fallback_llm:
             logger.warning("No LLM available")
-            return ([], [], [], [])
+            return ([], [])
         
         # Use raw text without cleaning to preserve all information
         if not text or not text.strip():
-            return ([], [], [], [])
+            return []
         
         # Enhanced prompt for comprehensive CLIN extraction
         prompt = f"""You are a government contracting analyst. Analyze this solicitation document and extract ALL Contract Line Item Numbers (CLINs) and their complete details.
@@ -464,17 +440,20 @@ For EACH CLIN found, extract ALL available information:
    - quantity (optional): Quantity as integer or float
    - unit (optional): Unit of measure
    - contract_type (optional): Contract type
-   - base_item_number (optional): Base item number or supplementary code
+   - base_item_number (optional): CRITICAL. NSN (National Stock Number) or base/schedule item ID. Extract when you see "NSN: XXXX-XX-XXX-XXXX" (e.g. 5998-01-505-7062), "National Stock Number", "Base item number", or schedule item identifier. Use exact format as written.
    - extended_price (optional): Extended price as float
 
-2. PRODUCT/SERVICE DETAILS:
+2. PRODUCT/SERVICE DETAILS (part/model/NSN/drawing numbers are CRITICAL):
    - product_name (optional): Product name and description - extract product name if clearly distinguishable from description
    - description (required): Complete product/service description - extract the FULL text
-   - manufacturer (optional): Manufacturer name - extract manufacturer name from BOM, specifications, or product descriptions
-   - part_number (optional): Part number - extract manufacturer part number from BOM, specifications, or part number fields
-   - model_number (optional): Model number - extract product model number from descriptions or specifications
+   - manufacturer (optional): Manufacturer as COMPANY NAME only (e.g. "BAE Systems", "North Atlantic Industries Inc.").
+     * Search for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "CAGE" with company name.
+     * When the document states "Company Name - CAGE 12345" or "restricted to qualified source(s): Company A - CAGE X / Company B - CAGE Y", use the company name(s). If multiple approved manufacturers, you may list them (e.g. "BAE Systems / North Atlantic Industries Inc.").
+     * If the line item or part number references only CAGE codes (e.g. 0VGU1, 12436) but the same document lists company names with those CAGE codes elsewhere (e.g. on page 1 or in a schedule header), map CAGE to company name and use the company name(s). Do NOT output only CAGE codes as manufacturer unless no company name appears anywhere in the document.
+   - part_number (optional): CRITICAL. Manufacturer/vendor part number(s) only—not CAGE codes. Look for "Manufacturer Part Number", "Part No", "Part Number", "P/N", or BOM/spec tables. If text says "Manufacturer Part Number 0VGU1 5388-F12 12436 6012315-001", extract part numbers like "5388-F12", "6012315-001" (exclude 0VGU1/12436 if those are CAGE codes). Multiple part numbers: comma-separated.
+   - model_number (optional): Model number or OEM model. Look for "Model No", "Model Number", "M/N", "OEM number" in line item or specs. Use when distinct from part number.
    - quantity (optional): Quantity required - extract quantity as integer or float
-   - drawing_number (optional): Technical drawing reference including revision (check filenames, document titles, attachment names)
+   - drawing_number (optional): CRITICAL. Drawing/technical doc number with revision. Check document filenames, "Drawing Number", "DWG", "Drawing", attachment list, CDRL. Include revision if present (e.g. "DWG-12345 Rev A").
 
 3. SERVICE/SCOPE INFORMATION:
    - scope_of_work (optional): COMPLETE Statement of Work (SOW) text for this CLIN including:
@@ -517,7 +496,7 @@ CRITICAL: You MUST extract ALL available information for EACH CLIN. Do not leave
 
 1. For CLIN identification: Search ENTIRE document systematically for ALL CLIN tables, line items, and numbered items. Look in ALL sections including amendments, attachments, schedules, and appendices.
 
-2. For product_name: Extract from the CLIN description, product title, or SOW sections. If description mentions a product name, extract it as product_name.
+2. For product_name: Extract from the CLIN description, product title, or SOW sections. If description mentions a product name, extract it as product_name. When the schedule table has only a description column and no separate "name" or "title" column for a line, set product_name to that description (or its first phrase) so the CLIN has a display name—do not leave product_name null when the CLIN has a non-empty description.
 
 3. For scope_of_work and service_requirements: Search ALL sections titled "Statement of Work", "SOW", "Performance Requirements", "Specifications", "Technical Requirements", "SECTION III", "SECTION IV", "SECTION VI", "Performance/Delivery Period", "SECTION II: Purpose", "SECTION III: Technical Requirements". Extract COMPLETE text from these sections including:
    - Purpose and background
@@ -534,22 +513,29 @@ CRITICAL: You MUST extract ALL available information for EACH CLIN. Do not leave
 
 6. For delivery_timeline: Search ALL sections for "Delivery", "Performance", "Schedule", "Timeline", "Performance/Delivery Period", "SECTION VII", phrases like "within X days", "X days after contract award", "X days ARO", "X days after receipt of order", "X days after receipt of contract award", "required delivery date". Extract COMPLETE timeline phrases with full context including days, dates, required delivery date, and conditions.
 
-7. For drawing_number: Extract from:
-   - Document filenames - parse drawing numbers by removing file extensions and keeping revision information
-   - Document content references to "Drawing", "Drawing Number", "Attachment A", "Technical Drawing"
-   - Extract drawing numbers with revision information when present
+7. For part_number, model_number, base_item_number, drawing_number (CRITICAL—extract every identifier found):
+   - base_item_number: Search for "NSN:", "NSN ", "National Stock Number", "Base item number". NSN format is usually XXXX-XX-XXX-XXXX (e.g. 5998-01-505-7062). Extract exactly as written.
+   - part_number: Search line item description, "Manufacturer Part Number", "Part No", "Part Number", "P/N", BOM, spec tables. Extract only actual part numbers (e.g. 5388-F12, 6012315-001); exclude 5-digit CAGE codes when they appear mixed in. If multiple part numbers, list all comma-separated.
+   - model_number: Search "Model No", "Model Number", "M/N", "OEM number", product/spec text. Use when different from part number.
+   - drawing_number: Search document filenames (strip extension, keep number/revision), "Drawing Number", "Drawing", "DWG", attachment names, CDRL. Include revision (e.g. Rev A) when present.
 
-6. For Manufacturer/Part/Model: Search Bill of Materials (BOM), specification tables, Q&A documents, technical specifications, attachment lists, and any product detail sections.
+8. For Manufacturer: Search the ENTIRE document for manufacturer/source info: look for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "Commercial and Government Entity (CAGE)" followed by a company name, schedule headers, and Block 15/16 text. Use the company/organization name, not CAGE codes alone. If only CAGE codes appear in the line item, find where those CAGE codes are listed with company names in the same document and use those names.
+
+CRITICAL - EXTRACT ONLY FROM DOCUMENT, NO FALSE VALUES:
+- CAGE (in manufacturer/source text), part number, model number, and NSN (National Stock Number) are HIGH PRIORITY. Search the document thoroughly for each.
+- ONLY add part_number, model_number, base_item_number (NSN), drawing_number, and manufacturer when you find them EXPLICITLY in the document. Do NOT guess, infer, or use placeholders like "N/A", "TBD", "Unknown", or "-". If not found, leave null.
+- NSN: Put in base_item_number (or nsn) ONLY when the document states "NSN:", "National Stock Number", or gives format XXXX-XX-XXX-XXXX. If no NSN in the document for this line item, leave null.
+- Add CAGE, part #, model, and NSN when available in the document—only when available. No fabricated or default values.
 
 IMPORTANT RULES:
 - Extract ALL CLINs found - search systematically through the ENTIRE document, do not skip any CLINs
+- Extract part_number, model_number, base_item_number (NSN), and drawing_number ONLY when present in the document—critical for procurement when available
 - Extract scope_of_work COMPLETELY - if found in ANY SOW section, include the FULL text even if it's very long
 - Extract delivery_timeline COMPLETELY - include the complete phrase with all context including days, dates, and conditions
-- Extract drawing_number from filenames AND document content - check both sources
+- Extract drawing_number from filenames AND document content when present
 - Extract product_name from description or SOW if clearly identifiable
 - Match information across sections - if scope_of_work or delivery_timeline is in a different section than the CLIN table, still extract it and associate with the CLIN
-- DO NOT leave fields as null if the information exists in the documents - search thoroughly before marking as null
-- If a field is truly not found after exhaustive search, use null (not empty string or "N/A")
+- Only populate a field when the information exists in the document. If not found after searching, use null (not empty string, "N/A", or "TBD")
 - Distinguish CLINs from BOM items - CLINs are top-level contract items, BOM items are components
 
 RETURN FORMAT:
@@ -572,7 +558,8 @@ RETURN FORMAT:
       "delivery_address": "string or null",
       "special_delivery_instructions": "string or null",
       "delivery_timeline": "string or null",
-      "base_item_number": "string or null",
+      "base_item_number": "string or null (NSN when present)",
+      "nsn": "string or null (National Stock Number; use when document states NSN)",
       "extended_price": "number or null",
       "source_document": "string or null"
     }}
@@ -605,24 +592,24 @@ DOCUMENT TEXT:
                 clins_dicts = self._fill_missing_fields(clins_dicts, text)
             elif missing_fields_count > 0:
                 logger.debug(f"Found {missing_fields_count} missing fields ({missing_percentage:.1f}%) - below 20% threshold, skipping second pass")
+            # Third pass if still many missing fields: fill only when actual value exists (no defaults/false values)
+            if clins_dicts:
+                missing_after, total_after = self._count_missing_fields(clins_dicts)
+                pct_after = (missing_after / total_after * 100) if total_after > 0 else 0
+                if pct_after >= 15:
+                    logger.info(f"After second pass: {missing_after} missing fields ({pct_after:.1f}%). Attempting third pass (actual values only, no defaults)...")
+                    clins_dicts = self._fill_missing_fields_third_pass(clins_dicts, text)
         
-        # For single document extraction, manufacturers/dealers are also extracted but not converted yet
-        # Convert them if they exist in the result
-        manufacturers_dicts = []
-        dealers_dicts = []
-        # Note: Single document extraction uses same prompt structure, so manufacturers/dealers should be in result
-        # But we need to extract them from the LLM response - for now return empty lists
-        # Full implementation would require updating the single-document prompt and extraction logic
-        return (clins_dicts, deadlines_dicts, manufacturers_dicts, dealers_dicts)
+        return (clins_dicts, deadlines_dicts)
     
-    def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> Tuple[List[Dict], List[Dict], List[Dict], List[Dict]]:
-        """Extract CLINs, deadlines, manufacturers, and dealers from multiple documents - returns tuple (clins, deadlines, manufacturers, dealers)"""
+    def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> Tuple[List[Dict], List[Dict]]:
+        """Extract CLINs from multiple documents - try all at once, else per document"""
         if not self.llm and not self.fallback_llm:
             logger.warning("No LLM available")
-            return ([], [], [], [])
+            return ([], [])
         
         if not documents:
-            return ([], [], [], [])
+            return ([], [])
         
         # Try all documents at once first - use raw text without cleaning
         all_text = []
@@ -631,7 +618,7 @@ DOCUMENT TEXT:
                 all_text.append(f"=== DOCUMENT: {doc_name} ===\n{doc_text}")
         
         if not all_text:
-            return ([], [], [], [])
+            return ([], [])
         
         combined_text = "\n\n".join(all_text)
         
@@ -656,18 +643,21 @@ For EACH CLIN found, extract ALL available information:
    - quantity (optional): Quantity as integer or float
    - unit (optional): Unit of measure
    - contract_type (optional): Contract type
-   - base_item_number (optional): Base item number or supplementary code
+   - base_item_number (optional): CRITICAL. NSN (National Stock Number) or base/schedule item ID. Extract "NSN: XXXX-XX-XXX-XXXX", "National Stock Number", "Base item number" from ANY document. Use exact format as written (e.g. 5998-01-505-7062).
    - extended_price (optional): Extended price as float
    - source_document (optional): Document name where CLIN was found
 
-2. PRODUCT/SERVICE DETAILS:
+2. PRODUCT/SERVICE DETAILS (part/model/NSN/drawing numbers are CRITICAL—extract from any document):
    - product_name (optional): Product name and description - extract product name if clearly distinguishable from description
    - description (required): Complete product/service description - extract the FULL text
-   - manufacturer (optional): Manufacturer name - extract manufacturer name from BOM, specifications, or product descriptions
-   - part_number (optional): Part number - extract manufacturer part number from BOM, specifications, or part number fields
-   - model_number (optional): Model number - extract product model number from descriptions or specifications
+   - manufacturer (optional): Manufacturer as COMPANY NAME only (e.g. "BAE Systems", "North Atlantic Industries Inc.").
+     * Search ALL documents for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "CAGE" with company name.
+     * When any document states "Company Name - CAGE 12345" or "restricted to qualified source(s): Company A - CAGE X / Company B - CAGE Y", use the company name(s). If multiple approved manufacturers, you may list them (e.g. "BAE Systems / North Atlantic Industries Inc.").
+     * If the line item or part number references only CAGE codes but another part of the same or another document lists company names with those CAGE codes, map CAGE to company name and use the company name(s). Do NOT output only CAGE codes as manufacturer unless no company name appears in any document.
+   - part_number (optional): CRITICAL. Manufacturer/vendor part number(s) only—not CAGE codes. Search ALL docs for "Manufacturer Part Number", "Part No", "Part Number", "P/N", BOM/spec tables. If mixed with CAGE codes, extract only part numbers (e.g. 5388-F12, 6012315-001). Multiple: comma-separated.
+   - model_number (optional): Model number or OEM model. Search "Model No", "Model Number", "M/N", "OEM number" in ANY document. Use when distinct from part number.
    - quantity (optional): Quantity required - extract quantity as integer or float
-   - drawing_number (optional): Technical drawing reference including revision (check filenames, document titles, attachment names)
+   - drawing_number (optional): CRITICAL. Drawing/technical doc number with revision. Search ALL document filenames, "Drawing Number", "DWG", "Drawing", attachment lists, CDRL. Include revision when present.
 
 3. SERVICE/SCOPE INFORMATION:
    - scope_of_work (optional): COMPLETE Statement of Work (SOW) text for this CLIN including:
@@ -723,53 +713,29 @@ CRITICAL: You MUST extract ALL available information for EACH CLIN from ALL docu
 
 4. For delivery_timeline: Search ALL documents for "Delivery", "Performance", "Schedule", "Timeline", "Performance/Delivery Period", "SECTION VII", phrases like "within X days", "X days after contract award", "X days ARO", "X days after receipt of order", "X days after receipt of contract award". Extract COMPLETE timeline phrases with full context including days, dates, and conditions.
 
-7. For drawing_number: Extract from:
-   - Document filenames across ALL documents - parse drawing numbers by removing file extensions and keeping revision information
-   - Document content references to "Drawing", "Drawing Number", "Attachment A", "Technical Drawing" in ANY document
-   - Extract drawing numbers with revision information when present
+7. For part_number, model_number, base_item_number, drawing_number (CRITICAL—extract every identifier from ANY document):
+   - base_item_number: Search ALL documents for "NSN:", "NSN ", "National Stock Number", "Base item number". NSN format XXXX-XX-XXX-XXXX. Extract exactly as written.
+   - part_number: Search line item text, "Manufacturer Part Number", "Part No", "P/N", BOM, spec tables across ALL documents. Extract only part numbers; exclude 5-digit CAGE codes. Multiple part numbers: comma-separated.
+   - model_number: Search "Model No", "Model Number", "M/N", "OEM number" in ANY document.
+   - drawing_number: Search ALL document filenames (strip extension), "Drawing Number", "DWG", "Drawing", attachment names, CDRL. Include revision when present.
 
-8. For Manufacturer/Part/Model: Search ALL documents for Bill of Materials (BOM), specification tables, Q&A documents, technical specifications, attachment lists, and any product detail sections.
+8. For Manufacturer: Search ALL documents for manufacturer/source info: look for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "Commercial and Government Entity (CAGE)" followed by a company name, schedule headers, and contract form blocks. Use the company/organization name, not CAGE codes alone. If only CAGE codes appear in the line item, find where those CAGE codes are listed with company names in the same or another document and use those names.
 
-5. MANUFACTURER AND DEALER EXTRACTION (FROM DOCUMENTS ONLY):
-   CRITICAL: Extract ALL manufacturers and dealers/distributors that are EXPLICITLY MENTIONED in the documents.
-   DO NOT search external sources - only extract what is written in the provided documents.
-   
-   Look for manufacturers in:
-   - "Qualified Sources" or "Qualified Source(s)" sections
-   - CLIN descriptions and item details
-   - Bill of Materials (BOM) sections
-   - Specification tables
-   - Any sections mentioning manufacturers, suppliers, or distributors
-   
-   For EACH manufacturer found, extract:
-   - name (required): Full manufacturer name (e.g., "North Atlantic Industries Inc.", "BAE Systems")
-   - cage_code: CAGE code if mentioned (e.g., "0VGU1", "12436")
-   - part_number: Part number associated with this manufacturer (e.g., "5388-F12") - match to CLIN part numbers
-   - nsn: National Stock Number if mentioned (e.g., "5998-01-505-7062")
-   - clin_number: CLIN number this manufacturer is associated with (e.g., "0001")
-   - source_location: Where you found this information (e.g., "Qualified Sources Section, Page 3", "CLIN 0001 Description")
-   - notes: Any additional relevant information
-   
-   For EACH dealer/distributor found, extract:
-   - company_name (required): Full company name (e.g., "ASAP NSN Hub", "AeroBase Group")
-   - part_number: Part number this dealer sells - match to CLIN part numbers
-   - nsn: NSN if mentioned
-   - manufacturer_name: Manufacturer name this dealer is associated with
-   - clin_number: CLIN number this dealer is associated with
-   - source_location: Where you found this information
-   - notes: Any additional relevant information
-   
-   IMPORTANT: Only extract manufacturers/dealers that are EXPLICITLY WRITTEN in the documents. Do not infer or search externally.
+CRITICAL - EXTRACT ONLY FROM DOCUMENTS, NO FALSE VALUES:
+- CAGE (in manufacturer/source text), part number, model number, and NSN (National Stock Number) are HIGH PRIORITY. Search ALL documents thoroughly for each.
+- ONLY add part_number, model_number, base_item_number (NSN), drawing_number, and manufacturer when you find them EXPLICITLY in the documents. Do NOT guess, infer, or use placeholders like "N/A", "TBD", "Unknown", or "-". If not found, leave null.
+- NSN: Put in base_item_number (or nsn) ONLY when a document states "NSN:", "National Stock Number", or gives format XXXX-XX-XXX-XXXX. If no NSN in any document for this line item, leave null.
+- Add CAGE, part #, model, and NSN when available in the documents—only when available. No fabricated or default values.
 
 IMPORTANT RULES:
 - Extract ALL CLINs from ALL documents - search systematically through EACH document, do not skip any CLINs
+- Extract part_number, model_number, base_item_number (NSN), and drawing_number ONLY when present in ANY document—critical for procurement when available
 - Extract scope_of_work COMPLETELY - if found in ANY document's SOW sections, include the FULL text even if it's very long
 - Extract delivery_timeline COMPLETELY - include the complete phrase with all context including days, dates, and conditions
-- Extract drawing_number from filenames AND document content - check both sources across ALL documents
+- Extract drawing_number from filenames AND document content when present
 - Extract product_name from description or SOW if clearly identifiable
 - Match information across documents - if scope_of_work or delivery_timeline is in a different document than the CLIN table, still extract it and associate with the CLIN
-- DO NOT leave fields as null if the information exists in ANY document - search thoroughly across ALL documents before marking as null
-- If a field is truly not found after exhaustive search across all documents, use null (not empty string or "N/A")
+- Only populate a field when the information exists in the documents. If not found after searching all documents, use null (not empty string, "N/A", or "TBD")
 - Distinguish CLINs from BOM items - CLINs are top-level contract items, BOM items are components
 
 RETURN FORMAT:
@@ -792,7 +758,8 @@ RETURN FORMAT:
       "delivery_address": "string or null",
       "special_delivery_instructions": "string or null",
       "delivery_timeline": "string or null",
-      "base_item_number": "string or null",
+      "base_item_number": "string or null (NSN when present)",
+      "nsn": "string or null (National Stock Number; use when document states NSN)",
       "extended_price": "number or null",
       "source_document": "string or null"
     }}
@@ -811,13 +778,13 @@ DOCUMENTS:
             logger.info(f"  - {doc_name}")
         
         # Try Claude first with all documents combined
-        logger.info("Sending ALL documents combined in ONE request to Claude for CLIN, deadline, manufacturer, and dealer extraction...")
-        all_clins, all_deadlines, all_manufacturers, all_dealers = self._extract_with_llm(prompt, use_claude=True)
+        logger.info("Sending ALL documents combined in ONE request to Claude for CLIN and deadline extraction...")
+        all_clins, all_deadlines = self._extract_with_llm(prompt, use_claude=True)
         
         # If failed, try Groq
         if not all_clins and self.fallback_llm:
             logger.info("Claude batch failed, trying Groq with ALL documents combined...")
-            all_clins, all_deadlines, all_manufacturers, all_dealers = self._extract_with_llm(prompt, use_claude=False)
+            all_clins, all_deadlines = self._extract_with_llm(prompt, use_claude=False)
         
         # Log extraction results
         if all_clins:
@@ -830,21 +797,9 @@ DOCUMENTS:
         else:
             logger.info("No deadlines extracted from combined documents")
         
-        if all_manufacturers:
-            logger.info(f"Successfully extracted {len(all_manufacturers)} manufacturers from combined documents")
-        else:
-            logger.info("No manufacturers extracted from combined documents")
-        
-        if all_dealers:
-            logger.info(f"Successfully extracted {len(all_dealers)} dealers from combined documents")
-        else:
-            logger.info("No dealers extracted from combined documents")
-        
         # Convert to dicts
         clins_dicts = self._convert_to_dicts(all_clins)
         deadlines_dicts = self._convert_deadlines_to_dicts(all_deadlines)
-        manufacturers_dicts = self._convert_manufacturers_to_dicts(all_manufacturers)
-        dealers_dicts = self._convert_dealers_to_dicts(all_dealers)
         
         # Check if 20% or more fields are null - if so, do a second pass to fill missing values
         if clins_dicts:
@@ -855,14 +810,21 @@ DOCUMENTS:
                 clins_dicts = self._fill_missing_fields(clins_dicts, combined_text)
             elif missing_fields_count > 0:
                 logger.debug(f"Found {missing_fields_count} missing fields ({missing_percentage:.1f}%) - below 20% threshold, skipping second pass")
+            # Third pass if still many missing: fill only when actual value exists (no defaults/false values)
+            if clins_dicts:
+                missing_after, total_after = self._count_missing_fields(clins_dicts)
+                pct_after = (missing_after / total_after * 100) if total_after > 0 else 0
+                if pct_after >= 15:
+                    logger.info(f"After second pass: {missing_after} missing fields ({pct_after:.1f}%). Attempting third pass (actual values only, no defaults)...")
+                    clins_dicts = self._fill_missing_fields_third_pass(clins_dicts, combined_text)
         
-        return (clins_dicts, deadlines_dicts, manufacturers_dicts, dealers_dicts)
+        return (clins_dicts, deadlines_dicts)
     
     def _count_missing_fields(self, clins: List[Dict]) -> tuple[int, int]:
         """Count how many important fields are missing across all CLINs
         Returns: (missing_count, total_fields_count)"""
         important_fields = ['product_name', 'manufacturer_name', 'part_number', 'model_number', 
-                          'drawing_number', 'scope_of_work', 'service_requirements', 'delivery_address', 
+                          'base_item_number', 'drawing_number', 'scope_of_work', 'service_requirements', 'delivery_address', 
                           'special_delivery_instructions', 'delivery_timeline']
         missing_count = 0
         total_fields_count = len(clins) * len(important_fields)
@@ -896,6 +858,8 @@ DOCUMENTS:
                 clin_summary['missing_fields'].append('model_number')
             if not clin.get('drawing_number'):
                 clin_summary['missing_fields'].append('drawing_number')
+            if not clin.get('base_item_number'):
+                clin_summary['missing_fields'].append('base_item_number')
             if not clin.get('scope_of_work'):
                 clin_summary['missing_fields'].append('scope_of_work')
             if not clin.get('service_requirements'):
@@ -930,15 +894,16 @@ INSTRUCTIONS:
 1. For each CLIN, search the documents for the missing fields listed
 2. Extract ONLY the missing fields - do not modify existing data
 3. For product_name: Extract from description or SOW sections if clearly identifiable
-4. For manufacturer: Search BOM, specifications, or product descriptions
-5. For part_number: Search BOM, part number fields, or product descriptions
-6. For model_number: Search specifications or product descriptions
-7. For drawing_number: Extract from filenames or document content references to "Drawing"
-8. For scope_of_work: Search "Statement of Work", "SOW", "Performance Requirements", "Specifications", "Technical Requirements" sections - extract COMPLETE text
-9. For service_requirements: For service CLINs, extract specific service requirements, SLAs, service deliverables, and performance standards
-10. For delivery_address: Search "Place of Delivery", "Deliver To", "Delivery Address", "Ship To", "Destination" sections - extract complete address including facility name, street address, city, state, ZIP code
-11. For special_delivery_instructions: Search for special delivery instructions, requirements, or constraints including testing requirements, delivery methods, acceptance criteria, inspection requirements
-12. For delivery_timeline: Search "Delivery", "Performance", "Schedule", "Timeline" sections for phrases like "within X days", "X days after contract award", "required delivery date" - extract COMPLETE phrases including required delivery date
+4. For manufacturer: Search for "qualified source(s)", company name with CAGE, BOM, or specifications
+5. For part_number: Search "Manufacturer Part Number", "Part No", "P/N", BOM, line item description—extract part numbers only (not CAGE codes)
+6. For model_number: Search "Model No", "Model Number", "M/N", "OEM number", specifications
+7. For base_item_number: Search "NSN:", "NSN ", "National Stock Number", "Base item number"—NSN format XXXX-XX-XXX-XXXX
+8. For drawing_number: Extract from filenames (strip extension), "Drawing Number", "DWG", "Drawing", attachment names
+9. For scope_of_work: Search "Statement of Work", "SOW", "Performance Requirements", "Specifications", "Technical Requirements" sections - extract COMPLETE text
+10. For service_requirements: For service CLINs, extract specific service requirements, SLAs, service deliverables, and performance standards
+11. For delivery_address: Search "Place of Delivery", "Deliver To", "Delivery Address", "Ship To", "Destination" sections - extract complete address including facility name, street address, city, state, ZIP code
+12. For special_delivery_instructions: Search for special delivery instructions, requirements, or constraints including testing requirements, delivery methods, acceptance criteria, inspection requirements
+13. For delivery_timeline: Search "Delivery", "Performance", "Schedule", "Timeline" sections for phrases like "within X days", "X days after contract award", "required delivery date" - extract COMPLETE phrases including required delivery date
 
 RETURN FORMAT:
 Return ONLY valid JSON matching this exact schema:
@@ -951,6 +916,8 @@ Return ONLY valid JSON matching this exact schema:
       "part_number": "string or null",
       "model_number": "string or null",
       "drawing_number": "string or null",
+      "base_item_number": "string or null (NSN when present)",
+      "nsn": "string or null (National Stock Number when present)",
       "scope_of_work": "string or null",
       "service_requirements": "string or null",
       "delivery_address": "string or null",
@@ -994,6 +961,8 @@ Return ONLY valid JSON matching this exact schema:
                             original_clin['model_number'] = filled_clin['model_number']
                         if not original_clin.get('drawing_number') and filled_clin.get('drawing_number'):
                             original_clin['drawing_number'] = filled_clin['drawing_number']
+                        if not original_clin.get('base_item_number') and filled_clin.get('base_item_number'):
+                            original_clin['base_item_number'] = filled_clin['base_item_number']
                         if not original_clin.get('scope_of_work') and filled_clin.get('scope_of_work'):
                             original_clin['scope_of_work'] = filled_clin['scope_of_work']
                         if not original_clin.get('service_requirements') and filled_clin.get('service_requirements'):
@@ -1018,6 +987,130 @@ Return ONLY valid JSON matching this exact schema:
         
         return clins
     
+    # Placeholder values that must not be used when filling; only actual document values count
+    _PLACEHOLDER_VALUES = frozenset({
+        'n/a', 'na', 'none', 'n.a.', 'n.a', 'tbd', 'tba', 'unknown', 'not specified',
+        'not found', 'not available', 'to be determined', 'to be announced', 'na', '—', '-', 'n/a.'
+    })
+    
+    def _is_real_value(self, val: Optional[str]) -> bool:
+        """True if val is a real value from the document; False for empty, placeholder, or default."""
+        if not val or not isinstance(val, str):
+            return False
+        v = val.strip()
+        if not v or len(v) < 2:
+            return False
+        if v.lower() in self._PLACEHOLDER_VALUES:
+            return False
+        if v.lower().startswith(('n/a', 'na ', 'tbd', 'unknown', 'not specified', 'not found')):
+            return False
+        return True
+    
+    def _fill_missing_fields_third_pass(self, clins: List[Dict], document_text: str) -> List[Dict]:
+        """Third pass: fill missing fields ONLY when the actual value exists in the document. No defaults or false values."""
+        if not self.llm and not self.fallback_llm:
+            logger.warning("No LLM available for third pass")
+            return clins
+        
+        clins_summary = []
+        for clin in clins:
+            clin_summary = {
+                'item_number': clin.get('clin_number'),
+                'description': clin.get('product_description', ''),
+                'missing_fields': []
+            }
+            for f in ['product_name', 'manufacturer_name', 'part_number', 'model_number', 'drawing_number',
+                      'base_item_number', 'scope_of_work', 'service_requirements', 'delivery_address',
+                      'special_delivery_instructions', 'delivery_timeline']:
+                if not clin.get(f):
+                    clin_summary['missing_fields'].append(f)
+            if clin_summary['missing_fields']:
+                clins_summary.append(clin_summary)
+        
+        if not clins_summary:
+            return clins
+        
+        clins_json = json.dumps(clins_summary, indent=2)
+        prompt = f"""You are a government contracting analyst. A second pass already filled some missing CLIN fields. There are still missing fields. This is a THIRD pass with STRICT rules.
+
+EXISTING CLINS WITH STILL-MISSING FIELDS:
+{clins_json}
+
+DOCUMENTS:
+{document_text}
+
+CRITICAL RULES (third pass):
+- Fill in a field ONLY if you find the ACTUAL value explicitly stated in the documents above.
+- Do NOT use defaults, placeholders, or invented values. Do NOT guess.
+- Leave a field as null if the information is not clearly and explicitly present in the document.
+- Do NOT use: N/A, TBD, Not specified, Unknown, Not found, None, or similar. If you cannot find the real value, return null for that field.
+- Only extract text that appears verbatim or clearly in the documents (e.g. a stated part number, a stated address, a stated manufacturer name).
+
+TASK: For EACH CLIN, search the documents and fill ONLY the listed missing fields when you find the actual value. Return null for any field where you do not see the real value in the document.
+
+RETURN FORMAT:
+Return ONLY valid JSON:
+{{
+  "clins": [
+    {{
+      "item_number": "string (must match existing CLIN)",
+      "product_name": "string or null",
+      "manufacturer": "string or null",
+      "part_number": "string or null",
+      "model_number": "string or null",
+      "drawing_number": "string or null",
+      "base_item_number": "string or null",
+      "nsn": "string or null",
+      "scope_of_work": "string or null",
+      "service_requirements": "string or null",
+      "delivery_address": "string or null",
+      "special_delivery_instructions": "string or null",
+      "delivery_timeline": "string or null"
+    }}
+  ]
+}}
+- Return ONLY the JSON object. No markdown, no code blocks.
+- Include ALL CLINs from the list. Use null for any field where the actual value is not in the document."""
+
+        try:
+            filled_clins, _ = self._extract_with_llm(prompt, use_claude=True)
+            if not filled_clins and self.fallback_llm:
+                logger.info("Claude third pass failed, trying Groq...")
+                filled_clins, _ = self._extract_with_llm(prompt, use_claude=False)
+            
+            if filled_clins:
+                filled_dicts = self._convert_to_dicts(filled_clins)
+                clins_map = {c.get('clin_number'): c for c in clins if c.get('clin_number')}
+                for filled_clin in filled_dicts:
+                    clin_number = filled_clin.get('clin_number')
+                    if not clin_number or clin_number not in clins_map:
+                        continue
+                    original_clin = clins_map[clin_number]
+                    manufacturer_value = filled_clin.get('manufacturer_name') or filled_clin.get('manufacturer')
+                    updates = [
+                        ('product_name', filled_clin.get('product_name')),
+                        ('manufacturer_name', manufacturer_value),
+                        ('part_number', filled_clin.get('part_number')),
+                        ('model_number', filled_clin.get('model_number')),
+                        ('drawing_number', filled_clin.get('drawing_number')),
+                        ('base_item_number', filled_clin.get('base_item_number')),
+                        ('scope_of_work', filled_clin.get('scope_of_work')),
+                        ('service_requirements', filled_clin.get('service_requirements')),
+                        ('delivery_address', filled_clin.get('delivery_address')),
+                        ('special_delivery_instructions', filled_clin.get('special_delivery_instructions')),
+                        ('delivery_timeline', filled_clin.get('delivery_timeline')),
+                    ]
+                    for key, val in updates:
+                        if not original_clin.get(key) and self._is_real_value(val):
+                            original_clin[key] = val.strip()
+                            logger.debug(f"Third pass filled {key} for CLIN {clin_number} (actual value only)")
+                logger.info(f"Third pass completed: filled only actual values for {len(filled_dicts)} CLINs")
+            else:
+                logger.warning("Third pass failed to extract")
+        except Exception as e:
+            logger.warning(f"Error in third pass to fill missing fields: {e}", exc_info=True)
+        return clins
+    
     def _is_cdrl_item(self, clin_dict: Dict) -> bool:
         """Check if a CLIN is a CDRL/documentation item that should be excluded"""
         description = (clin_dict.get('product_description') or '').upper()
@@ -1029,6 +1122,7 @@ Return ONLY valid JSON matching this exact schema:
         part_number = clin_dict.get('part_number')
         model_number = clin_dict.get('model_number')
         drawing_number = clin_dict.get('drawing_number')
+        base_item_number = clin_dict.get('base_item_number')
         
         # Positive indicators that this is a REAL product/service CLIN
         has_product_indicators = (
@@ -1036,6 +1130,7 @@ Return ONLY valid JSON matching this exact schema:
             part_number or  # Has part number
             model_number or  # Has model number
             drawing_number or  # Has drawing number
+            base_item_number or  # Has NSN/base item
             'NSN' in description or  # Has NSN reference
             unit in ['EA', 'EACH', 'SET', 'LOT', 'UNIT', 'PIECE']  # Real product units
         )
@@ -1115,7 +1210,7 @@ Return ONLY valid JSON matching this exact schema:
                         'delivery_address': str(item.delivery_address).strip() if hasattr(item, 'delivery_address') and item.delivery_address else None,
                         'special_delivery_instructions': str(item.special_delivery_instructions).strip() if hasattr(item, 'special_delivery_instructions') and item.special_delivery_instructions else None,
                         'delivery_timeline': str(item.delivery_timeline).strip() if item.delivery_timeline else None,
-                        'base_item_number': str(item.base_item_number).strip() if item.base_item_number else None,
+                        'base_item_number': str(item.base_item_number or getattr(item, 'nsn', None) or '').strip() or None,
                         'extended_price': float(item.extended_price) if item.extended_price is not None else None,
                     }
                     # Preserve source_document if present
@@ -1133,7 +1228,7 @@ Return ONLY valid JSON matching this exact schema:
                         'unit_of_measure': self._safe_str(item.get('unit')),
                         'product_name': self._safe_str(item.get('product_name')),
                         'contract_type': self._safe_str(item.get('contract_type')),
-                        'manufacturer_name': self._safe_str(item.get('manufacturer')),
+                        'manufacturer_name': self._safe_str(item.get('manufacturer_name') or item.get('manufacturer')),
                         'part_number': self._safe_str(item.get('part_number')),
                         'model_number': self._safe_str(item.get('model_number')),
                         'drawing_number': self._safe_str(item.get('drawing_number')),
@@ -1142,7 +1237,7 @@ Return ONLY valid JSON matching this exact schema:
                         'delivery_address': self._safe_str(item.get('delivery_address')),
                         'special_delivery_instructions': self._safe_str(item.get('special_delivery_instructions')),
                         'delivery_timeline': self._safe_str(item.get('delivery_timeline')),
-                        'base_item_number': self._safe_str(item.get('base_item_number')),
+                        'base_item_number': self._safe_str(item.get('base_item_number') or item.get('nsn')),
                         'extended_price': self._safe_float(item.get('extended_price')),
                     }
                     # Preserve source_document if present
@@ -1152,14 +1247,15 @@ Return ONLY valid JSON matching this exact schema:
                     logger.debug(f"Skipping item {idx}: unexpected type {type(item)}")
                     continue
                 
-                # Convert "<UNKNOWN>", empty strings, and None to None
+                # Convert placeholders and empty strings to None (no false values)
+                _placeholders = frozenset({'', '<UNKNOWN>', 'NULL', 'N/A', 'TBD', 'UNKNOWN', 'NONE', '-', '--', 'T.B.D.'})
                 for key, value in list(clin_dict.items()):
                     if isinstance(value, str):
-                        value_upper = value.strip().upper()
-                        if value_upper == '<UNKNOWN>' or value_upper == 'NULL' or value_upper == 'N/A' or value_upper == '':
+                        value_stripped = value.strip()
+                        if value_stripped.upper() in _placeholders or not value_stripped:
                             clin_dict[key] = None
                         else:
-                            clin_dict[key] = value.strip()
+                            clin_dict[key] = value_stripped
                     elif value is None:
                         clin_dict[key] = None
                 
@@ -1181,62 +1277,6 @@ Return ONLY valid JSON matching this exact schema:
                 continue
         
         logger.info(f"Converted {len(result)} CLINs to dict format")
-        return result
-    
-    def _convert_manufacturers_to_dicts(self, manufacturers: List) -> List[Dict]:
-        """Convert ManufacturerInfo objects to dicts"""
-        result = []
-        for mfg in manufacturers:
-            if hasattr(mfg, 'dict'):
-                result.append(mfg.dict())
-            elif isinstance(mfg, dict):
-                result.append(mfg)
-            else:
-                # Try to extract fields
-                mfg_dict = {}
-                if hasattr(mfg, 'name'):
-                    mfg_dict['name'] = mfg.name
-                if hasattr(mfg, 'cage_code'):
-                    mfg_dict['cage_code'] = mfg.cage_code
-                if hasattr(mfg, 'part_number'):
-                    mfg_dict['part_number'] = mfg.part_number
-                if hasattr(mfg, 'nsn'):
-                    mfg_dict['nsn'] = mfg.nsn
-                if hasattr(mfg, 'clin_number'):
-                    mfg_dict['clin_number'] = mfg.clin_number
-                if hasattr(mfg, 'source_location'):
-                    mfg_dict['source_location'] = mfg.source_location
-                if hasattr(mfg, 'notes'):
-                    mfg_dict['notes'] = mfg.notes
-                result.append(mfg_dict)
-        return result
-    
-    def _convert_dealers_to_dicts(self, dealers: List) -> List[Dict]:
-        """Convert DealerInfo objects to dicts"""
-        result = []
-        for dealer in dealers:
-            if hasattr(dealer, 'dict'):
-                result.append(dealer.dict())
-            elif isinstance(dealer, dict):
-                result.append(dealer)
-            else:
-                # Try to extract fields
-                dealer_dict = {}
-                if hasattr(dealer, 'company_name'):
-                    dealer_dict['company_name'] = dealer.company_name
-                if hasattr(dealer, 'part_number'):
-                    dealer_dict['part_number'] = dealer.part_number
-                if hasattr(dealer, 'nsn'):
-                    dealer_dict['nsn'] = dealer.nsn
-                if hasattr(dealer, 'manufacturer_name'):
-                    dealer_dict['manufacturer_name'] = dealer.manufacturer_name
-                if hasattr(dealer, 'clin_number'):
-                    dealer_dict['clin_number'] = dealer.clin_number
-                if hasattr(dealer, 'source_location'):
-                    dealer_dict['source_location'] = dealer.source_location
-                if hasattr(dealer, 'notes'):
-                    dealer_dict['notes'] = dealer.notes
-                result.append(dealer_dict)
         return result
     
     def _convert_deadlines_to_dicts(self, deadlines: List) -> List[Dict]:

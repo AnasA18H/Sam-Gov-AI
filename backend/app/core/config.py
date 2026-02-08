@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")  # Groq model for fallback
     
+    # Gemini (dealer search / grounding scripts)
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    # Tavily (search for dealers/manufacturers test)
+    TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
+    
     # Google Document AI
     GOOGLE_SERVICE_ACCOUNT_JSON: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")  # Path to service account JSON file (default: extras/resolute-planet-485419-f8-f543cf0a64b5.json)
     GOOGLE_PROJECT_ID: str = os.getenv("GOOGLE_PROJECT_ID", "740282826965")

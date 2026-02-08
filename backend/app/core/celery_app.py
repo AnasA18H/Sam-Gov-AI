@@ -1,7 +1,9 @@
 """
 Celery configuration for background tasks
 """
+import logging
 from celery import Celery
+from celery.signals import worker_process_init
 from .config import settings
 
 # Create Celery app
@@ -25,3 +27,19 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=50,
 )
+
+
+@worker_process_init.connect
+def _configure_log_flushing(**kwargs):
+    """Make all root logger handlers flush after each emit so logs appear immediately in log files."""
+    root = logging.getLogger()
+    for h in root.handlers:
+        if hasattr(h, "stream") and h.stream is not None:
+            orig_emit = h.emit
+            def flush_emit(record, _h=h, _orig=orig_emit):
+                _orig(record)
+                try:
+                    _h.flush()
+                except Exception:
+                    pass
+            h.emit = flush_emit

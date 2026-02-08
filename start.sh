@@ -271,38 +271,49 @@ fi
 
 print_header "Starting Celery Worker"
 
-# Check if Celery worker is already running
-if pgrep -f "celery.*worker.*backend.app.core.celery_app" > /dev/null; then
-    print_warning "Celery worker is already running"
-    print_info "Skipping Celery worker startup"
-else
-    print_info "Starting Celery worker for background tasks..."
-    
-    # Ensure venv is activated
-    source venv/bin/activate
-    
-    # Start Celery worker in background
-    nohup celery -A backend.app.core.celery_app worker \
-        --loglevel=info \
-        --logfile="$SCRIPT_DIR/logs/celery.log" \
-        > logs/celery.log 2>&1 &
-    
-    CELERY_PID=$!
-    echo "$CELERY_PID" > "$CELERY_PID_FILE"
-    
-    # Wait for Celery to start
-    print_info "Waiting for Celery worker to start..."
-    sleep 2
-    
-    # Check if Celery started successfully
+# Stop any existing Celery worker so we start fresh (ensures new log file and unbuffered logging)
+if [ -f "$CELERY_PID_FILE" ]; then
+    CELERY_PID=$(cat "$CELERY_PID_FILE")
     if kill -0 "$CELERY_PID" 2>/dev/null; then
-        print_success "Celery worker started (PID: $CELERY_PID)"
-        print_info "Celery log: logs/celery.log"
-    else
-        print_warning "Celery worker may have failed to start"
-        print_info "Check logs/celery.log for details"
-        rm -f "$CELERY_PID_FILE"
+        print_info "Stopping existing Celery worker (PID: $CELERY_PID)..."
+        kill "$CELERY_PID" 2>/dev/null || true
+        sleep 2
     fi
+    rm -f "$CELERY_PID_FILE"
+fi
+pkill -f "celery.*worker.*backend.app.core.celery_app" 2>/dev/null || true
+sleep 1
+
+print_info "Starting Celery worker for background tasks..."
+
+# Ensure venv is activated
+source venv/bin/activate
+
+# Unbuffered output so logs appear immediately in logs/celery.log
+export PYTHONUNBUFFERED=1
+
+# Start Celery worker in background (fresh log file each start)
+mkdir -p logs
+nohup celery -A backend.app.core.celery_app worker \
+    --loglevel=info \
+    --logfile="$SCRIPT_DIR/logs/celery.log" \
+    > logs/celery.log 2>&1 &
+
+CELERY_PID=$!
+echo "$CELERY_PID" > "$CELERY_PID_FILE"
+
+# Wait for Celery to start
+print_info "Waiting for Celery worker to start..."
+sleep 2
+
+# Check if Celery started successfully
+if kill -0 "$CELERY_PID" 2>/dev/null; then
+    print_success "Celery worker started (PID: $CELERY_PID)"
+    print_info "Celery log: logs/celery.log"
+else
+    print_warning "Celery worker may have failed to start"
+    print_info "Check logs/celery.log for details"
+    rm -f "$CELERY_PID_FILE"
 fi
 
 ###############################################################################
