@@ -1,250 +1,211 @@
-# 📋 SAM.gov AI
+# SAM.gov AI
 
-> **AI-Powered Government Contract Analysis Platform**  
-> Automating US Government contract solicitation analysis from SAM.gov
+<div align="center">
 
----
+![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)
+![React](https://img.shields.io/badge/React-18+-61dafb.svg)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-336791.svg)
+![Groq](https://img.shields.io/badge/Groq-Llama_3.1-8B-orange.svg)
 
-## 📑 Table of Contents
+**AI-Powered Government Contract Analysis Platform**
 
-- [Overview](#-overview)
-- [Features](#-features)
-- [Tech Stack](#-tech-stack)
-- [Installation](#-installation)
-- [Quick Start](#-quick-start)
-- [Project Structure](#-project-structure)
-- [API Documentation](#-api-documentation)
-- [Development](#-development)
-- [Deployment](#-deployment)
-- [How It Works](#-how-it-works)
+*Automating US Government contract solicitation analysis from SAM.gov*
+
+[Features](#features) • [Quick Start](#quick-start) • [Documentation](#api-documentation) • [Deployment](#deployment)
+
+</div>
 
 ---
 
-## 🎯 Overview
+## Overview
 
 **SAM.gov AI** is an intelligent web application that automates the analysis of US Government contract solicitations from [SAM.gov](https://sam.gov). The platform streamlines the bid preparation process by automatically extracting critical information from solicitation documents, classifying opportunities, and providing actionable insights.
 
 ### Core Capabilities
 
-| 🔧 Capability | 📝 Description |
-|---------------|----------------|
-| 🔍 **Automated Scraping** | Extracts data directly from SAM.gov opportunity pages using Playwright |
-| 📄 **Hybrid Document Analysis** | Table parsing for structured forms (SF1449, SF30) + LLM extraction for unstructured text (SOW, amendments) |
-| 🤖 **AI Classification** | Claude (Haiku) + Groq (Llama 3.1) powered classification of solicitations as Product/Service/Both with confidence scores |
-| 📊 **CLIN Extraction** | Intelligent extraction of Contract Line Item Numbers with full product/service details, delivery requirements, and deadlines |
-| 🔤 **Smart Text Extraction** | Google Document AI for scanned PDFs, pytesseract OCR fallback, pdfplumber for text-based PDFs |
-| ⚙️ **Configurable Analysis** | Enable/disable document analysis and CLIN extraction via UI toggles |
-| ⏰ **Deadline Tracking** | LLM-based deadline extraction with timezone support and deduplication |
-| 📦 **Delivery Requirements** | Integrated extraction of delivery addresses, special delivery instructions, and delivery timelines |
-| 🔄 **Two-Pass Extraction** | Automatic second pass to fill missing fields when 20%+ of important fields are null |
-| 🛡️ **Robust JSON Parsing** | Advanced error recovery for malformed/truncated LLM responses |
-| 👥 **Contact Management** | Automatic extraction and display of primary/alternative contacts |
-| 🏭 **Manufacturer Research** | Two-phase research: Document extraction + LLM-guided external web search |
-| 🏪 **Dealer Discovery** | Automated identification of top 8 authorized dealers with pricing, stock status, and legitimacy ranking |
+| Capability | Description |
+|------------|-------------|
+| **Automated Scraping** | Extracts data directly from SAM.gov opportunity pages using Playwright |
+| **Hybrid Document Analysis** | Table parsing for structured forms (SF1449, SF30) + LLM extraction for unstructured text (SOW, amendments) |
+| **AI Classification** | Claude (Haiku) + Groq (Llama 3.1) powered classification of solicitations as Product/Service/Both with confidence scores |
+| **CLIN Extraction** | Intelligent extraction of Contract Line Item Numbers with full product/service details, delivery requirements, and deadlines (Claude primary, Groq fallback). Combines all documents + SAM.gov page text in single LLM request |
+| **Smart Text Extraction** | Google Document AI for scanned PDFs, pytesseract OCR fallback, pdfplumber for text-based PDFs |
+| **Configurable Analysis** | Enable/disable document analysis and CLIN extraction via UI toggles (disabled by default for testing) |
+| **Deadline Tracking** | LLM-based deadline extraction combined with CLIN extraction, with timezone support and deduplication |
+| **Delivery Requirements** | Integrated extraction of delivery addresses, special delivery instructions, and delivery timelines within CLIN data |
+| **Two-Pass Extraction** | Automatic second pass to fill missing fields when 20%+ of important fields are null |
+| **Robust JSON Parsing** | Advanced error recovery for malformed/truncated LLM responses with multiple fallback strategies |
+| **Contact Management** | Automatic extraction and display of primary/alternative contacts |
 
 ---
 
-## ✨ Features
+## Features
 
-### Phase 1 - Complete ✅
+### Phase 1 - Complete ✓
 
 <details>
-<summary><strong>🔐 User Authentication & Security</strong></summary>
+<summary><strong>User Authentication & Security</strong></summary>
 
-- ✅ Secure JWT-based authentication
-- ✅ Password hashing with bcrypt
-- ✅ Session management
-- ✅ Protected routes and API endpoints
+- Secure JWT-based authentication
+- Password hashing with bcrypt
+- Session management
+- Protected routes and API endpoints
 
 </details>
 
 <details>
-<summary><strong>🌐 SAM.gov Integration</strong></summary>
+<summary><strong>SAM.gov Integration</strong></summary>
 
-- ✅ URL validation and opportunity ID extraction
-- ✅ Playwright-based web scraping
-- ✅ Automated attachment downloads (PDF, Word, Excel, ZIP)
-- ✅ Contact information extraction (names, emails, phone numbers)
-- ✅ Contracting office address capture
-
-</details>
-
-<details>
-<summary><strong>📚 Advanced Document Analysis</strong></summary>
-
-**Unified LLM Extraction:**
-- ✅ All documents + SAM.gov page text combined into single LLM request
-- ✅ Claude 3 Haiku (primary) + Groq Llama 3.1 (fallback)
-- ✅ Two-pass extraction: Second pass automatically fills missing fields when 20%+ are null
-- ✅ Robust JSON parsing with error recovery for malformed/truncated responses
-
-**Smart Text Extraction:**
-- ✅ Google Document AI for high-quality OCR on scanned PDFs
-- ✅ pytesseract OCR with image preprocessing as fallback
-- ✅ pdfplumber for text-based PDFs
-- ✅ Support for PDF, Word, Excel, PowerPoint, Images, RTF, Markdown
-- ✅ Raw text sent to LLM (no aggressive cleaning) to preserve all information
-
-**Comprehensive CLIN Extraction:**
-- ✅ Product/service details (name, description, manufacturer, part/model numbers, drawing numbers)
-- ✅ Quantities and units of measure
-- ✅ Scope of work (complete text extraction)
-- ✅ Service requirements (detailed specifications)
-- ✅ Delivery address (complete with facility name, street, city, state, ZIP)
-- ✅ Special delivery instructions (testing requirements, schedules, constraints)
-- ✅ Delivery timeline (complete phrases with dates and conditions)
-
-**Additional Features:**
-- ✅ AI-powered classification (Product/Service/Both) with confidence scoring
-- ✅ LLM-Based Deadline Extraction with timezone support
-- ✅ SAM.gov Page Integration: Raw page text included in analysis
-- ✅ Optional file uploads with SAM.gov URL analysis
-- ✅ Configurable Analysis: Enable/disable via UI (disabled by default)
+- URL validation and opportunity ID extraction
+- Playwright-based web scraping
+- Automated attachment downloads (PDF, Word, Excel, ZIP)
+- Contact information extraction (names, emails, phone numbers)
+- Contracting office address capture
 
 </details>
 
 <details>
-<summary><strong>💻 Modern Frontend</strong></summary>
+<summary><strong>Advanced Document Analysis</strong></summary>
 
-- ✅ React 18 with Vite
-- ✅ TailwindCSS for professional styling
-- ✅ Responsive, mobile-friendly design
-- ✅ Real-time status updates with polling
-- ✅ Intuitive UI with icon-based navigation
+- **Unified LLM Extraction**:
+  - All documents + SAM.gov page text combined into single LLM request for comprehensive analysis
+  - Claude 3 Haiku (primary) + Groq Llama 3.1 (fallback) for CLIN, deadline, and delivery requirements extraction
+  - Two-pass extraction: Second pass automatically fills missing fields when 20%+ are null
+  - Robust JSON parsing with error recovery for malformed/truncated responses
+- **Smart Text Extraction**:
+  - Google Document AI for high-quality OCR on scanned PDFs
+  - pytesseract OCR with image preprocessing as fallback
+  - pdfplumber for text-based PDFs
+  - Support for PDF, Word, Excel, PowerPoint, Images, RTF, Markdown
+  - Raw text sent to LLM (no aggressive cleaning) to preserve all information
+- AI-powered classification (Product/Service/Both) with confidence scoring
+- **Comprehensive CLIN Extraction**:
+  - Product/service details (name, description, manufacturer, part/model numbers, drawing numbers)
+  - Quantities and units of measure
+  - Scope of work (complete text extraction)
+  - Service requirements (detailed specifications)
+  - Delivery address (complete with facility name, street, city, state, ZIP)
+  - Special delivery instructions (testing requirements, schedules, constraints)
+  - Delivery timeline (complete phrases with dates and conditions)
+- **LLM-Based Deadline Extraction**: Combined with CLIN extraction, extracts submission deadlines, question deadlines, and other critical dates with timezone support
+- **SAM.gov Page Integration**: Raw page text included in analysis for opportunities with no attachments
+- Optional file uploads with SAM.gov URL analysis
+- **Configurable Analysis**: Enable/disable document analysis and CLIN extraction via UI (disabled by default)
 
 </details>
 
 <details>
-<summary><strong>⚡ Background Processing</strong></summary>
+<summary><strong>Modern Frontend</strong></summary>
 
-- ✅ Celery task queue for async operations
-- ✅ Redis message broker
-- ✅ Real-time progress tracking
-- ✅ Automatic retry on failures
+- React 18 with Vite
+- TailwindCSS for professional styling
+- Responsive, mobile-friendly design
+- Real-time status updates with polling
+- Intuitive UI with icon-based navigation
 
 </details>
 
 <details>
-<summary><strong>💾 Data Management</strong></summary>
+<summary><strong>Background Processing</strong></summary>
 
-- ✅ Organized file storage (documents/uploads)
-- ✅ Secure document viewing/downloading
-- ✅ Complete data cleanup on opportunity deletion
-- ✅ Debug extraction files for troubleshooting
+- Celery task queue for async operations
+- Redis message broker
+- Real-time progress tracking
+- Automatic retry on failures
 
 </details>
-
-### Phase 2 - Complete ✅
 
 <details>
-<summary><strong>🏭 Manufacturer & Dealer Research Automation</strong></summary>
+<summary><strong>Data Management</strong></summary>
 
-**Phase 1: Document-Based Extraction:**
-- ✅ LLM extracts manufacturers and dealers from documents (CLINs, BOMs, Qualified Sources)
-- ✅ Combined extraction with CLINs and deadlines in single LLM call for efficiency
-- ✅ Extracts: manufacturer name, CAGE code, part numbers, NSNs, dealer company names
-- ✅ Automatically triggered during document analysis
-
-**Phase 2: External Web Research:**
-- ✅ LLM-guided web search for manufacturer websites and authorized dealers
-- ✅ Uses Playwright for web scraping and navigation
-- ✅ Finds manufacturer official websites and sales contact emails
-- ✅ Identifies top 8 authorized dealers/distributors with:
-  - Company name, website URL, sales contact email
-  - Current retail pricing (if publicly available)
-  - Stock status and availability
-  - Rank score (1-10) based on legitimacy
-- ✅ SAM.gov verification (placeholder - needs API integration)
-- ✅ Automatically triggered after Phase 1 completes
-- ✅ Uses reference guide for legitimate search strategies
-
-**Data Storage:**
-- ✅ Manufacturers stored with research status, source, verification status
-- ✅ Dealers stored with pricing, stock status, rank scores, authorization status
-- ✅ Full relationship mapping (manufacturers → dealers → CLINs → opportunities)
-- ✅ Frontend displays all research results with proper formatting
+- Organized file storage (documents/uploads)
+- Secure document viewing/downloading
+- Complete data cleanup on opportunity deletion
+- Debug extraction files for troubleshooting (`data/debug_extracts/`)
 
 </details>
 
-### Phase 2 - Planned (Future)
+### Phase 2 - Planned
 
-- 📧 Email integration (Gmail, Outlook) with automated quote inquiries
-- 📅 Calendar integration (Google Calendar, iCal, Outlook) with automatic deadline events
-- 📝 Quote generation and review system
+- Research automation (manufacturer websites, sales contacts, pricing)
+- Email integration (Gmail, Outlook) with automated quote inquiries
+- Calendar integration (Google Calendar, iCal, Outlook) with automatic deadline events
+- Quote generation and review system
 
 ### Phase 3 - Planned
 
-- 📋 PDF form automation (SF1449 autofill)
-- 📊 Advanced reporting dashboard
-- 🔄 Multi-opportunity batch processing
+- PDF form automation (SF1449 autofill)
+- Advanced reporting dashboard
+- Multi-opportunity batch processing
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 <details>
-<summary><strong>⚙️ Backend Technologies</strong></summary>
+<summary><strong>Backend Technologies</strong></summary>
 
 | Technology | Purpose |
 |------------|---------|
-| 🐍 **FastAPI** | Modern, fast web framework |
-| 🗄️ **PostgreSQL** | Relational database |
-| 🔗 **SQLAlchemy** | ORM for database operations |
-| 🔄 **Alembic** | Database migrations |
-| ⚡ **Celery** | Distributed task queue |
-| 🔴 **Redis** | Message broker and cache |
-| 🎭 **Playwright** | Web scraping and automation |
+| **FastAPI** | Modern, fast web framework |
+| **PostgreSQL** | Relational database |
+| **SQLAlchemy** | ORM for database operations |
+| **Alembic** | Database migrations |
+| **Celery** | Distributed task queue |
+| **Redis** | Message broker and cache |
+| **Playwright** | Web scraping and automation |
 
 </details>
 
 <details>
-<summary><strong>📄 Document Processing</strong></summary>
+<summary><strong>Document Processing</strong></summary>
 
 | Library | Purpose |
 |---------|---------|
-| 📑 **pdfplumber** | PDF text extraction (text-based PDFs) |
-| 📄 **PyPDF2** | PDF manipulation and splitting |
-| ☁️ **Google Document AI** | Cloud-based OCR for scanned PDFs |
-| 👁️ **pytesseract** | Local OCR with image preprocessing |
-| 🖼️ **opencv-python** | Image preprocessing for OCR |
-| 🖨️ **pdf2image** | PDF to image conversion for OCR |
-| 📝 **python-docx** | Word document parsing |
-| 📊 **python-pptx** | PowerPoint document parsing |
-| 📈 **openpyxl** | Excel file handling |
-| 📋 **pandas** | CSV and advanced Excel processing |
+| **pdfplumber** | PDF text extraction (text-based PDFs) |
+| **PyPDF2** | PDF manipulation and splitting |
+| **Google Document AI** | Cloud-based OCR for scanned PDFs |
+| **pytesseract** | Local OCR with image preprocessing |
+| **opencv-python** | Image preprocessing for OCR |
+| **pdf2image** | PDF to image conversion for OCR |
+| **python-docx** | Word document parsing |
+| **python-pptx** | PowerPoint document parsing |
+| **openpyxl** | Excel file handling |
+| **pandas** | CSV and advanced Excel processing |
 
 </details>
 
 <details>
-<summary><strong>🤖 AI & Machine Learning</strong></summary>
+<summary><strong>AI & Machine Learning</strong></summary>
 
 | Technology | Purpose |
 |------------|---------|
-| 🧠 **Claude 3 Haiku (Anthropic)** | Primary LLM for CLIN extraction, deadline extraction, and classification |
-| 🚀 **Groq + LangChain** | Fallback LLM-powered extraction |
-| 🔗 **LangChain** | LLM orchestration framework with structured output support |
-| 📚 **spaCy** | NLP for classification |
-| 🎯 **scikit-learn** | Machine learning algorithms |
-| 🔄 **Transformers** | Pre-trained NLP models |
+| **Claude 3 Haiku (Anthropic)** | Primary LLM for CLIN extraction, deadline extraction, and classification |
+| **Groq + LangChain** | Fallback LLM-powered extraction (Note: llama-3.1-70b-versatile is decommissioned, update to newer model) |
+| **LangChain** | LLM orchestration framework with structured output support |
+| **spaCy** | NLP for classification |
+| **scikit-learn** | Machine learning algorithms |
+| **Transformers** | Pre-trained NLP models |
 
 </details>
 
 <details>
-<summary><strong>💻 Frontend Technologies</strong></summary>
+<summary><strong>Frontend Technologies</strong></summary>
 
 | Technology | Purpose |
 |------------|---------|
-| ⚛️ **React 18** | UI library |
-| ⚡ **Vite** | Build tool and dev server |
-| 🎨 **TailwindCSS** | Utility-first CSS framework |
-| 🧭 **React Router** | Client-side routing |
-| 📡 **Axios** | HTTP client for API calls |
+| **React 18** | UI library |
+| **Vite** | Build tool and dev server |
+| **TailwindCSS** | Utility-first CSS framework |
+| **React Router** | Client-side routing |
+| **Axios** | HTTP client for API calls |
 
 </details>
 
 ---
 
-## 📥 Installation
+## Installation
 
 ### Prerequisites
 
@@ -311,6 +272,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key
 ANTHROPIC_MODEL=claude-3-haiku-20240307
 
 # Groq (Fallback LLM for CLIN extraction)
+# Note: llama-3.1-70b-versatile is decommissioned. Update to newer model (e.g., llama-3.3-70b-versatile)
 GROQ_API_KEY=your-groq-api-key
 GROQ_MODEL=llama-3.1-70b-versatile
 
@@ -343,7 +305,7 @@ cd ..
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Automated Start (Recommended)
 
@@ -353,12 +315,12 @@ cd ..
 ```
 
 The script automatically:
-- ✅ Checks prerequisites
-- ✅ Verifies Python packages are installed
-- ✅ Ensures data directories exist
-- ✅ Verifies database connection
-- ✅ Runs migrations (with fallback to direct alembic)
-- ✅ Starts all required services (backend, frontend, Celery worker)
+- ✓ Checks prerequisites
+- ✓ Verifies Python packages are installed
+- ✓ Ensures data directories exist
+- ✓ Verifies database connection
+- ✓ Runs migrations (with fallback to direct alembic)
+- ✓ Starts all required services (backend, frontend, Celery worker)
 
 ### Manual Start
 
@@ -380,11 +342,11 @@ npm run dev
 
 | Service | URL |
 |---------|-----|
-| 🌐 **Frontend** | http://localhost:5173 |
-| 🔌 **Backend API** | http://localhost:8000 |
-| 📖 **API Docs (Swagger)** | http://localhost:8000/docs |
-| 📚 **API Docs (ReDoc)** | http://localhost:8000/redoc |
-| ❤️ **Health Check** | http://localhost:8000/health |
+| **Frontend** | http://localhost:5173 |
+| **Backend API** | http://localhost:8000 |
+| **API Docs (Swagger)** | http://localhost:8000/docs |
+| **API Docs (ReDoc)** | http://localhost:8000/redoc |
+| **Health Check** | http://localhost:8000/health |
 
 ### Stop Services
 
@@ -394,7 +356,7 @@ npm run dev
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 sam-project/
@@ -410,26 +372,14 @@ sam-project/
 │   │   │   ├── security.py
 │   │   │   └── celery_app.py
 │   │   ├── models/           # Database models
-│   │   │   ├── opportunity.py
-│   │   │   ├── clin.py
-│   │   │   ├── deadline.py
-│   │   │   ├── manufacturer.py
-│   │   │   └── dealer.py
 │   │   ├── schemas/          # Pydantic schemas
-│   │   │   ├── opportunity.py
-│   │   │   ├── clin.py
-│   │   │   ├── deadline.py
-│   │   │   ├── manufacturer.py
-│   │   │   └── dealer.py
 │   │   ├── services/         # Business logic
 │   │   │   ├── tasks.py
 │   │   │   ├── sam_gov_scraper.py
 │   │   │   ├── document_downloader.py  # Smart download with disclaimer handling
 │   │   │   ├── document_analyzer.py    # Facade for text extraction and CLIN detection
 │   │   │   ├── text_extractor.py      # Text extraction from all formats
-│   │   │   ├── clin_extractor.py      # CLIN detection (Claude + Groq) - also extracts manufacturers/dealers
-│   │   │   ├── research_service.py    # Database persistence for manufacturers and dealers
-│   │   │   └── llm_external_research_service.py  # Phase 2: LLM-guided external web research
+│   │   │   └── clin_extractor.py      # CLIN detection (Claude + Groq)
 │   │   └── utils/
 │   └── migrations/           # Alembic migrations
 ├── frontend/
@@ -451,18 +401,18 @@ sam-project/
 
 ---
 
-## 📖 API Documentation
+## API Documentation
 
 ### Interactive Documentation
 
 Once the backend is running:
 
-- **📖 Swagger UI**: http://localhost:8000/docs
+- **Swagger UI**: http://localhost:8000/docs
   - Interactive API explorer
   - Try endpoints directly
   - Full request/response schemas
 
-- **📚 ReDoc**: http://localhost:8000/redoc
+- **ReDoc**: http://localhost:8000/redoc
   - Clean, readable format
   - Searchable documentation
 
@@ -482,7 +432,7 @@ POST   /api/v1/auth/logout      # Logout (protected)
 ```
 GET    /api/v1/opportunities                    # List opportunities
 POST   /api/v1/opportunities                    # Create opportunity (with optional file uploads)
-GET    /api/v1/opportunities/{id}               # Get details with CLINs, manufacturers, dealers
+GET    /api/v1/opportunities/{id}               # Get details with CLINs
 DELETE /api/v1/opportunities/{id}               # Delete opportunity and files
 GET    /api/v1/opportunities/{id}/documents/{doc_id}/view  # View document
 ```
@@ -490,7 +440,7 @@ GET    /api/v1/opportunities/{id}/documents/{doc_id}/view  # View document
 ### Example Usage
 
 <details>
-<summary><strong>📝 Create Opportunity with File Upload</strong></summary>
+<summary><strong>Create Opportunity with File Upload</strong></summary>
 
 ```bash
 # 1. Login
@@ -514,7 +464,7 @@ curl -X POST http://localhost:8000/api/v1/opportunities \
 
 ---
 
-## 💻 Development
+## Development
 
 ### Database Migrations
 
@@ -533,22 +483,9 @@ alembic downgrade -1
 
 | Service | Log File |
 |---------|----------|
-| 🔧 Backend | `logs/backend.log` |
-| ⚡ Celery | `logs/celery.log` |
-| 💻 Frontend | `logs/frontend.log` |
-
-### Test Scripts
-
-```bash
-# Test Phase 1: Document extraction (CLINs, deadlines, manufacturers, dealers)
-python scripts/test_opportunity_205.py <opportunity_id>
-
-# Test Phase 2: External research (requires Phase 1 to be complete)
-python scripts/test_phase2_external_research.py <opportunity_id>
-
-# List available opportunities
-python scripts/test_opportunity_205.py --list
-```
+| Backend | `logs/backend.log` |
+| Celery | `logs/celery.log` |
+| Frontend | `logs/frontend.log` |
 
 ### Debug Extracts
 
@@ -563,7 +500,7 @@ data/debug_extracts/opportunity_{id}/
 
 ---
 
-## 🚢 Deployment
+## Deployment
 
 ### Digital Ocean App Platform
 
@@ -572,14 +509,7 @@ data/debug_extracts/opportunity_{id}/
 3. Configure environment variables
 4. Deploy
 
-### Environment Variables for Production
-
-Ensure all required environment variables are set:
-- Database connection string
-- Redis URL
-- JWT secrets
-- API keys (Anthropic, Groq, Google Document AI)
-- Playwright browser installation
+See `DEPLOYMENT.md` for detailed instructions.
 
 ### Docker
 
@@ -594,109 +524,87 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 
 ---
 
-## 📊 Project Status
+## Project Status
 
-### Phase 1: Foundation & Core Scraping ✅ **COMPLETE**
+### Phase 1: Foundation & Core Scraping ✓ **COMPLETE**
 
 | Feature | Status |
 |---------|--------|
-| 🔐 User Authentication | ✅ |
-| 🌐 SAM.gov Scraping | ✅ |
-| 📥 Smart Document Downloads | ✅ |
-| 👥 Contact Info Extraction | ✅ |
-| 📄 Multi-format Text Extraction | ✅ |
-| ☁️ Google Document AI Integration | ✅ |
-| 👁️ OCR Support | ✅ |
-| 📊 Document Analysis | ✅ |
-| 📋 CLIN Extraction | ✅ |
-| ⏰ Deadline Extraction | ✅ |
-| 📤 File Upload | ✅ |
-| 💻 Frontend UI | ✅ |
+| User Authentication | ✓ |
+| SAM.gov Scraping | ✓ |
+| Smart Document Downloads (with disclaimer handling) | ✓ |
+| Contact Info Extraction | ✓ |
+| Multi-format Text Extraction (PDF, Word, Excel, PPT, Images) | ✓ |
+| Google Document AI Integration | ✓ |
+| OCR Support (pytesseract with preprocessing) | ✓ |
+| Document Analysis (configurable) | ✓ |
+| CLIN Extraction (Claude + Groq fallback) | ✓ |
+| Deadline Extraction | ✓ |
+| File Upload | ✓ |
+| Frontend UI with Analysis Toggles | ✓ |
 
 **Phase 1 is 100% complete** - All MVP requirements met!
-
-### Phase 2: Research & Automation ✅ **COMPLETE**
-
-| Feature | Status |
-|---------|--------|
-| 📄 Document-based manufacturer/dealer extraction | ✅ |
-| 🌐 LLM-guided external web research | ✅ |
-| 🏭 Manufacturer website discovery | ✅ |
-| 📧 Sales contact extraction | ✅ |
-| 🏪 Authorized dealer identification | ✅ |
-| 💰 Pricing extraction | ✅ |
-| 📦 Stock status tracking | ✅ |
-| ⭐ Legitimacy ranking | ✅ |
-| 💾 Database persistence | ✅ |
-| 🖥️ Frontend display | ✅ |
-
-**Phase 2 Research Automation is 100% complete** - All manufacturer and dealer research features implemented!
 
 ### Recent Enhancements
 
 - ✅ **Unified CLIN & Deadline Extraction**: All documents + SAM.gov page text combined in single LLM request
-- ✅ **Delivery Requirements Integration**: Delivery addresses, special instructions, and timelines extracted
+- ✅ **Delivery Requirements Integration**: Delivery addresses, special instructions, and timelines extracted within CLIN data
 - ✅ **Two-Pass Extraction**: Automatic second pass fills missing fields when 20%+ are null
-- ✅ **Robust JSON Parsing**: Advanced error recovery for malformed/truncated LLM responses
-- ✅ **SAM.gov Page Integration**: Raw page text included in analysis
-- ✅ **Configurable Analysis**: Document analysis and CLIN extraction can be enabled/disabled via UI
-- ✅ **Smart Text Extraction**: Google Document AI for scanned PDFs with intelligent routing
-- ✅ **Improved OCR**: pytesseract with advanced image preprocessing
-- ✅ **LLM Fallback**: Claude 3 Haiku as primary, Groq Llama 3.1 as fallback
-- ✅ **Disclaimer Handling**: Automatic detection and handling of disclaimer/agreement pages
+- ✅ **Robust JSON Parsing**: Advanced error recovery for malformed/truncated LLM responses with multiple fallback strategies
+- ✅ **SAM.gov Page Integration**: Raw page text included in analysis, even when no attachments available
+- ✅ **Configurable Analysis**: Document analysis and CLIN extraction can be enabled/disabled via UI (disabled by default for testing)
+- ✅ **Smart Text Extraction**: Google Document AI for scanned PDFs, intelligent routing between text-based and scanned PDFs
+- ✅ **Improved OCR**: pytesseract with advanced image preprocessing (denoising, contrast enhancement, deskewing)
+- ✅ **LLM Fallback**: Claude 3 Haiku as primary, Groq Llama 3.1 as fallback for CLIN extraction
+- ✅ **Disclaimer Handling**: Automatic detection and handling of disclaimer/agreement pages during document download
 - ✅ **Recursive Navigation**: Smart depth tracking (max 4 levels) for multi-page document downloads
-- ✅ **Phase 2 Research Automation**: Two-phase manufacturer/dealer research
-- ✅ **LLM-Guided External Research**: Intelligent web search using LLM
-- ✅ **Dealer Discovery**: Automated identification of top 8 authorized dealers
-- ✅ **Database Schema Consistency**: Complete manufacturer and dealer schemas
-- ✅ **Frontend Display**: Full UI for displaying manufacturers and dealers
+- ✅ **Enhanced Download Timeouts**: Increased timeouts (90s) and improved wait times for slow sites
+
+### Phase 2: Research & Automation
+
+- Manufacturer research
+- Email integration
+- Calendar integration
+
+### Phase 3: Advanced Features
+
+- Form automation
+- Quote generation
+- Reporting dashboard
 
 ---
 
-## 🔄 How It Works
+## How It Works
 
 <details>
-<summary><strong>📊 Analysis Pipeline</strong></summary>
+<summary><strong>Analysis Pipeline</strong></summary>
 
-1. **📥 Input**: User provides SAM.gov URL (+ optional files) with analysis options
-
-2. **🌐 Scraping**: Playwright extracts metadata and downloads attachments
+1. **Input**: User provides SAM.gov URL (+ optional files) with analysis options
+2. **Scraping**: Playwright extracts metadata and downloads attachments
    - Handles disclaimer/agreement pages automatically
    - Recursive navigation with depth tracking (max 4 levels)
    - Smart PDF detection and download
-
-3. **📄 Document Analysis** (if enabled):
+3. **Document Analysis** (if enabled):
    - **Text Extraction**: 
      - Text-based PDFs → pdfplumber
      - Scanned PDFs → Google Document AI (with pytesseract fallback)
      - Other formats → Format-specific extractors
    - **Document Classification**: Documents routed by type (SF1449, SF30, SOW, etc.)
-
-4. **📋 CLIN, Deadline, Manufacturer & Dealer Extraction** (if enabled):
+4. **CLIN & Deadline Extraction** (if enabled):
    - **Combined Processing**: All document texts + SAM.gov page text sent to LLM in single request
-   - **Primary**: Claude 3 Haiku extracts CLINs, deadlines, manufacturers, and dealers together
+   - **Primary**: Claude 3 Haiku extracts CLINs, deadlines, and delivery requirements together
    - **Fallback**: Groq Llama 3.1 if Claude fails
    - **Two-Pass System**: If 20%+ fields are missing, second pass fills missing values
    - **Robust Parsing**: Advanced JSON error recovery handles malformed/truncated responses
-   - Extracts: CLIN numbers, product details, quantities, manufacturers (name, CAGE code, part numbers), dealers (company names), scope of work, service requirements, delivery addresses, special delivery instructions, delivery timelines, deadlines
-
-5. **🤖 Classification**: AI determines Product/Service/Both with confidence scoring
-
-6. **💾 Storage**: All data saved to database with proper deduplication (CLINs, deadlines, manufacturers, dealers)
-
-7. **🌐 Phase 2 External Research** (automatic after Phase 1):
-   - LLM determines best search strategy for each manufacturer
-   - Playwright performs web searches and navigates to manufacturer websites
-   - Extracts website URLs, contact emails, phone numbers
-   - Finds authorized dealers with pricing and stock status
-   - Ranks dealers by legitimacy (1-10 score)
-
-8. **🖥️ Display**: Data displayed in UI with collapsible CLIN sections, manufacturer/dealer sections, and professional formatting
+   - Extracts: CLIN numbers, product details, quantities, manufacturers, part numbers, scope of work, service requirements, delivery addresses, special delivery instructions, delivery timelines, deadlines
+5. **Classification**: AI determines Product/Service/Both with confidence scoring
+6. **Storage**: All data saved to database with proper deduplication (CLINs and deadlines)
+7. **Display**: Data displayed in UI with collapsible CLIN sections and professional formatting
 
 </details>
 
 <details>
-<summary><strong>📋 CLIN & Deadline Extraction Process</strong></summary>
+<summary><strong>CLIN & Deadline Extraction Process</strong></summary>
 
 **Unified Extraction Approach:**
 - All documents + SAM.gov page text are combined and sent to LLM in a single request
@@ -709,8 +617,6 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 - **Scope & Requirements**: Complete scope of work text, detailed service requirements
 - **Delivery Information**: Complete delivery addresses, special delivery instructions, delivery timelines
 - **Deadlines**: Submission deadlines, question deadlines, with dates, times, timezones, and types
-- **Manufacturers**: Name, CAGE code, part numbers, NSNs (from documents)
-- **Dealers**: Company names (from documents)
 
 **Two-Pass System:**
 - First pass extracts all available data
@@ -725,38 +631,9 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 
 </details>
 
-<details>
-<summary><strong>🏭 Manufacturer & Dealer Research Process</strong></summary>
-
-**Phase 1: Document-Based Extraction:**
-- Manufacturers and dealers extracted from documents alongside CLINs and deadlines
-- Single LLM call processes all documents + SAM.gov page text
-- Extracts manufacturer names, CAGE codes, part numbers, NSNs
-- Extracts dealer company names from Qualified Sources, BOMs, and CLINs
-- Data saved with `research_source="document_extraction"`
-
-**Phase 2: External Web Research (Automatic):**
-- Triggered automatically after Phase 1 completes
-- For each manufacturer found in documents:
-  1. LLM analyzes manufacturer info and determines best search strategy
-  2. Uses reference guide for legitimate search methods
-  3. Playwright performs Google searches and navigates to websites
-  4. Extracts manufacturer website, contact email, phone, address
-  5. Searches for authorized dealers/distributors
-  6. Extracts dealer info: company name, website, contact email, pricing, stock status
-  7. Ranks dealers by legitimacy (1-10 score)
-  8. Verifies websites and checks SAM.gov status (placeholder)
-- Results saved with `research_source="external_search"` or `"document_extraction,external_search"`
-
-**Data Flow:**
-- Database Models → Data Saving → API Schemas → API Endpoint → Frontend Display
-- All layers consistent: manufacturers and dealers properly serialized and displayed
-
-</details>
-
 ---
 
-## 📄 License
+## License
 
 Proprietary - All rights reserved
 
@@ -764,8 +641,8 @@ Proprietary - All rights reserved
 
 <div align="center">
 
-**🏛️ Built for Government Contractors**
+**Built for Government Contractors**
 
-[⬆️ Back to Top](#-samgov-ai)
+[Back to Top](#samgov-ai)
 
 </div>
