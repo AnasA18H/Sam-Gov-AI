@@ -22,6 +22,7 @@ from ..models.deadline import Deadline
 from ..schemas.opportunity import OpportunityCreate, OpportunityResponse, OpportunityDetailResponse, OpportunityList
 from sqlalchemy.orm import joinedload
 from ..services.tasks import scrape_sam_gov_opportunity
+from ..services.lookup_links import get_clin_lookup_links
 
 logger = logging.getLogger(__name__)
 
@@ -151,13 +152,11 @@ async def get_opportunity(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get a specific opportunity by ID with documents, deadlines, CLINs, manufacturers, and dealers"""
+    """Get a specific opportunity by ID with documents, deadlines, and CLINs"""
     opportunity = db.query(Opportunity).options(
         joinedload(Opportunity.documents),
         joinedload(Opportunity.deadlines),
-        joinedload(Opportunity.clins),
-        joinedload(Opportunity.manufacturers),
-        joinedload(Opportunity.dealers)
+        joinedload(Opportunity.clins)
     ).filter(
         Opportunity.id == opportunity_id,
         Opportunity.user_id == current_user.id
@@ -476,3 +475,35 @@ async def view_document(
         filename=document.original_file_name or document.file_name,
         media_type=media_type
     )
+
+
+@router.get("/{opportunity_id}/clins/{clin_id}/lookup-links")
+async def get_clin_lookup_links_endpoint(
+    opportunity_id: int,
+    clin_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get external lookup URLs for a CLIN (NSN Lookup, CAGE, Digi-Key, SAM.gov). Links open in browser."""
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    clin = db.query(CLIN).filter(
+        CLIN.id == clin_id,
+        CLIN.opportunity_id == opportunity_id
+    ).first()
+    if not clin:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CLIN not found")
+    clin_dict = {
+        "part_number": clin.part_number,
+        "base_item_number": clin.base_item_number,
+        "manufacturer_name": clin.manufacturer_name,
+        "product_name": clin.product_name,
+        "product_description": clin.product_description,
+        "additional_data": clin.additional_data,
+    }
+    links = get_clin_lookup_links(clin_dict)
+    return {"links": links}
