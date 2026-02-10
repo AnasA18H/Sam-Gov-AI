@@ -2,10 +2,11 @@
  * Opportunity Details/Results Page
  */
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { opportunitiesAPI } from '../utils/api';
+import { opportunitiesAPI, authAPI } from '../utils/api';
 import ProtectedRoute from '../components/ProtectedRoute';
+import SendEmailModal from '../components/SendEmailModal';
 import {
   HiOutlineTrash,
   HiOutlineArrowLeft,
@@ -106,7 +107,36 @@ const OpportunityDetail = () => {
   const [expandedClins, setExpandedClins] = useState(new Set());
   const [lookupLinksByClinId, setLookupLinksByClinId] = useState({});
   const [loadingLookupClinId, setLoadingLookupClinId] = useState(null);
+  const [sendEmailModal, setSendEmailModal] = useState({ open: false, to: '', subject: '', body: '' });
+  const [emailConnection, setEmailConnection] = useState(null);
+  const [emailConnectionLoading, setEmailConnectionLoading] = useState(true);
+  const [emailConnectionDisconnecting, setEmailConnectionDisconnecting] = useState(false);
+  const [searchParams] = useSearchParams();
   const pollIntervalRef = useRef(null);
+
+  const fetchEmailConnection = async () => {
+    try {
+      const res = await authAPI.getEmailConnection();
+      setEmailConnection(res.data);
+    } catch {
+      setEmailConnection({ connected: false });
+    } finally {
+      setEmailConnectionLoading(false);
+    }
+  };
+
+  const handleDisconnectEmail = async () => {
+    if (emailConnectionDisconnecting) return;
+    setEmailConnectionDisconnecting(true);
+    try {
+      await authAPI.disconnectEmailConnection();
+      setEmailConnection({ connected: false });
+    } catch {
+      setEmailConnection(null);
+    } finally {
+      setEmailConnectionDisconnecting(false);
+    }
+  };
 
   const loadClinLookupLinks = async (clinId) => {
     if (!id || loadingLookupClinId === clinId) return;
@@ -128,7 +158,7 @@ const OpportunityDetail = () => {
 
   useEffect(() => {
     fetchOpportunity();
-    
+    fetchEmailConnection();
     // Cleanup polling on unmount
     return () => {
       if (pollIntervalRef.current) {
@@ -136,6 +166,13 @@ const OpportunityDetail = () => {
       }
     };
   }, [id]);
+
+  // Refetch email connection when returning from OAuth (e.g. ?email_connected=google)
+  useEffect(() => {
+    if (searchParams.get('email_connected')) {
+      fetchEmailConnection();
+    }
+  }, [searchParams]);
 
   const fetchOpportunity = async () => {
     try {
@@ -271,6 +308,68 @@ const OpportunityDetail = () => {
     }
     // Also check file name extension as fallback
     return <HiOutlinePaperClip className="w-5 h-5 text-gray-600" />;
+  };
+
+  const isNetworkError = (msg) => {
+    if (!msg || typeof msg !== 'string') return false;
+    const s = msg.toLowerCase();
+    return (
+      s.includes('err_name_not_resolved') ||
+      s.includes('net::err_') ||
+      s.includes('econnrefused') ||
+      s.includes('enotfound') ||
+      s.includes('etimedout') ||
+      s.includes('network') && (s.includes('failed') || s.includes('error')) ||
+      s.includes('fetch failed') ||
+      s.includes('timeout') && s.includes('load')
+    );
+  };
+
+  /** Normalize CLIN manufacturer_research (API may return object or JSON string). */
+  const getClinManufacturerResearch = (clin) => {
+    const m = clin?.manufacturer_research;
+    if (m == null) return null;
+    if (typeof m === 'object' && m !== null) return m;
+    if (typeof m === 'string') {
+      try { return JSON.parse(m); } catch { return null; }
+    }
+    return null;
+  };
+
+  /** True if the CLIN "manufacturer" name looks like a government agency (buyer). We do not show agency contact as "manufacturer research". */
+  const isLikelyAgencyNotManufacturer = (name) => {
+    if (!name || typeof name !== 'string') return false;
+    const s = name.toLowerCase();
+    return /bureau of|department of|^gsa\b|^dod\b|agency|federal |government|u\.s\. |united states /.test(s) || /\b(bep|doj|dod|gsa|va|dhs|doe|usda)\b/.test(s);
+  };
+
+  /** Normalize CLIN dealer_research (API may return array or JSON string). */
+  const getClinDealerResearch = (clin) => {
+    const d = clin?.dealer_research;
+    if (d == null) return [];
+    if (Array.isArray(d)) return d;
+    if (typeof d === 'string') {
+      try { const a = JSON.parse(d); return Array.isArray(a) ? a : []; } catch { return []; }
+    }
+    return [];
+  };
+
+  /** Subject and body for quote emails (sent from app). */
+  const getQuoteSubject = () =>
+    opportunity?.title ? `Quote request: ${opportunity.title}` : 'Quote request - government opportunity';
+  const getQuoteBody = () =>
+    opportunity?.notice_id
+      ? `I am inquiring about a quote for the following opportunity (Notice ID: ${opportunity.notice_id}).\n\nPlease provide pricing and availability.\n\nThank you.`
+      : '';
+
+  const openSendEmail = (toEmail) => {
+    if (!toEmail) return;
+    setSendEmailModal({
+      open: true,
+      to: toEmail,
+      subject: getQuoteSubject(),
+      body: getQuoteBody(),
+    });
   };
 
   return (
@@ -565,15 +664,39 @@ const OpportunityDetail = () => {
         <main className="max-w-7xl mx-auto py-4 sm:px-6 lg:px-8">
           <div className="px-4 py-4 sm:px-0">
             {/* Title Section - green background + contact info */}
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm mb-4 overflow-hidden">
-              <div className="bg-gradient-to-r from-[#14B8A6] to-[#0D9488] px-4 py-4 text-white">
-                <div className="flex justify-between items-start flex-wrap gap-3">
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm mb-6 overflow-visible">
+              <div className="relative z-10 rounded-lg shadow-md bg-gradient-to-r from-[#14B8A6] to-[#0D9488] px-4 py-4 text-white">
+                {/* Subtle diagonal line texture overlay */}
+                <div
+                  className="absolute inset-0 pointer-events-none opacity-100"
+                  aria-hidden
+                  style={{
+                    backgroundImage: 'repeating-linear-gradient(-55deg, transparent, transparent 8px, rgba(255,255,255,0.06) 8px, rgba(255,255,255,0.06) 9px), repeating-linear-gradient(35deg, transparent, transparent 8px, rgba(255,255,255,0.04) 8px, rgba(255,255,255,0.04) 9px)',
+                  }}
+                />
+                <div className="relative flex justify-between items-start flex-wrap gap-3">
                   <div className="flex-1 min-w-0">
-                    <h1 className="text-xl font-semibold text-white mb-1.5 truncate">
-                      {opportunity.title || (opportunity.status === 'processing' ? 'Analyzing Opportunity...' : 'Untitled Opportunity')}
-                    </h1>
+                    <div className={`relative overflow-hidden ${(opportunity.title && opportunity.title.length > 60) ? 'max-h-[3.6rem]' : ''}`}>
+                      <h1 className="text-xl font-semibold text-white mb-1.5">
+                        {opportunity.title || (opportunity.status === 'processing' ? 'Analyzing Opportunity...' : 'Untitled Opportunity')}
+                      </h1>
+                      {(opportunity.title && opportunity.title.length > 60) && (
+                        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[#0D9488] to-transparent pointer-events-none" aria-hidden />
+                      )}
+                    </div>
+                    {opportunity.sam_gov_url && (
+                      <a
+                        href={opportunity.sam_gov_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-white/90 hover:text-white inline-flex items-center gap-1 mt-1"
+                      >
+                        <HiOutlineExternalLink className="w-3.5 h-3.5" />
+                        <span className="truncate max-w-[280px] sm:max-w-none">{opportunity.sam_gov_url}</span>
+                      </a>
+                    )}
                     {opportunity.notice_id && (
-                      <div className="flex items-center space-x-2 text-xs text-white/90">
+                      <div className="flex items-center space-x-2 text-xs text-white/90 mt-1">
                         <HiOutlineInformationCircle className="w-4 h-4 flex-shrink-0" />
                         <span>Notice ID: <span className="font-mono font-medium">{opportunity.notice_id}</span></span>
                       </div>
@@ -588,15 +711,16 @@ const OpportunityDetail = () => {
                     {opportunity.status}
                   </span>
                 </div>
-              </div>
+                </div>
 
-              {/* Contact info - white section */}
-              {(opportunity.primary_contact || opportunity.alternative_contact) && (
-                <div className="bg-white px-4 py-3 border-b border-gray-200">
+              {/* Contact info - directly under title (one block: title over contact) */}
+              {(opportunity.agency || opportunity.primary_contact || opportunity.alternative_contact) && (
+                <div className="bg-white px-4 pt-4 pb-3 border-b border-gray-200 overflow-visible">
                   <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1 mb-2">
                     <HiOutlineUser className="w-3.5 h-3.5" /> Contact
                   </div>
-                  <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                  {(opportunity.primary_contact || opportunity.alternative_contact) && (
+                  <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm mb-2">
                     {opportunity.primary_contact && (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         {opportunity.primary_contact.name && <span className="text-gray-900 font-medium">{opportunity.primary_contact.name}</span>}
@@ -632,8 +756,21 @@ const OpportunityDetail = () => {
                       </div>
                     )}
                   </div>
+                  )}
+                  {opportunity.agency && (
+                    <div className="w-full min-w-0">
+                      <div className="flex items-start gap-2 text-xs text-gray-900 w-full font-bold" style={{ fontFamily: 'Arial, sans-serif' }}>
+                        <HiOutlineOfficeBuilding className="w-3.5 h-3.5 text-gray-600 flex-shrink-0 mt-0.5" />
+                        <span className="flex-1 min-w-0 break-words overflow-visible" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                          {opportunity.agency}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
+
+            </div>
 
               {/* Status Messages */}
               <div className="px-4 py-3 space-y-3">
@@ -897,9 +1034,31 @@ const OpportunityDetail = () => {
                 {opportunity.error_message && (
                   <div className="flex items-start space-x-2 bg-red-50 border border-red-200 rounded-md p-3">
                     <HiOutlineExclamationCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-red-800">Error:</p>
-                      <p className="text-sm text-red-700 mt-1">{opportunity.error_message}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-red-800">
+                        {isNetworkError(opportunity.error_message) ? 'Connection problem' : 'Error:'}
+                      </p>
+                      {isNetworkError(opportunity.error_message) ? (
+                        <>
+                          <p className="text-sm text-red-700 mt-1">
+                            Please check your internet connection and try again. If the problem continues, SAM.gov may be temporarily unavailable.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={fetchOpportunity}
+                            disabled={loading}
+                            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-800 bg-white border border-red-300 rounded-lg hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50"
+                          >
+                            <HiOutlineRefresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                            Retry
+                          </button>
+                          <p className="text-xs text-red-600/80 mt-2 font-mono truncate max-w-full" title={opportunity.error_message}>
+                            {opportunity.error_message}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-sm text-red-700 mt-1">{opportunity.error_message}</p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -967,19 +1126,30 @@ const OpportunityDetail = () => {
                   </div>
                 )}
 
-                {/* Description - Read More */}
+                {/* Description - Read More (classification next to label, fade when long) */}
                 {opportunity.description && (
                   <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
                     <div className="px-4 py-3 border-b border-gray-200">
-                      <div className="flex items-center">
-                        <HiOutlineDocumentText className="w-5 h-5 mr-2 text-gray-600" />
+                      <div className="flex items-center flex-wrap gap-2">
+                        <HiOutlineDocumentText className="w-5 h-5 text-gray-600" />
                         <h2 className="text-base font-semibold text-gray-900">Description</h2>
+                        {opportunity.solicitation_type && (
+                          <span className="inline-flex items-center gap-1 font-mono text-xs font-medium text-[#0D9488]">
+                            <HiOutlineTag className="w-3.5 h-3.5" />
+                            {opportunity.solicitation_type}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="px-4 py-3">
-                      <p className={`text-sm text-gray-700 italic whitespace-pre-wrap leading-relaxed ${!isDescriptionExpanded ? 'line-clamp-3' : ''}`}>
-                        {opportunity.description}
-                      </p>
+                      <div className="relative">
+                        <p className={`text-sm text-gray-700 italic whitespace-pre-wrap leading-relaxed ${!isDescriptionExpanded ? 'line-clamp-3' : ''}`}>
+                          {opportunity.description}
+                        </p>
+                        {!isDescriptionExpanded && opportunity.description.length > 200 && (
+                          <div className="absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-white to-transparent pointer-events-none" aria-hidden />
+                        )}
+                      </div>
                       {opportunity.description.length > 200 && (
                         <button
                           onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
@@ -1080,7 +1250,10 @@ const OpportunityDetail = () => {
                                       else next.add(clin.id);
                                       setExpandedClins(next);
                                     }}
-                                    className={`border-b cursor-pointer transition-colors ${isExpanded ? 'bg-[#14B8A6] text-white' : 'border-gray-200 hover:bg-gray-50'}`}
+                                    className={`border-b cursor-pointer transition-colors ${isExpanded ? 'text-white' : 'border-gray-200 hover:bg-gray-50'}`}
+                                    style={isExpanded ? {
+                                      backgroundImage: 'repeating-linear-gradient(-55deg, transparent, transparent 8px, rgba(255,255,255,0.06) 8px, rgba(255,255,255,0.06) 9px), repeating-linear-gradient(35deg, transparent, transparent 8px, rgba(255,255,255,0.04) 8px, rgba(255,255,255,0.04) 9px), linear-gradient(to right, #14B8A6, #0D9488)',
+                                    } : undefined}
                                   >
                                     <td className="py-2.5 px-3">
                                       <span className={`font-bold ${isExpanded ? 'text-white' : 'text-[#0D9488]'}`}>CLIN {clin.clin_number}</span>
@@ -1172,6 +1345,66 @@ const OpportunityDetail = () => {
                                                 </div>
                                               </div>
                                             )}
+                                            {/* Manufacturer research (Tavily) – do not show when "manufacturer" is the buying agency */}
+                                            {(() => {
+                                              const manufacturerName = clin?.manufacturer_name || '';
+                                              if (isLikelyAgencyNotManufacturer(manufacturerName)) return null;
+                                              const mfr = getClinManufacturerResearch(clin);
+                                              if (!mfr || (!mfr.official_website && !mfr.sales_contact_email)) return null;
+                                              const websiteHref = mfr.official_website?.startsWith('http') ? mfr.official_website : (mfr.official_website ? `https://${mfr.official_website.replace(/^\/*/, '')}` : null);
+                                              return (
+                                              <div className="pt-3 border-t border-[#14B8A6]/40 space-y-2">
+                                                <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineOfficeBuilding className="w-3.5 h-3.5" /> Manufacturer research</div>
+                                                <p className="text-xs text-gray-600 font-medium">{manufacturerName || 'Manufacturer'}</p>
+                                                <p className="text-xs text-gray-500 -mt-0.5">Use these to request quotes or contact for this CLIN.</p>
+                                                <div className="flex flex-wrap gap-4 text-sm">
+                                                  {websiteHref && (
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                      <HiOutlineGlobe className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
+                                                      <span className="text-gray-600">Official website:</span>
+                                                      <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
+                                                    </span>
+                                                  )}
+                                                  {mfr.sales_contact_email && (
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                      <HiOutlineMail className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
+                                                      <span className="text-gray-600">Email (quote/contact):</span>
+                                                      <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              );
+                                            })()}
+                                            {/* Dealers / distributors (Tavily) */}
+                                            {getClinDealerResearch(clin).length > 0 && (
+                                              <div className="pt-3 border-t border-[#14B8A6]/40 space-y-2">
+                                                <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineChartBar className="w-3.5 h-3.5" /> Authorized dealers / distributors</div>
+                                                <p className="text-xs text-gray-500 -mt-0.5">Contact emails are for quote requests and outreach.</p>
+                                                <div className="overflow-x-auto">
+                                                  <table className="min-w-full text-xs border border-gray-200 rounded-lg">
+                                                    <thead><tr className="bg-gray-50 text-left"><th className="py-1.5 px-2 font-semibold text-gray-700">Company</th><th className="py-1.5 px-2 font-semibold text-gray-700">Website</th><th className="py-1.5 px-2 font-semibold text-gray-700">Contact email (quote)</th><th className="py-1.5 px-2 font-semibold text-gray-700">Price</th></tr></thead>
+                                                    <tbody>
+                                                      {getClinDealerResearch(clin).slice(0, 8).map((d, idx) => (
+                                                        <tr key={idx} className="border-t border-gray-100">
+                                                          <td className="py-1.5 px-2 text-gray-800">{d.company_name || '—'}</td>
+                                                          <td className="py-1.5 px-2">{d.website_url ? <a href={d.website_url} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline inline-flex items-center gap-0.5"><HiOutlineExternalLink className="w-3 h-3" /> Link</a> : '—'}</td>
+                                                          <td className="py-1.5 px-2">{d.sales_contact_email ? <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button> : '—'}</td>
+                                                          <td className="py-1.5 px-2 text-gray-600">{d.retail_pricing || '—'}</td>
+                                                        </tr>
+                                                      ))}
+                                                    </tbody>
+                                                  </table>
+                                                </div>
+                                                {getClinDealerResearch(clin).length > 0 && !getClinDealerResearch(clin).some(d => d.sales_contact_email) && (
+                                                  <p className="mt-1.5 text-xs text-gray-500">
+                                                    {getClinDealerResearch(clin).some(d => d.website_url)
+                                                      ? 'Dealer contact emails not found; use website links above to request quotes.'
+                                                      : 'Dealer contact details not found. Use the lookup links below to find dealers online or search for the company to request a quote.'}
+                                                  </p>
+                                                )}
+                                              </div>
+                                            )}
                                             {/* Find manufacturers & dealers - external lookup links */}
                                             <div className="pt-3 border-t border-[#14B8A6]/40 space-y-2">
                                               <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineGlobe className="w-3.5 h-3.5" /> Find manufacturers & dealers</div>
@@ -1220,8 +1453,15 @@ const OpportunityDetail = () => {
                             key={clin.id}
                             className="bg-white rounded-lg border-2 border-gray-200 hover:border-[#14B8A6] hover:shadow-md transition-all duration-200 overflow-hidden"
                           >
-                            <div className="bg-gradient-to-r from-[#14B8A6] to-[#0D9488] px-5 py-3">
-                              <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="relative bg-gradient-to-r from-[#14B8A6] to-[#0D9488] px-5 py-3">
+                              <div
+                                className="absolute inset-0 pointer-events-none opacity-100"
+                                aria-hidden
+                                style={{
+                                  backgroundImage: 'repeating-linear-gradient(-55deg, transparent, transparent 8px, rgba(255,255,255,0.06) 8px, rgba(255,255,255,0.06) 9px), repeating-linear-gradient(35deg, transparent, transparent 8px, rgba(255,255,255,0.04) 8px, rgba(255,255,255,0.04) 9px)',
+                                }}
+                              />
+                              <div className="relative flex items-center justify-between flex-wrap gap-2">
                                 <div className="flex items-center space-x-3">
                                   <div className="bg-white/20 backdrop-blur-sm rounded-lg px-3 py-1.5">
                                     <span className="text-white font-bold text-lg tracking-wide">CLIN {clin.clin_number}</span>
@@ -1239,7 +1479,7 @@ const OpportunityDetail = () => {
                                   </div>
                                 )}
                               </div>
-                              {clin.clin_name && <div className="mt-2 text-sm text-white/95 font-medium">{clin.clin_name}</div>}
+                              {clin.clin_name && <div className="relative mt-2 text-sm text-white/95 font-medium">{clin.clin_name}</div>}
                             </div>
                             <div className="p-5 space-y-4">
                               {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity != null || clin.contract_type || (clin.additional_data && (clin.additional_data.drawing_number || clin.additional_data.delivery_timeline || clin.additional_data.delivery_address || clin.additional_data.special_delivery_instructions))) && (
@@ -1298,6 +1538,65 @@ const OpportunityDetail = () => {
                                   </div>
                                 </div>
                               )}
+                              {expandedClins.has(clin.id) && (() => {
+                                const manufacturerName = clin?.manufacturer_name || '';
+                                if (isLikelyAgencyNotManufacturer(manufacturerName)) return null;
+                                const mfr = getClinManufacturerResearch(clin);
+                                if (!mfr || (!mfr.official_website && !mfr.sales_contact_email)) return null;
+                                const websiteHref = mfr.official_website?.startsWith('http') ? mfr.official_website : (mfr.official_website ? `https://${mfr.official_website.replace(/^\/*/, '')}` : null);
+                                return (
+                                <div className="mt-5 pt-5 border-t border-gray-300">
+                                  <div className="flex items-center space-x-2 mb-2"><HiOutlineOfficeBuilding className="w-5 h-5 text-gray-600" /><h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Manufacturer research</h4></div>
+                                  <p className="text-sm font-medium text-gray-700 mb-1">{manufacturerName || 'Manufacturer'}</p>
+                                  <p className="text-xs text-gray-500 mb-3">Use these to request quotes or contact for this CLIN.</p>
+                                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 text-sm">
+                                    {websiteHref && (
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <HiOutlineGlobe className="w-4 h-4 text-[#0D9488] flex-shrink-0" />
+                                        <span className="text-gray-600">Official website:</span>
+                                        <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
+                                      </div>
+                                    )}
+                                    {mfr.sales_contact_email && (
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <HiOutlineMail className="w-4 h-4 text-[#0D9488] flex-shrink-0" />
+                                        <span className="text-gray-600">Email (quote/contact):</span>
+                                        <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                );
+                              })()}
+                              {expandedClins.has(clin.id) && getClinDealerResearch(clin).length > 0 && (
+                                <div className="mt-5 pt-5 border-t border-gray-300">
+                                  <div className="flex items-center space-x-2 mb-3"><HiOutlineChartBar className="w-5 h-5 text-gray-600" /><h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Authorized dealers / distributors</h4></div>
+                                  <p className="text-xs text-gray-500 mb-2">Contact emails are for quote requests and outreach.</p>
+                                  <div className="overflow-x-auto rounded-lg border border-gray-200">
+                                    <table className="min-w-full text-sm">
+                                      <thead><tr className="bg-gray-50 text-left"><th className="py-2 px-3 font-semibold text-gray-700">Company</th><th className="py-2 px-3 font-semibold text-gray-700">Website</th><th className="py-2 px-3 font-semibold text-gray-700">Contact email (quote)</th><th className="py-2 px-3 font-semibold text-gray-700">Price</th></tr></thead>
+                                      <tbody>
+                                        {getClinDealerResearch(clin).slice(0, 8).map((d, idx) => (
+                                          <tr key={idx} className="border-t border-gray-100">
+                                            <td className="py-2 px-3 text-gray-800">{d.company_name || '—'}</td>
+                                            <td className="py-2 px-3">{d.website_url ? <a href={d.website_url} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline inline-flex items-center gap-1"><HiOutlineExternalLink className="w-3.5 h-3.5" /> Link</a> : '—'}</td>
+                                            <td className="py-2 px-3">{d.sales_contact_email ? <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button> : '—'}</td>
+                                            <td className="py-2 px-3 text-gray-600">{d.retail_pricing || '—'}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                  {getClinDealerResearch(clin).length > 0 && !getClinDealerResearch(clin).some(d => d.sales_contact_email) && (
+                                    <p className="mt-2 text-sm text-gray-500">
+                                      {getClinDealerResearch(clin).some(d => d.website_url)
+                                        ? 'Dealer contact emails not found; use website links above to request quotes.'
+                                        : 'Dealer contact details not found. Use the lookup links below to find dealers online or search for the company to request a quote.'}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              {expandedClins.has(clin.id) && (
                               <div className="mt-5 pt-5 border-t border-gray-300">
                                 <div className="flex items-center space-x-2 mb-3"><HiOutlineGlobe className="w-5 h-5 text-gray-600" /><h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Find manufacturers & dealers</h4></div>
                                 {!lookupLinksByClinId[clin.id] ? (
@@ -1315,7 +1614,10 @@ const OpportunityDetail = () => {
                                   </div>
                                 )}
                               </div>
-                              {(clin.additional_data?.delivery_timeline || clin.additional_data?.delivery_address || clin.additional_data?.special_delivery_instructions || clin.product_description || clin.scope_of_work || clin.service_description || clin.service_requirements) && (
+                              )}
+                              {((clin.additional_data?.delivery_timeline || clin.additional_data?.delivery_address || clin.additional_data?.special_delivery_instructions || clin.product_description || clin.scope_of_work || clin.service_description || clin.service_requirements) ||
+                                getClinDealerResearch(clin).length > 0 ||
+                                (!isLikelyAgencyNotManufacturer(clin?.manufacturer_name || '') ? false : (() => { const mfr = getClinManufacturerResearch(clin); return mfr && (mfr.official_website || mfr.sales_contact_email); })())) && (
                                 <div className="flex justify-center mt-4 pt-3 border-t border-gray-200">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); const next = new Set(expandedClins); if (next.has(clin.id)) next.delete(clin.id); else next.add(clin.id); setExpandedClins(next); }}
@@ -1338,70 +1640,6 @@ const OpportunityDetail = () => {
 
               {/* Sidebar */}
               <div className="space-y-4">
-                {/* Metadata - theme aligned */}
-                <div className="bg-white rounded-lg border-2 border-[#14B8A6] shadow-sm">
-                  <div className="px-4 py-3 border-b border-[#14B8A6]/30 bg-teal-50/50">
-                    <h2 className="text-base font-semibold text-[#0D9488]">Details</h2>
-                  </div>
-                  <dl className="px-4 py-3 space-y-3">
-                    <div className="flex items-start space-x-2">
-                      <dt className="flex-shrink-0 mt-0.5">
-                        <HiOutlineGlobe className="w-5 h-5 text-[#14B8A6]" title="SAM.gov URL" />
-                      </dt>
-                      <dd className="text-sm text-gray-600 flex-1 min-w-0">
-                        <a
-                          href={opportunity.sam_gov_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[#0D9488] hover:text-[#14B8A6] inline-flex items-center space-x-1 max-w-full group font-medium"
-                        >
-                          <span className="truncate text-xs">{opportunity.sam_gov_url}</span>
-                          <HiOutlineGlobe className="w-3.5 h-3.5 flex-shrink-0 group-hover:text-[#0D9488]" />
-                        </a>
-                      </dd>
-                    </div>
-
-                    {opportunity.agency && (
-                      <div className="flex items-start space-x-2">
-                        <dt className="flex-shrink-0 mt-0.5">
-                          <HiOutlineOfficeBuilding className="w-5 h-5 text-[#14B8A6]" title="Agency" />
-                        </dt>
-                        <dd className="text-sm text-gray-600 flex-1">{opportunity.agency}</dd>
-                      </div>
-                    )}
-
-                    {opportunity.solicitation_type && (
-                      <div className="flex items-start space-x-2">
-                        <dt className="flex-shrink-0 mt-0.5">
-                          <HiOutlineTag className="w-5 h-5 text-[#14B8A6]" title="Solicitation Type" />
-                        </dt>
-                        <dd className="text-sm flex-1">
-                          <span className="capitalize text-gray-900 font-medium">{opportunity.solicitation_type}</span>
-                          {opportunity.classification_confidence && (
-                            <span className="block text-xs text-gray-500 mt-0.5">
-                              Confidence: {opportunity.classification_confidence}
-                            </span>
-                          )}
-                        </dd>
-                      </div>
-                    )}
-
-                    <div className="flex items-start space-x-2">
-                      <dt className="flex-shrink-0 mt-0.5">
-                        <HiOutlineCalendar className="w-5 h-5 text-[#14B8A6]" title="Created" />
-                      </dt>
-                      <dd className="text-sm text-gray-600 flex-1">{formatDate(opportunity.created_at)}</dd>
-                    </div>
-
-                    <div className="flex items-start space-x-2">
-                      <dt className="flex-shrink-0 mt-0.5">
-                        <HiOutlineRefresh className="w-5 h-5 text-[#14B8A6]" title="Updated" />
-                      </dt>
-                      <dd className="text-sm text-gray-600 flex-1">{formatDate(opportunity.updated_at)}</dd>
-                    </div>
-                  </dl>
-                </div>
-
                 {/* Documents - Attachments */}
                 {opportunity.documents && opportunity.documents.length > 0 && (
                   <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -1445,6 +1683,84 @@ const OpportunityDetail = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Email and calendar access */}
+                <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                  <div className="px-4 py-3 border-b border-gray-200">
+                    <h2 className="text-base font-semibold text-gray-900 flex items-center">
+                      <HiOutlineMail className="w-5 h-5 mr-2 text-gray-600" />
+                      Email and calendar access
+                    </h2>
+                  </div>
+                  <div className="p-4 space-y-4">
+                    <p className="text-sm text-gray-700">
+                      Connect your Google or Microsoft account to send quote emails from the app and add opportunity deadlines to your calendar.
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      We request access only to send email and create calendar events. You can disconnect or change the connected account at any time.
+                    </p>
+                    {emailConnectionLoading ? (
+                      <p className="text-sm text-gray-500">Loading…</p>
+                    ) : emailConnection?.connected ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                          <HiOutlineCheckCircle className="w-5 h-5 flex-shrink-0" />
+                          <span className="font-medium">Connected</span>
+                        </div>
+                        <div className="text-sm text-gray-700 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-gray-500">Account:</span>
+                            <span className="font-medium">{emailConnection.sender_email || '—'}</span>
+                            {emailConnection.provider && (
+                              <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700 capitalize">{emailConnection.provider}</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">You can send emails and add events using this account.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => window.location.href = authAPI.connectGoogleUrl()}
+                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 transition-colors"
+                          >
+                            Change to Gmail
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => window.location.href = authAPI.connectMicrosoftUrl()}
+                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 transition-colors"
+                          >
+                            Change to Outlook
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDisconnectEmail}
+                            disabled={emailConnectionDisconnecting}
+                            className="text-sm px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50 inline-flex items-center gap-1"
+                          >
+                            <HiOutlineLogout className="w-4 h-4" />
+                            {emailConnectionDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={authAPI.connectGoogleUrl()}
+                          className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                        >
+                          Connect Gmail
+                        </a>
+                        <a
+                          href={authAPI.connectMicrosoftUrl()}
+                          className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                        >
+                          Connect Outlook
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 {/* Delivery Requirements */}
                 {opportunity.classification_codes?.delivery_requirements && (
@@ -1518,7 +1834,6 @@ const OpportunityDetail = () => {
 
               </div>
             </div>
-          </div>
         </main>
         </div>
 
@@ -1563,6 +1878,13 @@ const OpportunityDetail = () => {
           </div>
         )}
       </div>
+      <SendEmailModal
+        isOpen={sendEmailModal.open}
+        onClose={() => setSendEmailModal((s) => ({ ...s, open: false }))}
+        to={sendEmailModal.to}
+        subject={sendEmailModal.subject}
+        body={sendEmailModal.body}
+      />
     </ProtectedRoute>
   );
 };
