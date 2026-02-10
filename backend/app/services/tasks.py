@@ -703,12 +703,12 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
             if not existing_deadline:
                 deadline = Deadline(
                     opportunity_id=opportunity.id,
-                    due_date=deadline_data['due_date'],
+                    due_date=due_date,
                     due_time=deadline_data.get('due_time'),
                     timezone=deadline_data.get('timezone'),
                     deadline_type=deadline_data.get('deadline_type'),
                     description=deadline_data.get('description'),
-                    is_primary=deadline_data.get('is_primary', False)
+                    is_primary=deadline_data.get('is_primary', False),
                 )
                 db.add(deadline)
             else:
@@ -793,13 +793,15 @@ def run_tavily_dealers_for_opportunity(opportunity_id: int):
     """
     Run Tavily web search for each CLIN of an opportunity (manufacturer + dealers).
     Called automatically after CLIN extraction. Results saved under data/tavily_results/opportunity_{id}/.
+    Persists manufacturer_research and dealer_research to CLIN rows.
     """
+    logger.info("[Tavily task] start opportunity_id=%s", opportunity_id)
     db = SessionLocal()
     try:
         clins = db.query(CLIN).filter(CLIN.opportunity_id == opportunity_id).order_by(CLIN.id).all()
         if not clins:
-            logger.warning("No CLINs found for opportunity %s; skipping Tavily search", opportunity_id)
-            return {"opportunity_id": opportunity_id, "clins_processed": 0, "reason": "no_clins"}
+            logger.warning("[Tavily task] No CLINs for opportunity %s", opportunity_id)
+            return {"opportunity_id": opportunity_id, "clins_processed": 0, "reason": "no_clins", "updates": []}
         clins_list = [
             {
                 "id": c.id,
@@ -812,8 +814,46 @@ def run_tavily_dealers_for_opportunity(opportunity_id: int):
             }
             for c in clins
         ]
+        logger.info("[Tavily task] loaded %s CLINs (ids=%s)", len(clins_list), [c["id"] for c in clins_list])
         result = run_tavily_for_opportunity(opportunity_id, clins_list)
-        logger.info("Tavily dealer search finished for opportunity %s: %s", opportunity_id, result)
+        updates = result.get("updates") or []
+        logger.info("[Tavily task] result keys=%s updates_count=%s", list(result.keys()), len(updates))
+        # Persist manufacturer_research and dealer_research using explicit UPDATE (avoids session cache issues)
+        persisted = 0
+        for u in updates:
+            clin_id = u.get("clin_id")
+            if clin_id is None:
+                continue
+            mfr = u.get("manufacturer_research")
+            dealers = u.get("dealer_research")
+            try:
+                n = db.query(CLIN).filter(
+                    CLIN.id == clin_id,
+                    CLIN.opportunity_id == opportunity_id,
+                ).update(
+                    {
+                        "manufacturer_research": mfr,
+                        "dealer_research": dealers,
+                    },
+                    synchronize_session="fetch",
+                )
+                if n:
+                    persisted += 1
+                    logger.info("[Tavily task] updated CLIN id=%s (mfr=%s dealers=%s)", clin_id, bool(mfr), len(dealers or []))
+                else:
+                    logger.warning("[Tavily task] no row updated for CLIN id=%s", clin_id)
+            except Exception as e:
+                logger.exception("[Tavily task] failed to update CLIN id=%s: %s", clin_id, e)
+        if persisted:
+            db.commit()
+            logger.info("[Tavily task] committed: persisted manufacturer/dealer research for %s CLINs", persisted)
+        else:
+            logger.warning("[Tavily task] no CLINs persisted (updates_count=%s)", len(updates))
+        logger.info("[Tavily task] finished opportunity_id=%s clins_processed=%s persisted=%s", opportunity_id, result.get("clins_processed"), persisted)
         return result
+    except Exception as e:
+        logger.exception("[Tavily task] error: %s", e)
+        db.rollback()
+        raise
     finally:
         db.close()
