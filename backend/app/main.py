@@ -3,6 +3,7 @@ Main FastAPI application
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from .core.config import settings
 from .core.database import Base, engine
 from .api.router import api_router
@@ -30,6 +31,11 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(api_router)
+
+# Avoid 404 when browser requests favicon (e.g. after OAuth redirect)
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
 
 # Health check endpoints
 @app.get("/")

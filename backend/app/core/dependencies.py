@@ -62,3 +62,23 @@ async def get_current_active_user(
             detail="User account is inactive"
         )
     return current_user
+
+
+async def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Return current user if valid token present, else None. Use for redirect flows that pass token in query."""
+    if not token:
+        return None
+    payload = decode_token(token)
+    if not payload:
+        return None
+    try:
+        user_id = int(payload.get("sub"))
+    except (ValueError, TypeError):
+        return None
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.is_active:
+        return None
+    return user
