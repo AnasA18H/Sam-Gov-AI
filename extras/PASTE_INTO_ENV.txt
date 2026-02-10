@@ -1,0 +1,43 @@
+# =============================================================================
+# Paste into your .env file (project root). Use your own values – no keys in repo.
+# Pydantic Settings loads .env automatically (backend/app/core/config.py).
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Required: set these in .env (no defaults in code)
+# -----------------------------------------------------------------------------
+# SECRET_KEY=your-app-secret-key
+# JWT_SECRET_KEY=your-jwt-secret-key
+# DATABASE_URL=postgresql://user:password@localhost:5432/samgov_db
+
+# -----------------------------------------------------------------------------
+# SMTP (required for email verification on signup / login)
+# See extras/SMTP_SETUP.md for Gmail App Password and other providers.
+# -----------------------------------------------------------------------------
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-sender@gmail.com
+# SMTP_PASSWORD=your-gmail-app-password
+
+# -----------------------------------------------------------------------------
+# API keys (all read from .env; set your own)
+# -----------------------------------------------------------------------------
+# ANTHROPIC_API_KEY=your-anthropic-key
+# GROQ_API_KEY=your-groq-key
+# TAVILY_API_KEY=your-tavily-key
+# GEMINI_API_KEY=your-gemini-key
+
+# -----------------------------------------------------------------------------
+# Google OAuth – get from Google Cloud Console
+# -----------------------------------------------------------------------------
+# GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+# GOOGLE_CLIENT_SECRET=your-google-client-secret
+# GOOGLE_REDIRECT_URI=http://localhost:8000/api/v1/auth/google/callback
+
+# -----------------------------------------------------------------------------
+# Microsoft OAuth – get from Azure app registration
+# -----------------------------------------------------------------------------
+# MICROSOFT_CLIENT_ID=your-azure-client-id
+# MICROSOFT_CLIENT_SECRET=your-azure-client-secret
+# MICROSOFT_TENANT_ID=your-tenant-id-or-common
+# MICROSOFT_REDIRECT_URI=http://localhost:8000/api/v1/auth/microsoft/callback

@@ -12,7 +12,7 @@
 
 *Automating US Government contract solicitation analysis from SAM.gov*
 
-[Features](#features) • [Quick Start](#quick-start) • [Documentation](#api-documentation) • [Deployment](#deployment)
+[Features](#features) • [Quick Start](#quick-start) • [API](#api-documentation) • [Deployment](#deployment)
 
 </div>
 
@@ -48,6 +48,7 @@
 <summary><strong>User Authentication & Security</strong></summary>
 
 - Secure JWT-based authentication
+- Email signup with verification code; sign-in with email, Google, or Microsoft (separate accounts per method)
 - Password hashing with bcrypt
 - Session management
 - Protected routes and API endpoints
@@ -393,7 +394,7 @@ sam-project/
 │   ├── documents/            # Downloaded documents
 │   ├── uploads/              # User uploads
 │   └── debug_extracts/       # Debug extraction files
-├── scripts/                  # Setup scripts
+├── scripts/                  # Setup and DB scripts (db_utils, reset_database, run_migrations, etc.)
 ├── logs/                     # Application logs
 ├── start.sh                  # Start script
 └── stop.sh                   # Stop script
@@ -421,10 +422,14 @@ Once the backend is running:
 #### Authentication
 
 ```
-POST   /api/v1/auth/register    # User registration
-POST   /api/v1/auth/login       # Login (returns JWT)
-GET    /api/v1/auth/me          # Current user (protected)
-POST   /api/v1/auth/logout      # Logout (protected)
+POST   /api/v1/auth/register         # Email signup (sends verification code)
+POST   /api/v1/auth/verify-email     # Verify email with code, returns JWT
+POST   /api/v1/auth/resend-verification  # Resend verification code
+POST   /api/v1/auth/login            # Login with email/password (returns JWT)
+GET    /api/v1/auth/me               # Current user (protected)
+POST   /api/v1/auth/logout           # Logout (protected)
+GET    /api/v1/auth/signin/google    # Redirect to Google sign-in
+GET    /api/v1/auth/signin/microsoft # Redirect to Microsoft sign-in
 ```
 
 #### Opportunities
@@ -469,15 +474,26 @@ curl -X POST http://localhost:8000/api/v1/opportunities \
 ### Database Migrations
 
 ```bash
-# Create migration
-alembic revision --autogenerate -m "Description"
-
-# Apply migrations
+# Apply migrations (run from project root)
 alembic upgrade head
 
-# Rollback
+# Create new migration
+alembic revision --autogenerate -m "Description"
+
+# Rollback one revision
 alembic downgrade -1
 ```
+
+### Database Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/db_utils.py display` | Show database content summary |
+| `scripts/db_utils.py stats` | Row counts per table |
+| `scripts/db_utils.py clear` | Clear all data (prompts for confirmation) |
+| `scripts/reset_database.py --check` | Verify DB connection and current migration |
+| `scripts/reset_database.py --force` | Clear all data (no prompt) |
+| `scripts/reset_database.py --recreate --force` | Drop all tables and re-run migrations |
 
 ### Logs
 
@@ -506,10 +522,8 @@ data/debug_extracts/opportunity_{id}/
 
 1. Push code to Git repository
 2. Connect repository to Digital Ocean App Platform
-3. Configure environment variables
+3. Configure environment variables (DATABASE_URL, REDIS_URL, JWT_SECRET_KEY, API keys, etc.)
 4. Deploy
-
-See `DEPLOYMENT.md` for detailed instructions.
 
 ### Docker
 
