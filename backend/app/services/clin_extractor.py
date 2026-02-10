@@ -2,6 +2,8 @@
 CLIN Extraction Service - Simplified
 Extracts Contract Line Item Numbers (CLINs) from government contract documents using LLM.
 """
+# Conditional imports (V1BaseModel/V1Field, ChatAnthropic, ChatGroq) are used only when available
+# pyright: reportUnboundVariable=none
 import json
 import logging
 import re
@@ -36,7 +38,7 @@ from .text_extractor import TextExtractor
 logger = logging.getLogger(__name__)
 
 
-# Pydantic schema for LLM extraction
+# Pydantic schema for LLM extraction (V1BaseModel/V1Field only defined when import succeeds)
 if PYDANTIC_AVAILABLE:
     class CLINItem(V1BaseModel):
         item_number: str = V1Field(description="The CLIN number (e.g., '0001', '0002')")
@@ -110,12 +112,15 @@ class CLINExtractor:
         self.fallback_llm = None
         
         # Initialize Claude
-        if ANTHROPIC_AVAILABLE and settings.ANTHROPIC_API_KEY:
+        if ANTHROPIC_AVAILABLE and ChatAnthropic is not None and settings.ANTHROPIC_API_KEY:
             try:
-                self.llm = ChatAnthropic(
-                    model=settings.ANTHROPIC_MODEL,
+                from pydantic import SecretStr
+                self.llm = ChatAnthropic(  # type: ignore[call-arg]
+                    model_name=getattr(settings, "ANTHROPIC_MODEL", "claude-3-sonnet-20240229"),
                     temperature=0,
-                    api_key=settings.ANTHROPIC_API_KEY
+                    api_key=SecretStr(settings.ANTHROPIC_API_KEY),
+                    timeout=60,
+                    stop=None,
                 )
                 logger.info(f"Claude LLM initialized: {settings.ANTHROPIC_MODEL}")
             except Exception as e:
@@ -124,10 +129,11 @@ class CLINExtractor:
         # Initialize Groq fallback
         if GROQ_AVAILABLE and settings.GROQ_API_KEY:
             try:
-                self.fallback_llm = ChatGroq(
+                from pydantic import SecretStr
+                self.fallback_llm = ChatGroq(  # type: ignore[call-arg]
                     model=settings.GROQ_MODEL,
                     temperature=0,
-                    api_key=settings.GROQ_API_KEY
+                    api_key=SecretStr(settings.GROQ_API_KEY),
                 )
                 logger.info(f"Groq LLM initialized: {settings.GROQ_MODEL}")
             except Exception as e:
@@ -148,7 +154,7 @@ class CLINExtractor:
         # Prompt already includes JSON format instructions
         try:
             # Try structured output first (best method)
-            structured_llm = llm_to_use.with_structured_output(CLINExtractionResult, method="function_calling")
+            structured_llm = llm_to_use.with_structured_output(CLINExtractionResult, method="function_calling")  # type: ignore[arg-type]
             result = structured_llm.invoke(prompt)
             
             # Log raw structured output result
@@ -218,7 +224,14 @@ class CLINExtractor:
             # Fallback: direct JSON extraction with robust parsing
             try:
                 response = llm_to_use.invoke(prompt)
-                content = response.content if hasattr(response, 'content') else str(response)
+                raw_content = response.content if hasattr(response, 'content') else str(response)
+                # Normalize to str (LLM may return list of content blocks)
+                if isinstance(raw_content, list):
+                    content = "".join(
+                        (b.get("text", "") if isinstance(b, dict) else str(b)) for b in raw_content
+                    ).strip()
+                else:
+                    content = (raw_content if isinstance(raw_content, str) else str(raw_content)).strip()
                 
                 # Log raw response content
                 logger.info(f"{llm_name} RAW RESPONSE CONTENT:")
@@ -251,10 +264,7 @@ class CLINExtractor:
                 except Exception as debug_err:
                     logger.debug(f"Could not save raw response to file: {debug_err}")
                 
-                # Clean content - remove any markdown, code blocks, or extra text
-                content = content.strip()
-                
-                # Try multiple extraction strategies
+                # Try multiple extraction strategies (content is already normalized to str and stripped)
                 extracted_json = None
                 
                 # Strategy 1: Remove markdown code blocks if present
@@ -280,7 +290,7 @@ class CLINExtractor:
                 if not extracted_json:
                     logger.warning(f"{llm_name} could not extract JSON from response")
                     logger.debug(f"Content preview: {content[:500]}")
-                    return []
+                    return ([], [])
                 
                 # Parse JSON
                 parsed = json.loads(extracted_json)
@@ -318,8 +328,11 @@ class CLINExtractor:
                 deadlines_list = []
                 
                 try:
-                    # Strategy 1: Try to repair common JSON errors
-                    repaired_json = extracted_json if 'extracted_json' in locals() else content
+                    # Strategy 1: Try to repair common JSON errors (extracted_json/content set in try above)
+                    repaired_json_str = (extracted_json if extracted_json is not None else content)
+                    if not isinstance(repaired_json_str, str):
+                        repaired_json_str = str(repaired_json_str)
+                    repaired_json = repaired_json_str
                     
                     # Fix unclosed strings (common in truncated responses)
                     repaired_json = re.sub(r'("special_delivery_instructions":\s*"[^"]*?)([^"]*)$', r'\1"', repaired_json, flags=re.MULTILINE)
@@ -350,9 +363,10 @@ class CLINExtractor:
                 # Strategy 2: Extract individual CLIN objects even if outer structure is broken
                 if not clins_list:
                     try:
-                        # Find all CLIN objects in the content
+                        # Find all CLIN objects in the content (content is str from normalization above)
+                        content_str: str = content if isinstance(content, str) else str(content)
                         clin_pattern = r'\{\s*"item_number"\s*:\s*"[^"]+".*?\}'
-                        clin_matches = re.finditer(clin_pattern, content, re.DOTALL)
+                        clin_matches = re.finditer(clin_pattern, content_str, re.DOTALL)
                         
                         for match in clin_matches:
                             clin_str = match.group(0)
@@ -385,8 +399,9 @@ class CLINExtractor:
                 # Strategy 3: Try to find and extract clins array directly (original fallback)
                 if not clins_list:
                     try:
-                        clins_match = re.search(r'"clins"\s*:\s*\[(.*?)\]', content, re.DOTALL)
-                        deadlines_match = re.search(r'"deadlines"\s*:\s*\[(.*?)\]', content, re.DOTALL)
+                        content_str = content if isinstance(content, str) else str(content)  # str from normalization
+                        clins_match = re.search(r'"clins"\s*:\s*\[(.*?)\]', content_str, re.DOTALL)
+                        deadlines_match = re.search(r'"deadlines"\s*:\s*\[(.*?)\]', content_str, re.DOTALL)
                         
                         if clins_match:
                             array_str = '[' + clins_match.group(1) + ']'
@@ -406,7 +421,7 @@ class CLINExtractor:
                     except:
                         pass
                 
-                return (clins_list if isinstance(clins_list, list) else [], deadlines_list if isinstance(deadlines_list, list) else [])
+                return (clins_list if isinstance(clins_list, list) else [], deadlines_list if isinstance(deadlines_list, list) else [])  # type: ignore[return-value]
             except Exception as fallback_error:
                 logger.error(f"{llm_name} JSON fallback failed: {fallback_error}")
                 return ([], [])
@@ -419,7 +434,7 @@ class CLINExtractor:
         
         # Use raw text without cleaning to preserve all information
         if not text or not text.strip():
-            return []
+            return ([], [])
         
         # Enhanced prompt for comprehensive CLIN extraction
         prompt = f"""You are a government contracting analyst. Analyze this solicitation document and extract ALL Contract Line Item Numbers (CLINs) and their complete details.
@@ -447,7 +462,8 @@ For EACH CLIN found, extract ALL available information:
    - product_name (optional): Product name and description - extract product name if clearly distinguishable from description
    - description (required): Complete product/service description - extract the FULL text
    - manufacturer (optional): Manufacturer as COMPANY NAME only (e.g. "BAE Systems", "North Atlantic Industries Inc.").
-     * Search for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "CAGE" with company name.
+     * CRITICAL: The buyer/contracting agency is NEVER the manufacturer. The manufacturer is the commercial company that makes the product. The issuing office  is the BUYER, not the manufacturer. If the only name you find in a source/manufacturer context is the buying agency, leave manufacturer null.
+     * Search for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "CAGE" with company name. Use only commercial company names that supply or make the product.
      * When the document states "Company Name - CAGE 12345" or "restricted to qualified source(s): Company A - CAGE X / Company B - CAGE Y", use the company name(s). If multiple approved manufacturers, you may list them (e.g. "BAE Systems / North Atlantic Industries Inc.").
      * If the line item or part number references only CAGE codes (e.g. 0VGU1, 12436) but the same document lists company names with those CAGE codes elsewhere (e.g. on page 1 or in a schedule header), map CAGE to company name and use the company name(s). Do NOT output only CAGE codes as manufacturer unless no company name appears anywhere in the document.
    - part_number (optional): CRITICAL. Manufacturer/vendor part number(s) only—not CAGE codes. Look for "Manufacturer Part Number", "Part No", "Part Number", "P/N", or BOM/spec tables. If text says "Manufacturer Part Number 0VGU1 5388-F12 12436 6012315-001", extract part numbers like "5388-F12", "6012315-001" (exclude 0VGU1/12436 if those are CAGE codes). Multiple part numbers: comma-separated.
@@ -519,16 +535,17 @@ CRITICAL: You MUST extract ALL available information for EACH CLIN. Do not leave
    - model_number: Search "Model No", "Model Number", "M/N", "OEM number", product/spec text. Use when different from part number.
    - drawing_number: Search document filenames (strip extension, keep number/revision), "Drawing Number", "Drawing", "DWG", attachment names, CDRL. Include revision (e.g. Rev A) when present.
 
-8. For Manufacturer: Search the ENTIRE document for manufacturer/source info: look for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "Commercial and Government Entity (CAGE)" followed by a company name, schedule headers, and Block 15/16 text. Use the company/organization name, not CAGE codes alone. If only CAGE codes appear in the line item, find where those CAGE codes are listed with company names in the same document and use those names.
+8. For Manufacturer: Search the ENTIRE document for manufacturer/source info: look for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "Commercial and Government Entity (CAGE)" followed by a company name, schedule headers, and Block 15/16 text. Use the company/organization name, not CAGE codes alone. If only CAGE codes appear in the line item, find where those CAGE codes are listed with company names in the same document and use those names. THE BUYER IS NEVER THE MANUFACTURER: do not put the contracting/issuing agency (e.g. Bureau of Engraving and Printing, DLA, DOD, GSA, or any government office) as manufacturer—leave manufacturer null if the only name in that context is the buyer.
 
 CRITICAL - EXTRACT ONLY FROM DOCUMENT, NO FALSE VALUES:
 - CAGE (in manufacturer/source text), part number, model number, and NSN (National Stock Number) are HIGH PRIORITY. Search the document thoroughly for each.
-- ONLY add part_number, model_number, base_item_number (NSN), drawing_number, and manufacturer when you find them EXPLICITLY in the document. Do NOT guess, infer, or use placeholders like "N/A", "TBD", "Unknown", or "-". If not found, leave null.
+- ONLY add part_number, model_number, base_item_number (NSN), drawing_number, and manufacturer when you find them EXPLICITLY in the document. Do NOT guess, infer, or use placeholders like "N/A", "TBD", "Unknown", or "-". If not found, leave null. For manufacturer: use only commercial suppliers; never use the buying/contracting agency as manufacturer.
 - NSN: Put in base_item_number (or nsn) ONLY when the document states "NSN:", "National Stock Number", or gives format XXXX-XX-XXX-XXXX. If no NSN in the document for this line item, leave null.
 - Add CAGE, part #, model, and NSN when available in the document—only when available. No fabricated or default values.
 
 IMPORTANT RULES:
 - Extract ALL CLINs found - search systematically through the ENTIRE document, do not skip any CLINs
+- The buyer/contracting agency is NEVER the manufacturer. Manufacturer must be the commercial company that makes or supplies the product. Never put government agencies (e.g. Bureau of Engraving and Printing, DLA, DOD, GSA) as manufacturer—leave manufacturer null in that case.
 - Extract part_number, model_number, base_item_number (NSN), and drawing_number ONLY when present in the document—critical for procurement when available
 - Extract scope_of_work COMPLETELY - if found in ANY SOW section, include the FULL text even if it's very long
 - Extract delivery_timeline COMPLETELY - include the complete phrase with all context including days, dates, and conditions
@@ -651,7 +668,8 @@ For EACH CLIN found, extract ALL available information:
    - product_name (optional): Product name and description - extract product name if clearly distinguishable from description
    - description (required): Complete product/service description - extract the FULL text
    - manufacturer (optional): Manufacturer as COMPANY NAME only (e.g. "BAE Systems", "North Atlantic Industries Inc.").
-     * Search ALL documents for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "CAGE" with company name.
+     * CRITICAL: The buyer/contracting agency is NEVER the manufacturer. The manufacturer is the commercial company that makes the product. The issuing office (e.g. "Bureau of Engraving and Printing", "DLA", "DOD", "GSA", any government agency or federal office) is the BUYER, not the manufacturer. If the only name you find in a source/manufacturer context is the buying agency, leave manufacturer null.
+     * Search ALL documents for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "CAGE" with company name. Use only commercial company names that supply or make the product.
      * When any document states "Company Name - CAGE 12345" or "restricted to qualified source(s): Company A - CAGE X / Company B - CAGE Y", use the company name(s). If multiple approved manufacturers, you may list them (e.g. "BAE Systems / North Atlantic Industries Inc.").
      * If the line item or part number references only CAGE codes but another part of the same or another document lists company names with those CAGE codes, map CAGE to company name and use the company name(s). Do NOT output only CAGE codes as manufacturer unless no company name appears in any document.
    - part_number (optional): CRITICAL. Manufacturer/vendor part number(s) only—not CAGE codes. Search ALL docs for "Manufacturer Part Number", "Part No", "Part Number", "P/N", BOM/spec tables. If mixed with CAGE codes, extract only part numbers (e.g. 5388-F12, 6012315-001). Multiple: comma-separated.
@@ -719,16 +737,17 @@ CRITICAL: You MUST extract ALL available information for EACH CLIN from ALL docu
    - model_number: Search "Model No", "Model Number", "M/N", "OEM number" in ANY document.
    - drawing_number: Search ALL document filenames (strip extension), "Drawing Number", "DWG", "Drawing", attachment names, CDRL. Include revision when present.
 
-8. For Manufacturer: Search ALL documents for manufacturer/source info: look for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "Commercial and Government Entity (CAGE)" followed by a company name, schedule headers, and contract form blocks. Use the company/organization name, not CAGE codes alone. If only CAGE codes appear in the line item, find where those CAGE codes are listed with company names in the same or another document and use those names.
+8. For Manufacturer: Search ALL documents for manufacturer/source info: look for "qualified source(s)", "restricted to", "approved source", "manufacturer's name", "Commercial and Government Entity (CAGE)" followed by a company name, schedule headers, and contract form blocks. Use the company/organization name, not CAGE codes alone. If only CAGE codes appear in the line item, find where those CAGE codes are listed with company names in the same or another document and use those names. THE BUYER IS NEVER THE MANUFACTURER: do not put the contracting/issuing agency (e.g. Bureau of Engraving and Printing, DLA, DOD, GSA, or any government office) as manufacturer—leave manufacturer null if the only name in that context is the buyer.
 
 CRITICAL - EXTRACT ONLY FROM DOCUMENTS, NO FALSE VALUES:
 - CAGE (in manufacturer/source text), part number, model number, and NSN (National Stock Number) are HIGH PRIORITY. Search ALL documents thoroughly for each.
-- ONLY add part_number, model_number, base_item_number (NSN), drawing_number, and manufacturer when you find them EXPLICITLY in the documents. Do NOT guess, infer, or use placeholders like "N/A", "TBD", "Unknown", or "-". If not found, leave null.
+- ONLY add part_number, model_number, base_item_number (NSN), drawing_number, and manufacturer when you find them EXPLICITLY in the documents. Do NOT guess, infer, or use placeholders like "N/A", "TBD", "Unknown", or "-". If not found, leave null. For manufacturer: use only commercial suppliers; never use the buying/contracting agency as manufacturer.
 - NSN: Put in base_item_number (or nsn) ONLY when a document states "NSN:", "National Stock Number", or gives format XXXX-XX-XXX-XXXX. If no NSN in any document for this line item, leave null.
 - Add CAGE, part #, model, and NSN when available in the documents—only when available. No fabricated or default values.
 
 IMPORTANT RULES:
 - Extract ALL CLINs from ALL documents - search systematically through EACH document, do not skip any CLINs
+- The buyer/contracting agency is NEVER the manufacturer. Manufacturer must be the commercial company that makes or supplies the product. Never put government agencies (e.g. Bureau of Engraving and Printing, DLA, DOD, GSA) as manufacturer—leave manufacturer null in that case.
 - Extract part_number, model_number, base_item_number (NSN), and drawing_number ONLY when present in ANY document—critical for procurement when available
 - Extract scope_of_work COMPLETELY - if found in ANY document's SOW sections, include the FULL text even if it's very long
 - Extract delivery_timeline COMPLETELY - include the complete phrase with all context including days, dates, and conditions
@@ -894,7 +913,7 @@ INSTRUCTIONS:
 1. For each CLIN, search the documents for the missing fields listed
 2. Extract ONLY the missing fields - do not modify existing data
 3. For product_name: Extract from description or SOW sections if clearly identifiable
-4. For manufacturer: Search for "qualified source(s)", company name with CAGE, BOM, or specifications
+4. For manufacturer: Search for "qualified source(s)", company name with CAGE, BOM, or specifications. The buyer/contracting agency is NEVER the manufacturer (e.g. Bureau of Engraving and Printing, DLA, DOD, GSA)—leave manufacturer null if the only name found is the buyer.
 5. For part_number: Search "Manufacturer Part Number", "Part No", "P/N", BOM, line item description—extract part numbers only (not CAGE codes)
 6. For model_number: Search "Model No", "Model Number", "M/N", "OEM number", specifications
 7. For base_item_number: Search "NSN:", "NSN ", "National Stock Number", "Base item number"—NSN format XXXX-XX-XXX-XXXX
@@ -969,10 +988,10 @@ Return ONLY valid JSON matching this exact schema:
                             original_clin['service_requirements'] = filled_clin['service_requirements']
                         if not original_clin.get('delivery_address') and filled_clin.get('delivery_address'):
                             original_clin['delivery_address'] = filled_clin['delivery_address']
-                            logger.info(f"Second pass filled delivery_address for CLIN {clin_number}: {filled_clin.get('delivery_address')[:100] if filled_clin.get('delivery_address') else 'None'}...")
+                            logger.info(f"Second pass filled delivery_address for CLIN {clin_number}: {(filled_clin.get('delivery_address') or '')[:100]}...")
                         if not original_clin.get('special_delivery_instructions') and filled_clin.get('special_delivery_instructions'):
                             original_clin['special_delivery_instructions'] = filled_clin['special_delivery_instructions']
-                            logger.info(f"Second pass filled special_delivery_instructions for CLIN {clin_number}: {filled_clin.get('special_delivery_instructions')[:100] if filled_clin.get('special_delivery_instructions') else 'None'}...")
+                            logger.info(f"Second pass filled special_delivery_instructions for CLIN {clin_number}: {(filled_clin.get('special_delivery_instructions') or '')[:100]}...")
                         if not original_clin.get('delivery_timeline') and filled_clin.get('delivery_timeline'):
                             original_clin['delivery_timeline'] = filled_clin['delivery_timeline']
                 
@@ -1102,7 +1121,7 @@ Return ONLY valid JSON:
                     ]
                     for key, val in updates:
                         if not original_clin.get(key) and self._is_real_value(val):
-                            original_clin[key] = val.strip()
+                            original_clin[key] = (val if isinstance(val, str) else str(val or '')).strip()
                             logger.debug(f"Third pass filled {key} for CLIN {clin_number} (actual value only)")
                 logger.info(f"Third pass completed: filled only actual values for {len(filled_dicts)} CLINs")
             else:
@@ -1429,7 +1448,7 @@ DOCUMENT TEXT:
                 deadlines_list = response
             elif isinstance(response, dict):
                 if 'deadlines' in response:
-                    deadlines_list = response['deadlines'] if isinstance(response['deadlines'], list) else []
+                    deadlines_list = response.get('deadlines', []) if isinstance(response.get('deadlines'), list) else []
                 elif 'due_date' in response:
                     deadlines_list = [response]
             
@@ -1444,8 +1463,9 @@ DOCUMENT TEXT:
                             continue
                         
                         # Combine date and time if both present
-                        if deadline.get('due_time'):
-                            datetime_str = f"{due_date_str} {deadline['due_time']}"
+                        due_time = deadline.get('due_time')
+                        if due_time:
+                            datetime_str = f"{due_date_str} {due_time}"
                         else:
                             datetime_str = due_date_str
                         
