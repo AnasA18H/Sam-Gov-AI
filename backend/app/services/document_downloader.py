@@ -21,23 +21,24 @@ logger = logging.getLogger(__name__)
 class DocumentDownloader:
     """Service to download and store documents"""
     
-    def __init__(self, storage_base_path: Path = None, page: Optional[Page] = None):
+    def __init__(self, storage_base_path: Optional[Path] = None, page: Optional[Page] = None):
         """
         Initialize document downloader
-        
+
         Args:
             storage_base_path: Base path for storing documents locally
             page: Optional Playwright page object for authenticated downloads
         """
         if storage_base_path is None:
             storage_base_path = Path(settings.STORAGE_BASE_PATH) if hasattr(settings, 'STORAGE_BASE_PATH') else Path('backend/data/documents')
-        
-        self.storage_base_path = Path(storage_base_path)
+        else:
+            storage_base_path = Path(storage_base_path)
+        self.storage_base_path = storage_base_path
         self.storage_base_path.mkdir(parents=True, exist_ok=True)
         self.page = page  # Playwright page for authenticated downloads
         logger.info(f"DEBUG: DocumentDownloader initialized - storage_base_path: {self.storage_base_path} (exists: {self.storage_base_path.exists()})")
     
-    def download_document(self, url: str, opportunity_id: int, filename: str = None) -> Optional[Dict]:
+    def download_document(self, url: str, opportunity_id: int, filename: Optional[str] = None) -> Optional[Dict]:
         """
         Download a document from URL and save it
         Handles multiple cases with recursive depth tracking:
@@ -57,11 +58,9 @@ class DocumentDownloader:
         try:
             # Generate filename if not provided
             if not filename:
-                filename = Path(urlparse(url).path).name
+                filename = Path(urlparse(url).path).name or ""
                 if not filename or filename == '/':
                     filename = f"document_{opportunity_id}_{datetime.now().timestamp()}"
-            
-            # Sanitize filename
             filename = self._sanitize_filename(filename)
             
             # Create opportunity-specific directory
@@ -80,11 +79,11 @@ class DocumentDownloader:
             logger.error(f"Error downloading document from {url}: {str(e)}", exc_info=True)
             return None
     
-    def _download_with_playwright(self, url: str, opportunity_id: int, filename: str, opp_dir: Path, depth: int = 0, original_url: str = None) -> Optional[Dict]:
+    def _download_with_playwright(self, url: str, opportunity_id: int, filename: str, opp_dir: Path, depth: int = 0, original_url: Optional[str] = None) -> Optional[Dict]:
         """
         Download using Playwright with smart case detection and recursive depth tracking
         Tries in order: Case 1 (direct PDF) -> Case 2 (find PDF link) -> Case Disclaimer -> Case 3 (extract text)
-        
+
         Args:
             url: Current URL to download from
             opportunity_id: ID of the opportunity
@@ -93,6 +92,8 @@ class DocumentDownloader:
             depth: Current depth from original sam.gov URL (0-4, max 4)
             original_url: Original sam.gov URL (for depth tracking)
         """
+        if self.page is None:
+            return None
         try:
             # Check depth limit
             if depth >= 4:
@@ -168,6 +169,8 @@ class DocumentDownloader:
         This is checked FIRST before any download attempts
         Returns True if an agreement was found and handled, False otherwise
         """
+        if self.page is None:
+            return False
         try:
             # Wait a bit for any modals/dialogs to appear
             self.page.wait_for_timeout(1000)
@@ -404,6 +407,8 @@ class DocumentDownloader:
     
     def _try_case1_direct_pdf(self, url: str, filename: str, opp_dir: Path) -> Optional[Dict]:
         """Case 1: Try direct PDF download (PDF viewer or direct PDF URL)"""
+        if self.page is None:
+            return None
         try:
             # Check if URL directly serves a PDF
             if url.lower().endswith('.pdf'):
@@ -411,7 +416,7 @@ class DocumentDownloader:
                 try:
                     # For direct PDF URLs, expect download BEFORE navigating
                     # This handles the case where navigation triggers immediate download
-                    with self.page.expect_download(timeout=90000) as download_info:
+                    with self.page.expect_download(timeout=60000) as download_info:
                         # Use 'networkidle' or 'domcontentloaded' instead of 'load' for PDFs
                         # because PDFs trigger downloads and don't fully "load" as pages
                         try:
@@ -480,7 +485,7 @@ class DocumentDownloader:
                                 pdf_src = urljoin(self.page.url, pdf_src)
                             
                             logger.info(f"Case 1: Found PDF viewer with src: {pdf_src}")
-                            with self.page.expect_download(timeout=90000) as download_info:
+                            with self.page.expect_download(timeout=60000) as download_info:
                                 self.page.goto(pdf_src, wait_until='domcontentloaded', timeout=60000)
                                 # Add extra wait after navigation for sites that process before download
                                 self.page.wait_for_timeout(3000)
@@ -523,10 +528,12 @@ class DocumentDownloader:
             False if no disclaimer found
             None if login page detected (should return None for this page)
         """
+        if self.page is None:
+            return False
         try:
             # Wait a bit for page to fully load
             self.page.wait_for_timeout(1000)
-            
+
             # First, check if this is a login page - if so, return None
             page_text = self.page.evaluate('() => document.body.innerText.toLowerCase()')
             login_indicators = [
@@ -835,11 +842,13 @@ class DocumentDownloader:
             logger.warning(f"Case Disclaimer: Error handling disclaimer: {e}")
             return False
     
-    def _try_case2_find_pdf_link(self, url: str, filename: str, opp_dir: Path, depth: int = 0, original_url: str = None, opportunity_id: int = None) -> Optional[Dict]:
+    def _try_case2_find_pdf_link(self, url: str, filename: str, opp_dir: Path, depth: int = 0, original_url: Optional[str] = None, opportunity_id: Optional[int] = None) -> Optional[Dict]:
         """
         Case 2: Look for PDF download links on the page
         If navigation happens, recursively call with incremented depth
         """
+        if self.page is None:
+            return None
         try:
             pdf_links = self._find_pdf_download_links()
             if not pdf_links:
@@ -870,7 +879,7 @@ class DocumentDownloader:
                         try:
                             logger.info(f"Case 2: Trying to click link element")
                             # For JavaScript-based links, we might need to wait for download differently
-                            with self.page.expect_download(timeout=90000) as download_info:
+                            with self.page.expect_download(timeout=60000) as download_info:
                                 # Scroll element into view first
                                 link_element.scroll_into_view_if_needed()
                                 self.page.wait_for_timeout(500)
@@ -901,19 +910,23 @@ class DocumentDownloader:
                                 pass
                     
                     # Fallback: Navigate directly to PDF URL
+                    if not pdf_url:
+                        continue
                     try:
                         # Resolve relative URLs
                         if not pdf_url.startswith('http'):
                             pdf_url = urljoin(self.page.url, pdf_url)
-                        
+                        if not pdf_url:
+                            continue
+
                         logger.info(f"Case 2: Trying direct navigation to: {pdf_url}")
-                        
+
                         # Check if this is a PDF URL or a page URL
                         is_pdf_url = pdf_url.lower().endswith('.pdf')
-                        
+
                         if is_pdf_url:
                             # For PDF URLs, use domcontentloaded and expect download
-                            with self.page.expect_download(timeout=90000) as download_info:
+                            with self.page.expect_download(timeout=60000) as download_info:
                                 try:
                                     self.page.goto(pdf_url, wait_until='domcontentloaded', timeout=60000)
                                     # Add extra wait after navigation for sites that process before download
@@ -936,22 +949,24 @@ class DocumentDownloader:
                             # Not a direct PDF URL - might be a page that leads to PDF
                             # Navigate and check if it's a new page (not a direct download)
                             # If depth allows, recursively apply all cases
-                            if depth < 4 and original_url and opportunity_id:
-                                    logger.info(f"Case 2: Link is not direct PDF, navigating and reapplying cases (depth {depth + 1})")
-                                    current_url_before = self.page.url
-                                    self.page.goto(pdf_url, wait_until='load', timeout=60000)
-                                    self.page.wait_for_timeout(2000)
-                                    current_url_after = self.page.url
-                                    
-                                    # If URL changed, recursively apply all cases
-                                    if current_url_after != current_url_before:
-                                        logger.info(f"Case 2: Navigated to new page, recursively applying cases")
-                                        return self._download_with_playwright(current_url_after, opportunity_id, filename, opp_dir, depth=depth + 1, original_url=original_url)
+                            if depth < 4 and original_url is not None and opportunity_id is not None:
+                                logger.info(f"Case 2: Link is not direct PDF, navigating and reapplying cases (depth {depth + 1})")
+                                current_url_before = self.page.url
+                                self.page.goto(pdf_url, wait_until='load', timeout=60000)
+                                self.page.wait_for_timeout(2000)
+                                current_url_after = self.page.url
+
+                                # If URL changed, recursively apply all cases
+                                if current_url_after != current_url_before:
+                                    logger.info(f"Case 2: Navigated to new page, recursively applying cases")
+                                    return self._download_with_playwright(current_url_after, opportunity_id, filename, opp_dir, depth=depth + 1, original_url=original_url)
                             
                     except Exception as e:
                         logger.warning(f"Case 2: Direct navigation also failed: {e}")
                         # Try one more time with requests as last resort
                         try:
+                            if not pdf_url:
+                                continue
                             logger.info(f"Case 2: Trying requests as last resort for: {pdf_url}")
                             response = requests.get(pdf_url, stream=True, timeout=60, headers={
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -982,6 +997,8 @@ class DocumentDownloader:
     
     def _try_case3_extract_text(self, url: str, filename: str, opp_dir: Path) -> Optional[Dict]:
         """Case 3: Extract text content and save as TXT (LAST RESORT)"""
+        if self.page is None:
+            return None
         try:
             logger.info(f"Case 3: Extracting text content from page (last resort)")
             text_content = self._extract_text_from_page()
@@ -1047,8 +1064,10 @@ class DocumentDownloader:
     
     def _find_pdf_download_links(self) -> List[Dict]:
         """Find PDF download links on the current page"""
+        if self.page is None:
+            return []
         pdf_links = []
-        
+
         try:
             # First, use JavaScript to comprehensively find all PDF links
             # This handles JavaScript-based links, table links, and regular links
@@ -1228,6 +1247,8 @@ class DocumentDownloader:
     
     def _extract_text_from_page(self) -> Optional[str]:
         """Extract text content from the current page, preserving structure"""
+        if self.page is None:
+            return None
         try:
             # Try to get structured content first (tables, forms, etc.)
             structured_content = self._extract_structured_content()
@@ -1285,6 +1306,8 @@ class DocumentDownloader:
     
     def _extract_structured_content(self) -> Optional[str]:
         """Extract structured content like tables, forms, and key-value pairs"""
+        if self.page is None:
+            return None
         try:
             # Try to extract table data
             tables = self.page.query_selector_all('table')
@@ -1382,7 +1405,7 @@ class DocumentDownloader:
             'url': url
         }
     
-    def download_all_as_zip(self, page: Page, opportunity_id: int, opportunity_url: str = None) -> Optional[Dict]:
+    def download_all_as_zip(self, page: Page, opportunity_id: int, opportunity_url: Optional[str] = None) -> Optional[Dict]:
         """
         Download all attachments as ZIP file by clicking "Download All" button
         
@@ -1550,7 +1573,7 @@ class DocumentDownloader:
         
         return extracted
     
-    def download_attachments(self, attachments: List[Dict], opportunity_id: int, opportunity_url: str = None) -> List[Dict]:
+    def download_attachments(self, attachments: List[Dict], opportunity_id: int, opportunity_url: Optional[str] = None) -> List[Dict]:
         """
         Download multiple attachments - tries ZIP download first, falls back to individual downloads
         
@@ -1592,7 +1615,7 @@ class DocumentDownloader:
                 logger.warning(f"DEBUG: Skipping attachment {idx + 1} - no URL found")
                 continue
             
-            file_info = self.download_document(url, opportunity_id, name)
+            file_info = self.download_document(url, opportunity_id, name or url or "document")
             if file_info:
                 file_info['type'] = attachment.get('type', 'unknown')
                 file_info['access'] = attachment.get('access', 'unknown')
