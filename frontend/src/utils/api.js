@@ -40,13 +40,27 @@ api.interceptors.response.use(
   }
 );
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 // Auth API
 export const authAPI = {
   register: (data) => api.post('/api/v1/auth/register', data),
+  verifyEmail: (data) => api.post('/api/v1/auth/verify-email', data),
+  resendVerification: (data) => api.post('/api/v1/auth/resend-verification', data),
   login: (data) => api.post('/api/v1/auth/login', data),
   logout: () => api.post('/api/v1/auth/logout'),
   getMe: () => api.get('/api/v1/auth/me'),
+  getEmailConnection: () => api.get('/api/v1/auth/email-connection'),
+  disconnectEmailConnection: () => api.delete('/api/v1/auth/email-connection'),
+  sendEmail: (data) => api.post('/api/v1/auth/send-email', data),
+  connectGoogleUrl: () => `${API_BASE}/api/v1/auth/connect-google?access_token=${encodeURIComponent(localStorage.getItem('access_token') || '')}`,
+  connectMicrosoftUrl: () => `${API_BASE}/api/v1/auth/connect-microsoft?access_token=${encodeURIComponent(localStorage.getItem('access_token') || '')}`,
+  /** Sign-in with Google/Microsoft (no auth required); redirects to provider then back to /auth/callback */
+  signinGoogleUrl: () => `${API_BASE}/api/v1/auth/signin/google`,
+  signinMicrosoftUrl: () => `${API_BASE}/api/v1/auth/signin/microsoft`,
 };
+
+export { API_BASE };
 
 // Opportunities API
 export const opportunitiesAPI = {

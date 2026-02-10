@@ -48,34 +48,64 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authAPI.login({ email, password });
       const { access_token, refresh_token } = response.data;
-      
       localStorage.setItem('access_token', access_token);
       localStorage.setItem('refresh_token', refresh_token);
-      
       await checkAuth();
       return { success: true };
     } catch (error) {
+      const detail = error.response?.data?.detail;
       return {
         success: false,
-        error: error.response?.data?.detail || 'Login failed',
+        error: typeof detail === 'string' ? detail : 'Login failed',
+        code: detail === 'email_not_verified' ? 'email_not_verified' : null,
       };
     }
   };
 
   const register = async (email, password, fullName) => {
     try {
-      await authAPI.register({
+      const response = await authAPI.register({
         email,
         password,
         full_name: fullName,
       });
-      
-      // Auto-login after registration
-      return await login(email, password);
+      return {
+        success: true,
+        email: response.data.email,
+        message: response.data.message,
+      };
     } catch (error) {
       return {
         success: false,
         error: error.response?.data?.detail || 'Registration failed',
+      };
+    }
+  };
+
+  const verifyEmail = async (email, code) => {
+    try {
+      const response = await authAPI.verifyEmail({ email, code });
+      const { access_token, refresh_token } = response.data;
+      localStorage.setItem('access_token', access_token);
+      localStorage.setItem('refresh_token', refresh_token);
+      await checkAuth();
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Verification failed',
+      };
+    }
+  };
+
+  const resendVerification = async (email) => {
+    try {
+      await authAPI.resendVerification({ email });
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to resend code',
       };
     }
   };
@@ -99,6 +129,8 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated,
     login,
     register,
+    verifyEmail,
+    resendVerification,
     logout,
     checkAuth,
   };
