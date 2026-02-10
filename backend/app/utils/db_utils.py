@@ -12,25 +12,29 @@ from ..models.clin import CLIN
 from ..models.document import Document
 from ..models.deadline import Deadline
 from ..models.session import Session as SessionModel
+from ..models.user_email_connection import UserEmailConnection
+from ..models.oauth_state import OAuthState
 
 
 def get_all_table_data(db: Session) -> Dict[str, List[Dict[str, Any]]]:
     """
     Get all data from all tables in the database
-    
+
     Returns:
         Dictionary with table names as keys and lists of records as values
     """
     tables_data = {}
-    
-    # Get all models
+
+    # Order: children first for display; all models that have table data
     models = {
         'users': User,
         'opportunities': Opportunity,
         'clins': CLIN,
         'documents': Document,
         'deadlines': Deadline,
-        'sessions': SessionModel
+        'sessions': SessionModel,
+        'user_email_connections': UserEmailConnection,
+        'oauth_states': OAuthState,
     }
     
     for table_name, model in models.items():
@@ -153,34 +157,36 @@ def clear_database(db: Session = None, confirm: bool = False) -> Dict[str, Any]:
         deletion_counts = {}
         
         # Delete in reverse order of dependencies (children first, then parents)
-        # This respects foreign key constraints
-        
-        # Delete CLINs
+        # Respects foreign key constraints.
+
         clin_count = db.query(CLIN).count()
         db.query(CLIN).delete()
         deletion_counts['clins'] = clin_count
-        
-        # Delete Documents
+
         doc_count = db.query(Document).count()
         db.query(Document).delete()
         deletion_counts['documents'] = doc_count
-        
-        # Delete Deadlines
+
         deadline_count = db.query(Deadline).count()
         db.query(Deadline).delete()
         deletion_counts['deadlines'] = deadline_count
-        
-        # Delete Opportunities
+
         opp_count = db.query(Opportunity).count()
         db.query(Opportunity).delete()
         deletion_counts['opportunities'] = opp_count
-        
-        # Delete Sessions
+
+        uec_count = db.query(UserEmailConnection).count()
+        db.query(UserEmailConnection).delete()
+        deletion_counts['user_email_connections'] = uec_count
+
+        oauth_count = db.query(OAuthState).count()
+        db.query(OAuthState).delete()
+        deletion_counts['oauth_states'] = oauth_count
+
         session_count = db.query(SessionModel).count()
         db.query(SessionModel).delete()
         deletion_counts['sessions'] = session_count
-        
-        # Delete Users (last, as they might be referenced)
+
         user_count = db.query(User).count()
         db.query(User).delete()
         deletion_counts['users'] = user_count

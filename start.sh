@@ -91,10 +91,10 @@ cleanup() {
         fi
     fi
     
-    # Kill any remaining processes
+    # Kill any remaining processes (match start.sh process invocations)
     pkill -f "uvicorn.*backend.app.main" 2>/dev/null || true
     pkill -f "vite" 2>/dev/null || true
-    pkill -f "celery.*worker" 2>/dev/null || true
+    pkill -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
     
     print_success "All services stopped"
     exit 0
@@ -133,7 +133,7 @@ deactivate
 # Check if .env exists
 if [ ! -f ".env" ]; then
     print_error ".env file not found!"
-    print_info "Please create .env file from .env.example"
+    print_info "Create .env in the project root (see extras/PASTE_INTO_ENV.txt and extras/SMTP_SETUP.md)"
     exit 1
 fi
 
@@ -327,7 +327,7 @@ if curl -s "$FRONTEND_URL" &> /dev/null 2>&1; then
     print_warning "Frontend server is already running on port $FRONTEND_PORT"
     print_info "Skipping frontend startup"
 else
-    print_info "Starting React frontend server..."
+    print_info "Starting frontend dev server (Vite)..."
     
     cd frontend
     

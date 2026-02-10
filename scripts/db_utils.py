@@ -56,6 +56,8 @@ def main():
             print("  - All documents")
             print("  - All deadlines")
             print("  - All sessions")
+            print("  - All user email connections")
+            print("  - All OAuth states")
             print()
             response = input("Type 'DELETE ALL' to confirm: ")
             if response == "DELETE ALL":
@@ -80,7 +82,9 @@ def main():
             from app.models.document import Document
             from app.models.deadline import Deadline
             from app.models.session import Session as SessionModel
-            
+            from app.models.user_email_connection import UserEmailConnection
+            from app.models.oauth_state import OAuthState
+
             stats = {
                 "users": db.query(User).count(),
                 "opportunities": db.query(Opportunity).count(),
@@ -88,6 +92,8 @@ def main():
                 "documents": db.query(Document).count(),
                 "deadlines": db.query(Deadline).count(),
                 "sessions": db.query(SessionModel).count(),
+                "user_email_connections": db.query(UserEmailConnection).count(),
+                "oauth_states": db.query(OAuthState).count(),
             }
             
             stats["total"] = sum(stats.values())

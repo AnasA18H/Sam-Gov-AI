@@ -2,8 +2,10 @@
 
 ###############################################################################
 # Sam Gov AI - Application Stop Script
-# This script stops all running services
+# Stops services started by start.sh (PID files) or by docker-compose
 ###############################################################################
+
+set -e
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -16,7 +18,7 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# PID files
+# PID files (must match start.sh)
 BACKEND_PID_FILE="${SCRIPT_DIR}/.backend.pid"
 FRONTEND_PID_FILE="${SCRIPT_DIR}/.frontend.pid"
 CELERY_PID_FILE="${SCRIPT_DIR}/.celery.pid"
@@ -39,58 +41,61 @@ print_info() {
 
 print_header "Stopping Application Services"
 
-# Stop backend
+# 1) Stop Docker Compose stack if it was used
+if command -v docker &>/dev/null; then
+    print_info "Checking for Docker Compose stack..."
+    if (docker compose ps -q 2>/dev/null | grep -q .) || (docker-compose ps -q 2>/dev/null | grep -q .); then
+        print_info "Stopping Docker Compose stack..."
+        (docker compose down 2>/dev/null || docker-compose down 2>/dev/null) && print_success "Docker stack stopped" || true
+    fi
+fi
+
+# 2) Stop by PID files (local start.sh)
+STOPPED=""
+
 if [ -f "$BACKEND_PID_FILE" ]; then
     BACKEND_PID=$(cat "$BACKEND_PID_FILE")
     if kill -0 "$BACKEND_PID" 2>/dev/null; then
         print_info "Stopping backend server (PID: $BACKEND_PID)..."
         kill "$BACKEND_PID" 2>/dev/null || true
-        rm -f "$BACKEND_PID_FILE"
-        print_success "Backend server stopped"
-    else
-        rm -f "$BACKEND_PID_FILE"
+        STOPPED="${STOPPED} backend"
     fi
+    rm -f "$BACKEND_PID_FILE"
 fi
 
-# Stop frontend
 if [ -f "$FRONTEND_PID_FILE" ]; then
     FRONTEND_PID=$(cat "$FRONTEND_PID_FILE")
     if kill -0 "$FRONTEND_PID" 2>/dev/null; then
         print_info "Stopping frontend server (PID: $FRONTEND_PID)..."
         kill "$FRONTEND_PID" 2>/dev/null || true
-        rm -f "$FRONTEND_PID_FILE"
-        print_success "Frontend server stopped"
-    else
-        rm -f "$FRONTEND_PID_FILE"
+        STOPPED="${STOPPED} frontend"
     fi
+    rm -f "$FRONTEND_PID_FILE"
 fi
 
-# Stop Celery worker
 if [ -f "$CELERY_PID_FILE" ]; then
     CELERY_PID=$(cat "$CELERY_PID_FILE")
     if kill -0 "$CELERY_PID" 2>/dev/null; then
         print_info "Stopping Celery worker (PID: $CELERY_PID)..."
         kill "$CELERY_PID" 2>/dev/null || true
-        rm -f "$CELERY_PID_FILE"
-        print_success "Celery worker stopped"
-    else
-        rm -f "$CELERY_PID_FILE"
+        STOPPED="${STOPPED} celery"
     fi
+    rm -f "$CELERY_PID_FILE"
 fi
 
-# Kill any remaining processes
+# 3) Clean up any remaining processes (match start.sh)
 print_info "Cleaning up remaining processes..."
 pkill -f "uvicorn.*backend.app.main" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
-pkill -f "celery.*worker" 2>/dev/null || true
+pkill -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
 pkill -f "celery.*beat" 2>/dev/null || true
 pkill -f "celery.*flower" 2>/dev/null || true
 
-# Wait a moment for processes to terminate
 sleep 1
 
 # Force kill if still running
 pkill -9 -f "uvicorn.*backend.app.main" 2>/dev/null || true
-pkill -9 -f "celery.*worker" 2>/dev/null || true
+pkill -9 -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
 
+[ -n "$STOPPED" ] && print_success "Stopped:$STOPPED"
 print_success "All services stopped"
