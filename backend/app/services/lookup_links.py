@@ -59,8 +59,8 @@ def get_clin_lookup_links(clin: Dict[str, Any]) -> List[Dict[str, str]]:
     """
     Given a CLIN (dict with part_number, base_item_number, manufacturer_name, product_name, additional_data),
     return a list of { "source", "label", "url" } for external lookups.
+    Only available when the CLIN has an NSN (base_item_number) or a CAGE code; otherwise returns [].
     """
-    links: List[Dict[str, str]] = []
     base_item = (clin.get("base_item_number") or "").strip()
     part_number = (clin.get("part_number") or "").strip()
     manufacturer = (clin.get("manufacturer_name") or "").strip()
@@ -69,7 +69,14 @@ def get_clin_lookup_links(clin: Dict[str, Any]) -> List[Dict[str, str]]:
     drawing = (additional.get("drawing_number") if isinstance(additional, dict) else None) or ""
     desc = (clin.get("product_description") or "").strip()
 
-    # NSN / part # (military): NSN-Now primary, NSN Lookup fallback
+    # Only provide lookup links when NSN or CAGE code is available
+    cage_codes = _extract_cage_codes(manufacturer) or _extract_cage_codes(desc)
+    if not base_item and not cage_codes:
+        return []
+
+    links: List[Dict[str, str]] = []
+
+    # NSN / part # (military): NSN-Now primary, NSN Lookup fallback (only when we have NSN/base_item)
     nsn_query = base_item or part_number or product_name or ""
     if nsn_query:
         q = nsn_query.replace(" ", "+")[:80]
@@ -89,8 +96,7 @@ def get_clin_lookup_links(clin: Dict[str, Any]) -> List[Dict[str, str]]:
             "url": f"{ISO_GROUP_NSN}?q={quote_plus(q)}",
         })
 
-    # CAGE lookups (any CAGE we can find)
-    cage_codes = _extract_cage_codes(manufacturer) or _extract_cage_codes(desc)
+    # CAGE lookups (any CAGE we found above)
     for code in cage_codes[:2]:  # max 2 CAGE links
         links.append({
             "source": "govcage",

@@ -1,9 +1,9 @@
 """
-Alembic environment configuration
+Alembic environment configuration.
+Uses settings.DATABASE_URL for both offline and online so migrations always hit the same DB as the app.
 """
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import create_engine, pool
 from alembic import context
 import os
 import sys
@@ -17,25 +17,24 @@ sys.path.insert(0, backend_dir)
 # Import models and config
 from backend.app.core.config import settings
 from backend.app.core.database import Base
-from backend.app.models import *  # Import all models
+from backend.app.models import *  # noqa: F401 - Import all models for metadata
 
 # this is the Alembic Config object
 config = context.config
 
-# Override sqlalchemy.url with our settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Use app DB URL everywhere (ignore alembic.ini sqlalchemy.url)
+url = settings.DATABASE_URL
+config.set_main_option("sqlalchemy.url", url)
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -48,16 +47,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    """Run migrations in 'online' mode. Use same DATABASE_URL as the app."""
+    connectable = create_engine(url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
         )
 
         with context.begin_transaction():

@@ -114,9 +114,17 @@ class SAMGovScraper:
             metadata['date_offers_due_timezone'] = deadline.get('timezone') if deadline else None
             logger.info(f"Extracted deadline: {deadline}")
             
-            # Extract Agency Information
+            # Extract Agency Information (build full agency name so it's never incomplete)
             agency = self._extract_agency()
-            metadata['agency'] = agency.get('department') if agency else None
+            if agency:
+                dept = (agency.get('department') or '').strip()
+                sub = (agency.get('sub_tier') or '').strip()
+                if dept and sub and sub not in dept:
+                    metadata['agency'] = f"{dept}, {sub}"
+                else:
+                    metadata['agency'] = dept or sub or None
+            else:
+                metadata['agency'] = None
             metadata['sub_tier'] = agency.get('sub_tier') if agency else None
             metadata['office'] = agency.get('office') if agency else None
             logger.info(f"Extracted agency: {agency}")
