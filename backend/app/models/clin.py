@@ -39,6 +39,10 @@ class CLIN(Base):
     # Additional data
     additional_data = Column(JSON, nullable=True)  # Store any extra extracted data
     
+    # Tavily research (manufacturer + dealers), populated after CLIN extraction
+    manufacturer_research = Column(JSON, nullable=True)  # { "official_website": str, "sales_contact_email": str }
+    dealer_research = Column(JSON, nullable=True)  # [ { "company_name", "website_url", "sales_contact_email", "retail_pricing" }, ... ]
+    
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

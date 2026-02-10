@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pathlib import Path
+import json
 import os
 import mimetypes
 import shutil
@@ -146,13 +147,37 @@ async def list_opportunities(
     }
 
 
+def _normalize_clin_for_response(clin):
+    """Ensure manufacturer_research and dealer_research are dict/list for API (DB may return JSON string)."""
+    mfr = getattr(clin, "manufacturer_research", None)
+    if isinstance(mfr, str):
+        try:
+            mfr = json.loads(mfr) if mfr.strip() else None
+        except Exception:
+            mfr = None
+    if mfr is not None and not isinstance(mfr, dict):
+        mfr = None
+    dr = getattr(clin, "dealer_research", None)
+    if isinstance(dr, str):
+        try:
+            dr = json.loads(dr) if dr.strip() else []
+        except Exception:
+            dr = []
+    if dr is not None and not isinstance(dr, list):
+        dr = []
+    return {
+        "manufacturer_research": mfr,
+        "dealer_research": dr or [],
+    }
+
+
 @router.get("/{opportunity_id}", response_model=OpportunityDetailResponse)
 async def get_opportunity(
     opportunity_id: int,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get a specific opportunity by ID with documents, deadlines, and CLINs"""
+    """Get a specific opportunity by ID with documents, deadlines, and CLINs (including Tavily dealer/manufacturer research)."""
     opportunity = db.query(Opportunity).options(
         joinedload(Opportunity.documents),
         joinedload(Opportunity.deadlines),
@@ -167,8 +192,38 @@ async def get_opportunity(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Opportunity not found"
         )
-    
-    return opportunity
+    # Ensure CLINs include Tavily research (manufacturer_research, dealer_research) as dict/list for frontend
+    from ..schemas.clin import CLINResponse
+    clins_out = []
+    for c in opportunity.clins:
+        extra = _normalize_clin_for_response(c)
+        clins_out.append(CLINResponse(
+            id=c.id,
+            clin_number=c.clin_number,
+            clin_name=c.clin_name,
+            base_item_number=c.base_item_number,
+            product_name=c.product_name,
+            product_description=c.product_description,
+            manufacturer_name=c.manufacturer_name,
+            part_number=c.part_number,
+            model_number=getattr(c, "model_number", None),
+            quantity=c.quantity,
+            unit_of_measure=c.unit_of_measure,
+            contract_type=getattr(c, "contract_type", None),
+            extended_price=getattr(c, "extended_price", None),
+            service_description=c.service_description,
+            scope_of_work=c.scope_of_work,
+            timeline=c.timeline,
+            service_requirements=c.service_requirements,
+            additional_data=c.additional_data,
+            manufacturer_research=extra["manufacturer_research"],
+            dealer_research=extra["dealer_research"],
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+        ))
+    resp = OpportunityDetailResponse.model_validate(opportunity)
+    resp.clins = clins_out
+    return resp
 
 
 @router.delete("/{opportunity_id}", status_code=status.HTTP_204_NO_CONTENT)

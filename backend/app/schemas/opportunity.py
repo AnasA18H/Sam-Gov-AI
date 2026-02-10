@@ -2,7 +2,7 @@
 Opportunity schemas
 """
 from pydantic import BaseModel, HttpUrl, Field
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 from ..models.opportunity import SolicitationType
 
@@ -14,7 +14,7 @@ class OpportunityCreate(BaseModel):
 
 
 class OpportunityResponse(BaseModel):
-    """Opportunity response schema"""
+    """Opportunity response schema (must include all fields the frontend reads)."""
     id: int
     sam_gov_url: str
     sam_gov_id: Optional[str]
@@ -29,9 +29,12 @@ class OpportunityResponse(BaseModel):
     primary_contact: Optional[dict] = None  # {name, email, phone}
     alternative_contact: Optional[dict] = None  # {name, email, phone}
     contracting_office_address: Optional[str] = None
+    enable_document_analysis: Optional[str] = "false"
+    enable_clin_extraction: Optional[str] = "false"
+    classification_codes: Optional[dict] = None  # NAICS, delivery_requirements, etc.
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
 
