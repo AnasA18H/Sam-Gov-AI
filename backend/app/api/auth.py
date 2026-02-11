@@ -357,40 +357,50 @@ async def logout(
 
 # --- Sign in with Google / Microsoft (login or register) ---
 
+def _cleanup_old_oauth_states(db: Session, max_age_minutes: int = 15) -> None:
+    """Remove OAuth state rows older than max_age_minutes (abandoned flows). Both Google and Microsoft use oauth_states."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+    db.query(OAuthState).filter(OAuthState.created_at < cutoff).delete()
+    db.commit()
+
+
 @router.get("/signin/google")
 async def signin_google(db: Session = Depends(get_db)):
-    """Redirect to Google OAuth for sign-in (no auth required). Creates account if new."""
+    """Redirect to Google OAuth for sign-in (no auth required). Requests Gmail + Calendar so user has email/calendar access without a separate Connect step."""
     if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_REDIRECT_URI:
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
+    _cleanup_old_oauth_states(db)
     state = secrets.token_urlsafe(32)
     db.add(OAuthState(state=state, user_id=0, provider="google"))
     db.commit()
+    # Request Gmail + Calendar at sign-in so one consent grants identity and email/calendar. Omit prompt so returning
+    # users can sign in without re-consent (like Microsoft); first time still shows consent and returns refresh_token.
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
         "response_type": "code",
-        "scope": "openid email profile",
+        "scope": "openid email profile https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/calendar.events",
         "state": state,
         "access_type": "offline",
-        "prompt": "consent",
     }
     return RedirectResponse(url="https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params))
 
 
 @router.get("/signin/microsoft")
 async def signin_microsoft(db: Session = Depends(get_db)):
-    """Redirect to Microsoft OAuth for sign-in (no auth required). Creates account if new."""
+    """Redirect to Microsoft OAuth for sign-in (no auth required). Requests Outlook + Calendar so user has email/calendar access without a separate Connect step."""
     if not settings.MICROSOFT_CLIENT_ID or not settings.MICROSOFT_REDIRECT_URI:
         raise HTTPException(status_code=503, detail="Microsoft OAuth not configured")
+    _cleanup_old_oauth_states(db)
     state = secrets.token_urlsafe(32)
     db.add(OAuthState(state=state, user_id=0, provider="microsoft"))
     db.commit()
-    # Always use "common" for sign-in so any Microsoft org/personal account can sign in
+    # Best practice: request Outlook + Calendar at sign-in so one consent grants identity and company services (Outlook only)
     params = {
         "client_id": settings.MICROSOFT_CLIENT_ID,
         "redirect_uri": settings.MICROSOFT_REDIRECT_URI,
         "response_type": "code",
-        "scope": "openid User.Read email profile offline_access",
+        "scope": "openid User.Read email profile offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Calendars.ReadWrite",
         "state": state,
     }
     return RedirectResponse(
@@ -477,10 +487,11 @@ async def connect_google(
     """Redirect to Google OAuth to connect Gmail (send) and Google Calendar. Use ?access_token= when redirecting from frontend."""
     if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_REDIRECT_URI:
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
+    _cleanup_old_oauth_states(db)
     state = secrets.token_urlsafe(32)
     db.add(OAuthState(state=state, user_id=current_user.id, provider="google"))
     db.commit()
-    # One connect: email (send) + calendar (add events e.g. deadlines)
+    # One connect: email (send) + calendar. Omit prompt so returning users aren't forced to re-consent every time.
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
@@ -488,7 +499,6 @@ async def connect_google(
         "scope": "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/calendar.events",
         "state": state,
         "access_type": "offline",
-        "prompt": "consent",
     }
     return RedirectResponse(url="https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params))
 
@@ -501,6 +511,7 @@ async def connect_microsoft(
     """Redirect to Microsoft OAuth to connect Outlook (send) and Calendar. Use ?access_token= when redirecting from frontend."""
     if not settings.MICROSOFT_CLIENT_ID or not settings.MICROSOFT_REDIRECT_URI:
         raise HTTPException(status_code=503, detail="Microsoft OAuth not configured")
+    _cleanup_old_oauth_states(db)
     state = secrets.token_urlsafe(32)
     db.add(OAuthState(state=state, user_id=current_user.id, provider="microsoft"))
     db.commit()
@@ -620,18 +631,36 @@ async def google_callback(
         user = _find_or_create_oauth_user(db, sender_email, full_name, "google")
         if not bool(user.is_active):  # type: ignore[arg-type]
             return err("account_inactive")
+        # Best practice: if we got a refresh_token at sign-in, save email connection so user has Gmail/Calendar without a separate Connect step
+        refresh_token = tok.get("refresh_token")
+        if refresh_token:
+            expires_in = tok.get("expires_in")
+            token_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)) if isinstance(expires_in, (int, float)) else None
+            db.query(UserEmailConnection).filter(UserEmailConnection.user_id == user.id).delete()
+            db.add(UserEmailConnection(
+                user_id=user.id,
+                provider="google",
+                refresh_token=refresh_token,
+                access_token=access_token,
+                token_expires_at=token_expires_at,
+                sender_email=sender_email,
+            ))
+            db.commit()
         return _redirect_signin_success(frontend, user, db)
 
     # Connect-email flow: save tokens for this user
     refresh_token = tok.get("refresh_token")
     if not refresh_token:
         return err("no_refresh_token")
+    expires_in = tok.get("expires_in")
+    token_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)) if isinstance(expires_in, (int, float)) else None
     db.query(UserEmailConnection).filter(UserEmailConnection.user_id == user_id).delete()
     db.add(UserEmailConnection(
         user_id=user_id,
         provider="google",
         refresh_token=refresh_token,
         access_token=access_token,
+        token_expires_at=token_expires_at,
         sender_email=sender_email,
     ))
     db.commit()
@@ -710,18 +739,36 @@ async def microsoft_callback(
             user = _find_or_create_oauth_user(db, sender_email, full_name, "microsoft")
             if not bool(user.is_active):  # type: ignore[arg-type]
                 return err("account_inactive")
+            # Best practice: if we got a refresh_token at sign-in, save email connection so user has Outlook/Calendar without a separate Connect step
+            refresh_token = tok.get("refresh_token")
+            if refresh_token:
+                expires_in = tok.get("expires_in")
+                token_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)) if isinstance(expires_in, (int, float)) else None
+                db.query(UserEmailConnection).filter(UserEmailConnection.user_id == user.id).delete()
+                db.add(UserEmailConnection(
+                    user_id=user.id,
+                    provider="microsoft",
+                    refresh_token=refresh_token,
+                    access_token=access_token,
+                    token_expires_at=token_expires_at,
+                    sender_email=sender_email,
+                ))
+                db.commit()
             return _redirect_signin_success(frontend, user, db)
 
         # Connect-email flow: save tokens for this user
         refresh_token = tok.get("refresh_token")
         if not refresh_token:
             return err("no_refresh_token")
+        expires_in = tok.get("expires_in")
+        token_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)) if isinstance(expires_in, (int, float)) else None
         db.query(UserEmailConnection).filter(UserEmailConnection.user_id == user_id).delete()
         db.add(UserEmailConnection(
             user_id=int(user_id),
             provider="microsoft",
             refresh_token=refresh_token,
             access_token=access_token,
+            token_expires_at=token_expires_at,
             sender_email=sender_email,
         ))
         db.commit()
