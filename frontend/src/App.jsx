@@ -9,6 +9,9 @@ import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
 import Analyze from './pages/Analyze';
 import OpportunityDetail from './pages/OpportunityDetail';
+import QuoteEmailsPreview from './pages/QuoteEmailsPreview';
+import Profile from './pages/Profile';
+import Settings from './pages/Settings';
 import './styles/index.css';
 
 const PrivateRoute = ({ children }) => {
@@ -54,6 +57,30 @@ function App() {
             element={
               <PrivateRoute>
                 <OpportunityDetail />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/opportunities/:id/quote-emails"
+            element={
+              <PrivateRoute>
+                <QuoteEmailsPreview />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <PrivateRoute>
+                <Profile />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <PrivateRoute>
+                <Settings />
               </PrivateRoute>
             }
           />

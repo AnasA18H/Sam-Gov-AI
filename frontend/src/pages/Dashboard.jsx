@@ -4,8 +4,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { opportunitiesAPI } from '../utils/api';
+import { opportunitiesAPI, authAPI } from '../utils/api';
 import ProtectedRoute from '../components/ProtectedRoute';
+import { SiGoogle } from 'react-icons/si';
+import { FaMicrosoft } from 'react-icons/fa';
 import { 
   HiOutlineTrash, 
   HiOutlinePlus, 
@@ -26,7 +28,9 @@ import {
   HiOutlineChevronDown,
   HiOutlineChevronUp,
   HiOutlineCog,
-  HiOutlineUser
+  HiOutlineUser,
+  HiOutlineMail,
+  HiOutlineCheckCircle
 } from 'react-icons/hi';
 
 const Dashboard = () => {
@@ -42,9 +46,28 @@ const Dashboard = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [emailConnection, setEmailConnection] = useState(null);
+  const [emailConnectionLoading, setEmailConnectionLoading] = useState(true);
+  const [showAnalyzeConfirm, setShowAnalyzeConfirm] = useState(false);
 
   useEffect(() => {
     fetchOpportunities();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setEmailConnectionLoading(true);
+      try {
+        const res = await authAPI.getEmailConnection();
+        if (!cancelled) setEmailConnection(res.data);
+      } catch {
+        if (!cancelled) setEmailConnection({ connected: false });
+      } finally {
+        if (!cancelled) setEmailConnectionLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const fetchOpportunities = async () => {
@@ -91,6 +114,20 @@ const Dashboard = () => {
   const handleDeleteCancel = () => {
     setShowDeleteConfirm(false);
     setOpportunityToDelete(null);
+  };
+
+  /** Navigate to Analyze; if email/calendar not connected, ask user to confirm first. */
+  const goToAnalyze = () => {
+    if (!emailConnectionLoading && !emailConnection?.connected) {
+      setShowAnalyzeConfirm(true);
+      return;
+    }
+    navigate('/analyze');
+  };
+
+  const handleAnalyzeConfirmContinue = () => {
+    setShowAnalyzeConfirm(false);
+    navigate('/analyze');
   };
 
   // Calculate statistics
@@ -158,9 +195,36 @@ const Dashboard = () => {
                 </div>
                 <h1 className="text-lg font-semibold text-[#2D1B3D]">Sam Gov AI</h1>
               </div>
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2 sm:space-x-3">
+                {!emailConnectionLoading && (
+                  <>
+                    {emailConnection?.connected ? (
+                      <span className="hidden sm:flex items-center gap-1.5 text-xs text-gray-600 px-2 py-1 rounded bg-gray-100">
+                        <HiOutlineCheckCircle className="w-4 h-4 text-green-600" />
+                        <span className="capitalize">{emailConnection.provider || 'Email'}</span>
+                      </span>
+                    ) : (
+                      <div className="hidden sm:flex items-center gap-1.5">
+                        <a
+                          href={authAPI.connectGoogleUrl()}
+                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                        >
+                          <SiGoogle className="w-4 h-4" />
+                          Connect Gmail
+                        </a>
+                        <a
+                          href={authAPI.connectMicrosoftUrl()}
+                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                        >
+                          <FaMicrosoft className="w-4 h-4" aria-hidden />
+                          Connect Outlook
+                        </a>
+                      </div>
+                    )}
+                  </>
+                )}
                 <button
-                  onClick={() => navigate('/analyze')}
+                  onClick={goToAnalyze}
                   className="p-2 text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
                   title="New Analysis"
                 >
@@ -210,7 +274,7 @@ const Dashboard = () => {
                         <button
                           onClick={() => {
                             setUserMenuOpen(false);
-                            // Add profile/settings navigation here if needed
+                            navigate('/profile');
                           }}
                           className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
                         >
@@ -220,7 +284,7 @@ const Dashboard = () => {
                         <button
                           onClick={() => {
                             setUserMenuOpen(false);
-                            // Add settings navigation here if needed
+                            navigate('/settings');
                           }}
                           className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
                         >
@@ -421,6 +485,42 @@ const Dashboard = () => {
                     </div>
                   </div>
 
+                  {/* Email & calendar */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineMail className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                      Email & calendar
+                    </h4>
+                    {emailConnectionLoading ? (
+                      <p className="text-xs text-gray-500">Loading…</p>
+                    ) : emailConnection?.connected ? (
+                      <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                        <HiOutlineCheckCircle className="w-4 h-4 flex-shrink-0" />
+                        <span>Connected ({emailConnection.provider === 'google' ? 'Gmail' : 'Outlook'})</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-gray-600">Connect to send quote emails and add deadlines to your calendar.</p>
+                        <div className="flex flex-col gap-2">
+                          <a
+                            href={authAPI.connectGoogleUrl()}
+                            className="w-full inline-flex items-center justify-center gap-2 text-sm px-3 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                          >
+                            <SiGoogle className="w-4 h-4" />
+                            Connect Gmail
+                          </a>
+                          <a
+                            href={authAPI.connectMicrosoftUrl()}
+                            className="w-full inline-flex items-center justify-center gap-2 text-sm px-3 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                          >
+                            <FaMicrosoft className="w-4 h-4" aria-hidden />
+                            Connect Outlook
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Quick Actions */}
                   <div>
                     <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3">Quick Actions</h4>
@@ -509,7 +609,7 @@ const Dashboard = () => {
                       <>
                         <p className="text-sm text-gray-500 mb-3">No opportunities yet.</p>
                         <button
-                          onClick={() => navigate('/analyze')}
+                          onClick={goToAnalyze}
                           className="inline-flex items-center justify-center p-2 text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors"
                           title="Start Your First Analysis"
                         >
@@ -590,6 +690,55 @@ const Dashboard = () => {
             </div>
           </main>
         </div>
+
+        {/* Confirm before analysis when email/calendar not connected */}
+        {showAnalyzeConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-base font-semibold text-gray-900">Email & calendar not connected</h3>
+              </div>
+              <div className="px-6 py-4">
+                <p className="text-sm text-gray-600 mb-3">
+                  Connect Gmail or Outlook to send quote emails from the app and add opportunity deadlines to your calendar. You can also connect later from any opportunity page.
+                </p>
+                <p className="text-sm text-gray-700 font-medium">Do you want to connect now or run analysis without connecting?</p>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-200 space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={authAPI.connectGoogleUrl()}
+                    className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                  >
+                    <SiGoogle className="w-5 h-5" />
+                    Connect Gmail
+                  </a>
+                  <a
+                    href={authAPI.connectMicrosoftUrl()}
+                    className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                  >
+                    <FaMicrosoft className="w-5 h-5" aria-hidden />
+                    Connect Outlook
+                  </a>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setShowAnalyzeConfirm(false)}
+                    className="px-3 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAnalyzeConfirmContinue}
+                    className="px-3 py-2 text-sm font-medium text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors"
+                  >
+                    Continue without connecting
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Delete Confirmation Modal */}
         {showDeleteConfirm && (

@@ -36,7 +36,10 @@ import {
   HiOutlineLogout,
   HiOutlineLocationMarker,
   HiOutlineExternalLink,
+  HiOutlineSave,
 } from 'react-icons/hi';
+import { SiGoogle } from 'react-icons/si';
+import { FaMicrosoft } from 'react-icons/fa';
 
 const OpportunityDetail = () => {
   const { id } = useParams();
@@ -112,7 +115,52 @@ const OpportunityDetail = () => {
   const [emailConnectionLoading, setEmailConnectionLoading] = useState(true);
   const [emailConnectionDisconnecting, setEmailConnectionDisconnecting] = useState(false);
   const [searchParams] = useSearchParams();
+  const [editingDealerEmail, setEditingDealerEmail] = useState(null); // { clinId, dealerIndex }
+  const [draftDealerEmail, setDraftDealerEmail] = useState('');
+  const [savingDealerEmail, setSavingDealerEmail] = useState(false);
   const pollIntervalRef = useRef(null);
+  const [dealersManufacturersLoading, setDealersManufacturersLoading] = useState(false);
+  const dealersPollIntervalRef = useRef(null);
+  const dealersPollStartedAtRef = useRef(null);
+  const DEALERS_POLL_MS = 5000;
+  const DEALERS_POLL_TIMEOUT_MS = 120000;
+  const [syncingCalendar, setSyncingCalendar] = useState(false);
+  const [calendarSyncMessage, setCalendarSyncMessage] = useState('');
+
+  const handleSyncCalendar = async () => {
+    if (!id || syncingCalendar || !emailConnection?.connected) return;
+    setSyncingCalendar(true);
+    setCalendarSyncMessage('');
+    try {
+      const res = await opportunitiesAPI.syncCalendar(id);
+      const created = res.data?.created ?? 0;
+      setCalendarSyncMessage(created > 0 ? `Added ${created} deadline(s) to your calendar.` : 'All deadlines are already in your calendar.');
+      await fetchOpportunity();
+    } catch (err) {
+      setCalendarSyncMessage(err.response?.data?.detail || 'Failed to add to calendar.');
+    } finally {
+      setSyncingCalendar(false);
+    }
+  };
+
+  const handleSaveDealerEmail = async (clinId, dealerIndex, email) => {
+    const trimmed = (email || '').trim();
+    if (!trimmed || !/^[^@]+@[^@]+\.[^@]+$/.test(trimmed)) {
+      alert('Please enter a valid email address.');
+      return;
+    }
+    setSavingDealerEmail(true);
+    try {
+      await opportunitiesAPI.updateDealerEmail(id, clinId, { dealer_index: dealerIndex, sales_contact_email: trimmed });
+      setEditingDealerEmail(null);
+      setDraftDealerEmail('');
+      await fetchOpportunity();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to save email.');
+    } finally {
+      setSavingDealerEmail(false);
+    }
+  };
 
   const fetchEmailConnection = async () => {
     try {
@@ -156,6 +204,41 @@ const OpportunityDetail = () => {
     navigate('/login');
   };
 
+  /** Normalize CLIN manufacturer_research to an array. API may return array or single object (legacy). */
+  const getClinManufacturerResearchList = (clin) => {
+    const m = clin?.manufacturer_research;
+    if (m == null) return [];
+    let parsed = m;
+    if (typeof m === 'string') {
+      try { parsed = JSON.parse(m); } catch { return []; }
+    }
+    if (Array.isArray(parsed)) return parsed;
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed))
+      return [{ name: null, official_website: parsed.official_website, sales_contact_email: parsed.sales_contact_email }];
+    return [];
+  };
+
+  /** Normalize CLIN dealer_research (API may return array or JSON string). */
+  const getClinDealerResearch = (clin) => {
+    const d = clin?.dealer_research;
+    if (d == null) return [];
+    if (Array.isArray(d)) return d;
+    if (typeof d === 'string') {
+      try { const a = JSON.parse(d); return Array.isArray(a) ? a : []; } catch { return []; }
+    }
+    return [];
+  };
+
+  /** True if at least one CLIN has manufacturer or dealer research (for polling until Tavily results arrive). */
+  const hasAnyDealerOrManufacturerResearch = (opp) => {
+    if (!opp?.clins?.length) return false;
+    return opp.clins.some((clin) => {
+      const mfr = getClinManufacturerResearchList(clin);
+      const dlr = getClinDealerResearch(clin);
+      return (mfr.length > 0 && mfr.some((m) => m.official_website || m.sales_contact_email)) || dlr.length > 0;
+    });
+  };
+
   useEffect(() => {
     fetchOpportunity();
     fetchEmailConnection();
@@ -163,6 +246,10 @@ const OpportunityDetail = () => {
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
+      }
+      if (dealersPollIntervalRef.current) {
+        clearInterval(dealersPollIntervalRef.current);
+        dealersPollIntervalRef.current = null;
       }
     };
   }, [id]);
@@ -183,12 +270,33 @@ const OpportunityDetail = () => {
       // Poll for updates if status is processing or pending
       if (response.data.status === 'processing' || response.data.status === 'pending') {
         startPolling();
+        stopDealersPoll();
       } else {
         stopPolling();
+        if (response.data.status === 'completed' && response.data.clins?.length > 0) {
+          if (hasAnyDealerOrManufacturerResearch(response.data)) {
+            stopDealersPoll();
+          } else {
+            startDealersPoll();
+          }
+        } else {
+          stopDealersPoll();
+        }
       }
     } catch (error) {
-      setError(error.response?.data?.detail || 'Failed to load opportunity');
+      const status = error.response?.status;
+      let message = 'Failed to load opportunity';
+      if (status === 404) {
+        message = 'Opportunity not found. It may have been deleted or you don’t have access.';
+      } else if (error.response?.data?.detail != null) {
+        const d = error.response.data.detail;
+        message = typeof d === 'string' ? d : Array.isArray(d) ? d.map((e) => e?.msg ?? JSON.stringify(e)).join(', ') : String(d);
+      } else if (error.message) {
+        message = error.message;
+      }
+      setError(message);
       stopPolling();
+      stopDealersPoll();
     } finally {
       setLoading(false);
     }
@@ -212,6 +320,12 @@ const OpportunityDetail = () => {
               opportunitiesAPI.get(id)
                 .then(finalResponse => {
                   setOpportunity(finalResponse.data);
+                  const data = finalResponse.data;
+                  if (data.status === 'completed' && data.clins?.length > 0 && !hasAnyDealerOrManufacturerResearch(data)) {
+                    startDealersPoll();
+                  } else if (data.status === 'completed' && data.clins?.length > 0 && hasAnyDealerOrManufacturerResearch(data)) {
+                    stopDealersPoll();
+                  }
                 })
                 .catch(err => {
                   console.error('Final fetch error:', err);
@@ -231,6 +345,34 @@ const OpportunityDetail = () => {
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
+  };
+
+  const stopDealersPoll = () => {
+    if (dealersPollIntervalRef.current) {
+      clearInterval(dealersPollIntervalRef.current);
+      dealersPollIntervalRef.current = null;
+    }
+    setDealersManufacturersLoading(false);
+  };
+
+  const startDealersPoll = () => {
+    if (dealersPollIntervalRef.current) return;
+    setDealersManufacturersLoading(true);
+    dealersPollStartedAtRef.current = Date.now();
+    dealersPollIntervalRef.current = setInterval(() => {
+      if (Date.now() - dealersPollStartedAtRef.current > DEALERS_POLL_TIMEOUT_MS) {
+        stopDealersPoll();
+        return;
+      }
+      opportunitiesAPI.get(id)
+        .then((response) => {
+          setOpportunity(response.data);
+          if (hasAnyDealerOrManufacturerResearch(response.data)) {
+            stopDealersPoll();
+          }
+        })
+        .catch(() => stopDealersPoll());
+    }, DEALERS_POLL_MS);
   };
 
   const handleDelete = async () => {
@@ -325,33 +467,11 @@ const OpportunityDetail = () => {
     );
   };
 
-  /** Normalize CLIN manufacturer_research (API may return object or JSON string). */
-  const getClinManufacturerResearch = (clin) => {
-    const m = clin?.manufacturer_research;
-    if (m == null) return null;
-    if (typeof m === 'object' && m !== null) return m;
-    if (typeof m === 'string') {
-      try { return JSON.parse(m); } catch { return null; }
-    }
-    return null;
-  };
-
   /** True if the CLIN "manufacturer" name looks like a government agency (buyer). We do not show agency contact as "manufacturer research". */
   const isLikelyAgencyNotManufacturer = (name) => {
     if (!name || typeof name !== 'string') return false;
     const s = name.toLowerCase();
     return /bureau of|department of|^gsa\b|^dod\b|agency|federal |government|u\.s\. |united states /.test(s) || /\b(bep|doj|dod|gsa|va|dhs|doe|usda)\b/.test(s);
-  };
-
-  /** Normalize CLIN dealer_research (API may return array or JSON string). */
-  const getClinDealerResearch = (clin) => {
-    const d = clin?.dealer_research;
-    if (d == null) return [];
-    if (Array.isArray(d)) return d;
-    if (typeof d === 'string') {
-      try { const a = JSON.parse(d); return Array.isArray(a) ? a : []; } catch { return []; }
-    }
-    return [];
   };
 
   /** Subject and body for quote emails (sent from app). */
@@ -469,7 +589,7 @@ const OpportunityDetail = () => {
                         <button
                           onClick={() => {
                             setUserMenuOpen(false);
-                            // Add profile/settings navigation here if needed
+                            navigate('/profile');
                           }}
                           className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
                         >
@@ -479,7 +599,7 @@ const OpportunityDetail = () => {
                         <button
                           onClick={() => {
                             setUserMenuOpen(false);
-                            // Add settings navigation here if needed
+                            navigate('/settings');
                           }}
                           className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
                         >
@@ -558,6 +678,30 @@ const OpportunityDetail = () => {
                   <HiOutlineRefresh className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
                 <div className="h-px w-8 bg-gray-200 my-1"></div>
+                {opportunity?.clins?.some((clin) => {
+                  const mfr = getClinManufacturerResearchList(clin);
+                  const dlr = getClinDealerResearch(clin);
+                  return (mfr.some((m) => m.sales_contact_email) || dlr.some((d) => d.sales_contact_email));
+                }) && (
+                  <button
+                    onClick={() => navigate(`/opportunities/${id}/quote-emails`)}
+                    className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                    title="View quote emails"
+                  >
+                    <HiOutlineMail className="w-5 h-5" />
+                  </button>
+                )}
+                {emailConnection?.connected && opportunity?.deadlines?.length > 0 && (
+                  <button
+                    onClick={handleSyncCalendar}
+                    disabled={syncingCalendar}
+                    className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                    title="Add to Calendar"
+                  >
+                    <HiOutlineCalendar className={`w-5 h-5 ${syncingCalendar ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
+                <div className="h-px w-8 bg-gray-200 my-1"></div>
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
                   disabled={deleteLoading}
@@ -604,6 +748,41 @@ const OpportunityDetail = () => {
                   </div>
                 </div>
 
+                {/* Email & calendar in utility bar */}
+                {opportunity && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineMail className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                      Email & calendar
+                    </h4>
+                    <div className="space-y-2.5">
+                      {opportunity.clins?.some((clin) => {
+                        const mfr = getClinManufacturerResearchList(clin);
+                        const dlr = getClinDealerResearch(clin);
+                        return (mfr.some((m) => m.sales_contact_email) || dlr.some((d) => d.sales_contact_email));
+                      }) && (
+                        <button
+                          onClick={() => navigate(`/opportunities/${id}/quote-emails`)}
+                          className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-[#0D9488] bg-[#14B8A6]/10 rounded-lg hover:bg-[#14B8A6]/20 border border-[#14B8A6]/40 transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                        >
+                          <HiOutlineMail className="w-4 h-4 mr-2" />
+                          View quote emails
+                        </button>
+                      )}
+                      {emailConnection?.connected && opportunity.deadlines?.length > 0 && (
+                        <button
+                          onClick={handleSyncCalendar}
+                          disabled={syncingCalendar}
+                          className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-[#0D9488] bg-[#14B8A6]/10 rounded-lg hover:bg-[#14B8A6]/20 border border-[#14B8A6]/40 transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                        >
+                          <HiOutlineCalendar className={`w-4 h-4 mr-2 ${syncingCalendar ? 'animate-spin' : ''}`} />
+                          {syncingCalendar ? 'Adding…' : 'Add to Calendar'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Summary */}
                 {opportunity && (
                   <div>
@@ -612,6 +791,18 @@ const OpportunityDetail = () => {
                       Summary
                     </h4>
                     <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700">Type</span>
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded capitalize ${
+                          opportunity.solicitation_type === 'product' ? 'bg-[#14B8A6]/20 text-[#0D9488]' :
+                          opportunity.solicitation_type === 'service' ? 'bg-blue-100 text-blue-800' :
+                          opportunity.solicitation_type === 'both' ? 'bg-amber-100 text-amber-800' :
+                          'bg-gray-200 text-gray-600'
+                        }`}>
+                          {opportunity.solicitation_type === 'unknown' ? '—' : opportunity.solicitation_type}
+                        </span>
+                      </div>
+                      <div className="h-px bg-gray-200"></div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium text-gray-700">Status</span>
                         <span className={`text-xs font-bold px-2 py-1 rounded ${
@@ -665,24 +856,18 @@ const OpportunityDetail = () => {
           <div className="px-4 py-4 sm:px-0">
             {/* Title Section - green background + contact info */}
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm mb-6 overflow-visible">
-              <div className="relative z-10 rounded-lg shadow-md bg-gradient-to-r from-[#14B8A6] to-[#0D9488] px-4 py-4 text-white">
-                {/* Subtle diagonal line texture overlay */}
-                <div
-                  className="absolute inset-0 pointer-events-none opacity-100"
-                  aria-hidden
-                  style={{
-                    backgroundImage: 'repeating-linear-gradient(-55deg, transparent, transparent 8px, rgba(255,255,255,0.06) 8px, rgba(255,255,255,0.06) 9px), repeating-linear-gradient(35deg, transparent, transparent 8px, rgba(255,255,255,0.04) 8px, rgba(255,255,255,0.04) 9px)',
-                  }}
-                />
+              <div 
+                className="relative z-10 rounded-lg shadow-md px-4 py-4 text-white"
+                style={{
+                  backgroundImage: 'repeating-linear-gradient(-55deg, transparent, transparent 8px, rgba(255,255,255,0.06) 8px, rgba(255,255,255,0.06) 9px), repeating-linear-gradient(35deg, transparent, transparent 8px, rgba(255,255,255,0.04) 8px, rgba(255,255,255,0.04) 9px), linear-gradient(to right, #14B8A6, #0D9488)',
+                }}
+              >
                 <div className="relative flex justify-between items-start flex-wrap gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className={`relative overflow-hidden ${(opportunity.title && opportunity.title.length > 60) ? 'max-h-[3.6rem]' : ''}`}>
+                    <div className={opportunity.title && opportunity.title.length > 60 ? 'max-h-[3.6rem] overflow-hidden' : ''}>
                       <h1 className="text-xl font-semibold text-white mb-1.5">
                         {opportunity.title || (opportunity.status === 'processing' ? 'Analyzing Opportunity...' : 'Untitled Opportunity')}
                       </h1>
-                      {(opportunity.title && opportunity.title.length > 60) && (
-                        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[#0D9488] to-transparent pointer-events-none" aria-hidden />
-                      )}
                     </div>
                     {opportunity.sam_gov_url && (
                       <a
@@ -759,8 +944,8 @@ const OpportunityDetail = () => {
                   )}
                   {opportunity.agency && (
                     <div className="w-full min-w-0">
-                      <div className="flex items-start gap-2 text-xs text-gray-900 w-full font-bold" style={{ fontFamily: 'Arial, sans-serif' }}>
-                        <HiOutlineOfficeBuilding className="w-3.5 h-3.5 text-gray-600 flex-shrink-0 mt-0.5" />
+                      <div className="flex items-start gap-2 text-xs text-gray-500 w-full" style={{ fontFamily: 'Arial, sans-serif' }}>
+                        <HiOutlineOfficeBuilding className="w-3.5 h-3.5 text-gray-500 flex-shrink-0 mt-0.5" />
                         <span className="flex-1 min-w-0 break-words overflow-visible" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                           {opportunity.agency}
                         </span>
@@ -1071,14 +1256,32 @@ const OpportunityDetail = () => {
                 {/* Deadlines - CRITICAL */}
                 {opportunity.deadlines && opportunity.deadlines.length > 0 && (
                   <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                    <div className="px-4 py-2 border-b border-gray-200">
+                    <div className="px-4 py-2 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
                       <h2 className="text-sm font-semibold text-gray-900 flex items-center">
                         <HiOutlineClock className="w-4 h-4 mr-2 text-red-600" />
                         Deadlines {opportunity.deadlines.some(d => d.is_primary) && <span className="ml-2 text-xs font-normal text-red-600">(CRITICAL)</span>}
                       </h2>
+                      {emailConnection?.connected && (
+                        <button
+                          type="button"
+                          onClick={handleSyncCalendar}
+                          disabled={syncingCalendar}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <HiOutlineCalendar className="w-3.5 h-3.5" />
+                          {syncingCalendar ? 'Adding…' : 'Add to Calendar'}
+                        </button>
+                      )}
                     </div>
+                    {calendarSyncMessage && (
+                      <div className="px-4 py-2 text-xs text-gray-600 bg-gray-50 border-b border-gray-100">
+                        {calendarSyncMessage}
+                      </div>
+                    )}
                     <div className="p-3 space-y-2">
-                      {opportunity.deadlines.map((deadline) => (
+                      {[...(opportunity.deadlines || [])]
+                        .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
+                        .map((deadline) => (
                         <div
                           key={deadline.id}
                           className={`p-2.5 rounded border ${
@@ -1100,6 +1303,9 @@ const OpportunityDetail = () => {
                                 <span className="text-sm font-semibold text-gray-900">
                                   {formatDate(deadline.due_date)}
                                 </span>
+                                {deadline.calendar_event_id && (
+                                  <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">In calendar</span>
+                                )}
                               </div>
                             </div>
                             <div className="flex items-center space-x-3 text-xs text-gray-600">
@@ -1218,6 +1424,13 @@ const OpportunityDetail = () => {
                         <p className="text-xs text-gray-500">Click a row to expand full details</p>
                       )}
                     </div>
+
+                    {dealersManufacturersLoading && (
+                      <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center gap-2 text-sm text-amber-800">
+                        <HiOutlineRefresh className="w-4 h-4 animate-spin flex-shrink-0" />
+                        <span>Finding dealers and manufacturers… Results will appear when ready.</span>
+                      </div>
+                    )}
 
                     {/* Multi-CLIN: compact table + expandable rows */}
                     {opportunity.clins.length > 1 ? (
@@ -1349,30 +1562,38 @@ const OpportunityDetail = () => {
                                             {(() => {
                                               const manufacturerName = clin?.manufacturer_name || '';
                                               if (isLikelyAgencyNotManufacturer(manufacturerName)) return null;
-                                              const mfr = getClinManufacturerResearch(clin);
-                                              if (!mfr || (!mfr.official_website && !mfr.sales_contact_email)) return null;
-                                              const websiteHref = mfr.official_website?.startsWith('http') ? mfr.official_website : (mfr.official_website ? `https://${mfr.official_website.replace(/^\/*/, '')}` : null);
+                                              const mfrList = getClinManufacturerResearchList(clin);
+                                              if (mfrList.length === 0 || !mfrList.some(m => m.official_website || m.sales_contact_email)) return null;
                                               return (
-                                              <div className="pt-3 border-t border-[#14B8A6]/40 space-y-2">
+                                              <div className="pt-3 border-t border-[#14B8A6]/40 space-y-3">
                                                 <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineOfficeBuilding className="w-3.5 h-3.5" /> Manufacturer research</div>
-                                                <p className="text-xs text-gray-600 font-medium">{manufacturerName || 'Manufacturer'}</p>
-                                                <p className="text-xs text-gray-500 -mt-0.5">Use these to request quotes or contact for this CLIN.</p>
-                                                <div className="flex flex-wrap gap-4 text-sm">
-                                                  {websiteHref && (
-                                                    <span className="inline-flex items-center gap-1.5">
-                                                      <HiOutlineGlobe className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
-                                                      <span className="text-gray-600">Official website:</span>
-                                                      <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
-                                                    </span>
-                                                  )}
-                                                  {mfr.sales_contact_email && (
-                                                    <span className="inline-flex items-center gap-1.5">
-                                                      <HiOutlineMail className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
-                                                      <span className="text-gray-600">Email (quote/contact):</span>
-                                                      <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
-                                                    </span>
-                                                  )}
-                                                </div>
+                                                <p className="text-xs text-gray-500 -mt-0.5">Use these to request quotes or contact for this CLIN. Contact email is required for quote requests.</p>
+                                                {mfrList.map((mfr, idx) => {
+                                                  const websiteHref = mfr.official_website?.startsWith('http') ? mfr.official_website : (mfr.official_website ? `https://${mfr.official_website.replace(/^\/*/, '')}` : null);
+                                                  const label = mfr.name || (mfrList.length === 1 ? manufacturerName || 'Manufacturer' : `Manufacturer ${idx + 1}`);
+                                                  if (!websiteHref && !mfr.sales_contact_email) return null;
+                                                  return (
+                                                    <div key={idx} className="rounded-lg border border-[#14B8A6]/30 bg-gray-50/50 p-2.5 space-y-1.5">
+                                                      {mfrList.length > 1 && <p className="text-xs font-medium text-gray-800">{label}</p>}
+                                                      <div className="flex flex-wrap gap-3 text-sm">
+                                                        {websiteHref && (
+                                                          <span className="inline-flex items-center gap-1.5">
+                                                            <HiOutlineGlobe className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
+                                                            <span className="text-gray-600">Official website:</span>
+                                                            <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
+                                                          </span>
+                                                        )}
+                                                        {mfr.sales_contact_email && (
+                                                          <span className="inline-flex items-center gap-1.5">
+                                                            <HiOutlineMail className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
+                                                            <span className="text-gray-600">Email (quote/contact):</span>
+                                                            <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
+                                                          </span>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                })}
                                               </div>
                                               );
                                             })()}
@@ -1380,7 +1601,7 @@ const OpportunityDetail = () => {
                                             {getClinDealerResearch(clin).length > 0 && (
                                               <div className="pt-3 border-t border-[#14B8A6]/40 space-y-2">
                                                 <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineChartBar className="w-3.5 h-3.5" /> Authorized dealers / distributors</div>
-                                                <p className="text-xs text-gray-500 -mt-0.5">Contact emails are for quote requests and outreach.</p>
+                                                <p className="text-xs text-gray-500 -mt-0.5">Contact email is required for quote requests and outreach.</p>
                                                 <div className="overflow-x-auto">
                                                   <table className="min-w-full text-xs border border-gray-200 rounded-lg">
                                                     <thead><tr className="bg-gray-50 text-left"><th className="py-1.5 px-2 font-semibold text-gray-700">Company</th><th className="py-1.5 px-2 font-semibold text-gray-700">Website</th><th className="py-1.5 px-2 font-semibold text-gray-700">Contact email (quote)</th><th className="py-1.5 px-2 font-semibold text-gray-700">Price</th></tr></thead>
@@ -1389,7 +1610,31 @@ const OpportunityDetail = () => {
                                                         <tr key={idx} className="border-t border-gray-100">
                                                           <td className="py-1.5 px-2 text-gray-800">{d.company_name || '—'}</td>
                                                           <td className="py-1.5 px-2">{d.website_url ? <a href={d.website_url} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline inline-flex items-center gap-0.5"><HiOutlineExternalLink className="w-3 h-3" /> Link</a> : '—'}</td>
-                                                          <td className="py-1.5 px-2">{d.sales_contact_email ? <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button> : '—'}</td>
+                                                          <td className="py-1.5 px-2">
+                                                            {d.sales_contact_email ? (
+                                                              <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button>
+                                                            ) : (
+                                                              <div className="flex items-center gap-1.5">
+                                                                <input
+                                                                  type="email"
+                                                                  placeholder="Add contact email"
+                                                                  className="text-xs border-0 border-b border-gray-400 bg-transparent px-0 py-0.5 w-28 max-w-full focus:outline-none focus:border-[#14B8A6] focus:ring-0"
+                                                                  value={editingDealerEmail?.clinId === clin.id && editingDealerEmail?.dealerIndex === idx ? draftDealerEmail : ''}
+                                                                  onChange={(e) => { setEditingDealerEmail({ clinId: clin.id, dealerIndex: idx }); setDraftDealerEmail(e.target.value); }}
+                                                                  onFocus={() => { setEditingDealerEmail({ clinId: clin.id, dealerIndex: idx }); }}
+                                                                />
+                                                                <button
+                                                                  type="button"
+                                                                  title="Save"
+                                                                  disabled={savingDealerEmail || !(editingDealerEmail?.clinId === clin.id && editingDealerEmail?.dealerIndex === idx && draftDealerEmail.trim())}
+                                                                  onClick={() => handleSaveDealerEmail(clin.id, idx, draftDealerEmail)}
+                                                                  className="p-1 text-[#14B8A6] hover:text-[#0D9488] hover:bg-[#14B8A6]/10 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                >
+                                                                  <HiOutlineSave className="w-4 h-4" />
+                                                                </button>
+                                                              </div>
+                                                            )}
+                                                          </td>
                                                           <td className="py-1.5 px-2 text-gray-600">{d.retail_pricing || '—'}</td>
                                                         </tr>
                                                       ))}
@@ -1541,29 +1786,39 @@ const OpportunityDetail = () => {
                               {expandedClins.has(clin.id) && (() => {
                                 const manufacturerName = clin?.manufacturer_name || '';
                                 if (isLikelyAgencyNotManufacturer(manufacturerName)) return null;
-                                const mfr = getClinManufacturerResearch(clin);
-                                if (!mfr || (!mfr.official_website && !mfr.sales_contact_email)) return null;
-                                const websiteHref = mfr.official_website?.startsWith('http') ? mfr.official_website : (mfr.official_website ? `https://${mfr.official_website.replace(/^\/*/, '')}` : null);
+                                const mfrList = getClinManufacturerResearchList(clin);
+                                if (mfrList.length === 0 || !mfrList.some(m => m.official_website || m.sales_contact_email)) return null;
                                 return (
                                 <div className="mt-5 pt-5 border-t border-gray-300">
                                   <div className="flex items-center space-x-2 mb-2"><HiOutlineOfficeBuilding className="w-5 h-5 text-gray-600" /><h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Manufacturer research</h4></div>
-                                  <p className="text-sm font-medium text-gray-700 mb-1">{manufacturerName || 'Manufacturer'}</p>
-                                  <p className="text-xs text-gray-500 mb-3">Use these to request quotes or contact for this CLIN.</p>
-                                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 text-sm">
-                                    {websiteHref && (
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <HiOutlineGlobe className="w-4 h-4 text-[#0D9488] flex-shrink-0" />
-                                        <span className="text-gray-600">Official website:</span>
-                                        <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
-                                      </div>
-                                    )}
-                                    {mfr.sales_contact_email && (
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <HiOutlineMail className="w-4 h-4 text-[#0D9488] flex-shrink-0" />
-                                        <span className="text-gray-600">Email (quote/contact):</span>
-                                        <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
-                                      </div>
-                                    )}
+                                  <p className="text-xs text-gray-500 mb-3">Use these to request quotes or contact for this CLIN. Contact email is required for quote requests.</p>
+                                  <div className="space-y-4">
+                                    {mfrList.map((mfr, idx) => {
+                                      const websiteHref = mfr.official_website?.startsWith('http') ? mfr.official_website : (mfr.official_website ? `https://${mfr.official_website.replace(/^\/*/, '')}` : null);
+                                      const label = mfr.name || (mfrList.length === 1 ? manufacturerName || 'Manufacturer' : `Manufacturer ${idx + 1}`);
+                                      if (!websiteHref && !mfr.sales_contact_email) return null;
+                                      return (
+                                        <div key={idx} className="rounded-lg border border-gray-200 bg-gray-50/50 p-3 space-y-2">
+                                          {mfrList.length > 1 && <p className="text-sm font-medium text-gray-800">{label}</p>}
+                                          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 text-sm">
+                                            {websiteHref && (
+                                              <div className="flex items-center gap-2 flex-wrap">
+                                                <HiOutlineGlobe className="w-4 h-4 text-[#0D9488] flex-shrink-0" />
+                                                <span className="text-gray-600">Official website:</span>
+                                                <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
+                                              </div>
+                                            )}
+                                            {mfr.sales_contact_email && (
+                                              <div className="flex items-center gap-2 flex-wrap">
+                                                <HiOutlineMail className="w-4 h-4 text-[#0D9488] flex-shrink-0" />
+                                                <span className="text-gray-600">Email (quote/contact):</span>
+                                                <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 </div>
                                 );
@@ -1571,7 +1826,7 @@ const OpportunityDetail = () => {
                               {expandedClins.has(clin.id) && getClinDealerResearch(clin).length > 0 && (
                                 <div className="mt-5 pt-5 border-t border-gray-300">
                                   <div className="flex items-center space-x-2 mb-3"><HiOutlineChartBar className="w-5 h-5 text-gray-600" /><h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Authorized dealers / distributors</h4></div>
-                                  <p className="text-xs text-gray-500 mb-2">Contact emails are for quote requests and outreach.</p>
+                                  <p className="text-xs text-gray-500 mb-2">Contact email is required for quote requests and outreach.</p>
                                   <div className="overflow-x-auto rounded-lg border border-gray-200">
                                     <table className="min-w-full text-sm">
                                       <thead><tr className="bg-gray-50 text-left"><th className="py-2 px-3 font-semibold text-gray-700">Company</th><th className="py-2 px-3 font-semibold text-gray-700">Website</th><th className="py-2 px-3 font-semibold text-gray-700">Contact email (quote)</th><th className="py-2 px-3 font-semibold text-gray-700">Price</th></tr></thead>
@@ -1580,7 +1835,31 @@ const OpportunityDetail = () => {
                                           <tr key={idx} className="border-t border-gray-100">
                                             <td className="py-2 px-3 text-gray-800">{d.company_name || '—'}</td>
                                             <td className="py-2 px-3">{d.website_url ? <a href={d.website_url} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline inline-flex items-center gap-1"><HiOutlineExternalLink className="w-3.5 h-3.5" /> Link</a> : '—'}</td>
-                                            <td className="py-2 px-3">{d.sales_contact_email ? <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button> : '—'}</td>
+                                            <td className="py-2 px-3">
+                                              {d.sales_contact_email ? (
+                                                <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button>
+                                              ) : (
+                                                <div className="flex items-center gap-2">
+                                                  <input
+                                                    type="email"
+                                                    placeholder="Add contact email"
+                                                    className="text-sm border-0 border-b border-gray-400 bg-transparent px-0 py-0.5 w-36 max-w-full focus:outline-none focus:border-[#14B8A6] focus:ring-0"
+                                                    value={editingDealerEmail?.clinId === clin.id && editingDealerEmail?.dealerIndex === idx ? draftDealerEmail : ''}
+                                                    onChange={(e) => { setEditingDealerEmail({ clinId: clin.id, dealerIndex: idx }); setDraftDealerEmail(e.target.value); }}
+                                                    onFocus={() => { setEditingDealerEmail({ clinId: clin.id, dealerIndex: idx }); }}
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    title="Save"
+                                                    disabled={savingDealerEmail || !(editingDealerEmail?.clinId === clin.id && editingDealerEmail?.dealerIndex === idx && draftDealerEmail.trim())}
+                                                    onClick={() => handleSaveDealerEmail(clin.id, idx, draftDealerEmail)}
+                                                    className="p-1 text-[#14B8A6] hover:text-[#0D9488] hover:bg-[#14B8A6]/10 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                                  >
+                                                    <HiOutlineSave className="w-4 h-4" />
+                                                  </button>
+                                                </div>
+                                              )}
+                                            </td>
                                             <td className="py-2 px-3 text-gray-600">{d.retail_pricing || '—'}</td>
                                           </tr>
                                         ))}
@@ -1617,7 +1896,7 @@ const OpportunityDetail = () => {
                               )}
                               {((clin.additional_data?.delivery_timeline || clin.additional_data?.delivery_address || clin.additional_data?.special_delivery_instructions || clin.product_description || clin.scope_of_work || clin.service_description || clin.service_requirements) ||
                                 getClinDealerResearch(clin).length > 0 ||
-                                (!isLikelyAgencyNotManufacturer(clin?.manufacturer_name || '') ? false : (() => { const mfr = getClinManufacturerResearch(clin); return mfr && (mfr.official_website || mfr.sales_contact_email); })())) && (
+                                (!isLikelyAgencyNotManufacturer(clin?.manufacturer_name || '') ? false : getClinManufacturerResearchList(clin).some(m => m.official_website || m.sales_contact_email))) && (
                                 <div className="flex justify-center mt-4 pt-3 border-t border-gray-200">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); const next = new Set(expandedClins); if (next.has(clin.id)) next.delete(clin.id); else next.add(clin.id); setExpandedClins(next); }}
@@ -1686,19 +1965,24 @@ const OpportunityDetail = () => {
 
                 {/* Email and calendar access */}
                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                  <div className="px-4 py-3 border-b border-gray-200">
+                  <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-base font-semibold text-gray-900 flex items-center">
                       <HiOutlineMail className="w-5 h-5 mr-2 text-gray-600" />
                       Email and calendar access
                     </h2>
+                    {!emailConnectionLoading && emailConnection?.connected && (
+                      <button
+                        type="button"
+                        onClick={handleDisconnectEmail}
+                        disabled={emailConnectionDisconnecting}
+                        className="text-sm px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50 inline-flex items-center gap-1"
+                      >
+                        <HiOutlineLogout className="w-4 h-4" />
+                        {emailConnectionDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+                      </button>
+                    )}
                   </div>
                   <div className="p-4 space-y-4">
-                    <p className="text-sm text-gray-700">
-                      Connect your Google or Microsoft account to send quote emails from the app and add opportunity deadlines to your calendar.
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      We request access only to send email and create calendar events. You can disconnect or change the connected account at any time.
-                    </p>
                     {emailConnectionLoading ? (
                       <p className="text-sm text-gray-500">Loading…</p>
                     ) : emailConnection?.connected ? (
@@ -1721,116 +2005,114 @@ const OpportunityDetail = () => {
                           <button
                             type="button"
                             onClick={() => window.location.href = authAPI.connectGoogleUrl()}
-                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 transition-colors"
+                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 transition-colors inline-flex items-center gap-1.5"
                           >
-                            Change to Gmail
+                            <SiGoogle className="w-4 h-4" />
+                            {emailConnection?.provider === 'google' ? 'Reconnect Gmail' : 'Switch to Gmail'}
                           </button>
                           <button
                             type="button"
                             onClick={() => window.location.href = authAPI.connectMicrosoftUrl()}
-                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 transition-colors"
+                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 transition-colors inline-flex items-center gap-1.5"
                           >
-                            Change to Outlook
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleDisconnectEmail}
-                            disabled={emailConnectionDisconnecting}
-                            className="text-sm px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50 inline-flex items-center gap-1"
-                          >
-                            <HiOutlineLogout className="w-4 h-4" />
-                            {emailConnectionDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+                            <FaMicrosoft className="w-4 h-4" aria-hidden />
+                            {emailConnection?.provider === 'microsoft' ? 'Reconnect Outlook' : 'Switch to Outlook'}
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        <a
-                          href={authAPI.connectGoogleUrl()}
-                          className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
-                        >
-                          Connect Gmail
-                        </a>
-                        <a
-                          href={authAPI.connectMicrosoftUrl()}
-                          className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
-                        >
-                          Connect Outlook
-                        </a>
-                      </div>
+                      <>
+                        <p className="text-sm text-gray-700">
+                          {user?.auth_provider === 'email'
+                            ? 'You signed in with email verification. Connect Gmail or Outlook to send quote emails from the app and add opportunity deadlines to your calendar.'
+                            : 'Connect your Google or Microsoft account to send quote emails from the app and add opportunity deadlines to your calendar.'}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          We request access only to send email and create calendar events. You can disconnect or change the connected account at any time.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <a
+                            href={authAPI.connectGoogleUrl()}
+                            className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                          >
+                            <SiGoogle className="w-5 h-5 flex-shrink-0" />
+                            Connect Gmail
+                          </a>
+                          <a
+                            href={authAPI.connectMicrosoftUrl()}
+                            className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                          >
+                            <FaMicrosoft className="w-5 h-5 flex-shrink-0" aria-hidden />
+                            Connect Outlook
+                          </a>
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
 
-                {/* Delivery Requirements */}
-                {opportunity.classification_codes?.delivery_requirements && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
-                        <HiOutlineOfficeBuilding className="w-5 h-5 mr-2 text-[#14B8A6]" />
-                        Delivery Requirements
-                      </h2>
+                {/* Quote emails - separate block under Email and calendar. View = navigate; Generate = API then navigate. */}
+                {(() => {
+                  let emailCount = 0;
+                  let manufacturerCount = 0;
+                  let dealerCount = 0;
+                  opportunity.clins?.forEach((clin) => {
+                    const mfr = getClinManufacturerResearchList(clin);
+                    const dlr = getClinDealerResearch(clin);
+                    mfr.filter((m) => m.sales_contact_email).forEach(() => { emailCount++; manufacturerCount++; });
+                    dlr.filter((d) => d.sales_contact_email).forEach(() => { emailCount++; dealerCount++; });
+                  });
+                  const hasContactEmails = emailCount > 0;
+                  if (!hasContactEmails) return null;
+                  const handleGenerateThenView = async () => {
+                    try {
+                      await opportunitiesAPI.generateQuoteEmailDrafts(id);
+                      navigate(`/opportunities/${id}/quote-emails`);
+                    } catch (_) {
+                      navigate(`/opportunities/${id}/quote-emails`);
+                    }
+                  };
+                  const breakdown = [];
+                  if (manufacturerCount > 0) breakdown.push(`${manufacturerCount} manufacturer${manufacturerCount !== 1 ? 's' : ''}`);
+                  if (dealerCount > 0) breakdown.push(`${dealerCount} dealer${dealerCount !== 1 ? 's' : ''}`);
+                  const breakdownText = breakdown.length ? breakdown.join(' · ') : null;
+                  return (
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60">
+                        <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#14B8A6]/10 text-[#0D9488]">
+                            <HiOutlineMail className="w-4 h-4" />
+                          </span>
+                          Quote emails
+                        </h2>
+                        <p className="text-xs text-gray-500 mt-1 ml-10">Create and send quote requests to manufacturers and dealers.</p>
+                      </div>
+                      <div className="p-4 space-y-4">
+                        <p className="text-xs text-gray-600">
+                          <span className="font-semibold text-gray-900">{emailCount}</span> recipient{emailCount !== 1 ? 's' : ''} with contact email
+                          {breakdownText && <span className="text-gray-500"> ({breakdownText})</span>}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/opportunities/${id}/quote-emails`)}
+                            className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-[#0D9488] text-white hover:bg-[#0f766e] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                          >
+                            <HiOutlineMail className="w-4 h-4" />
+                            View quote emails
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleGenerateThenView}
+                            className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+                          >
+                            Generate drafts
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="px-4 py-3 space-y-3">
-                      {opportunity.classification_codes.delivery_requirements.delivery_address && (
-                        <div className="pb-3 border-b border-gray-200">
-                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Delivery Address</h3>
-                          <div className="text-sm text-gray-900 space-y-1">
-                            {opportunity.classification_codes.delivery_requirements.delivery_address.facility_name && (
-                              <div className="font-semibold">{opportunity.classification_codes.delivery_requirements.delivery_address.facility_name}</div>
-                            )}
-                            {opportunity.classification_codes.delivery_requirements.delivery_address.street_address && (
-                              <div>{opportunity.classification_codes.delivery_requirements.delivery_address.street_address}</div>
-                            )}
-                            {(opportunity.classification_codes.delivery_requirements.delivery_address.city || 
-                              opportunity.classification_codes.delivery_requirements.delivery_address.state || 
-                              opportunity.classification_codes.delivery_requirements.delivery_address.zip_code) && (
-                              <div>
-                                {[
-                                  opportunity.classification_codes.delivery_requirements.delivery_address.city,
-                                  opportunity.classification_codes.delivery_requirements.delivery_address.state,
-                                  opportunity.classification_codes.delivery_requirements.delivery_address.zip_code
-                                ].filter(Boolean).join(', ')}
-                              </div>
-                            )}
-                            {opportunity.classification_codes.delivery_requirements.delivery_address.country && (
-                              <div className="text-xs text-gray-500">{opportunity.classification_codes.delivery_requirements.delivery_address.country}</div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {opportunity.classification_codes.delivery_requirements.fob_terms && (
-                        <div className="pb-3 border-b border-gray-200">
-                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">FOB Terms</h3>
-                          <div className="text-sm text-gray-900 capitalize">{opportunity.classification_codes.delivery_requirements.fob_terms}</div>
-                        </div>
-                      )}
-                      {opportunity.classification_codes.delivery_requirements.delivery_timeline && (
-                        <div className="pb-3 border-b border-gray-200">
-                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">Delivery Timeline</h3>
-                          <div className="text-sm text-gray-900">{opportunity.classification_codes.delivery_requirements.delivery_timeline}</div>
-                        </div>
-                      )}
-                      {opportunity.classification_codes.delivery_requirements.packing_requirements && (
-                        <div className="pb-3 border-b border-gray-200">
-                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">Packing Requirements</h3>
-                          <div className="text-sm text-gray-900">{opportunity.classification_codes.delivery_requirements.packing_requirements}</div>
-                        </div>
-                      )}
-                      {opportunity.classification_codes.delivery_requirements.special_instructions && 
-                       opportunity.classification_codes.delivery_requirements.special_instructions.length > 0 && (
-                        <div>
-                          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Special Instructions</h3>
-                          <ul className="text-sm text-gray-900 space-y-1 list-disc list-inside">
-                            {opportunity.classification_codes.delivery_requirements.special_instructions.map((instruction, idx) => (
-                              <li key={idx}>{instruction}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
 
               </div>
             </div>
