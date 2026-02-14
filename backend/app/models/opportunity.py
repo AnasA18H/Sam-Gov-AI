@@ -1,7 +1,7 @@
 """
 Opportunity model for SAM.gov solicitations
 """
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Enum, JSON
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Enum, JSON, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
@@ -17,16 +17,17 @@ class SolicitationType(str, enum.Enum):
 
 
 class Opportunity(Base):
-    """SAM.gov opportunity/solicitation model"""
+    """SAM.gov opportunity/solicitation model. Same URL can exist per user (no cross-account conflict)."""
     __tablename__ = "opportunities"
-    
+    __table_args__ = (UniqueConstraint("user_id", "sam_gov_url", name="uq_opportunities_user_sam_gov_url"),)
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    
-    # SAM.gov data
-    sam_gov_url = Column(String(512), unique=True, index=True, nullable=False)
-    sam_gov_id = Column(String(100), unique=True, index=True, nullable=True)  # Opportunity ID from URL
-    notice_id = Column(String(100), unique=True, index=True, nullable=True)  # Notice ID from SAM.gov page
+
+    # SAM.gov data (same URL/sam_gov_id/notice_id can exist for different users)
+    sam_gov_url = Column(String(512), index=True, nullable=False)
+    sam_gov_id = Column(String(100), index=True, nullable=True)  # Opportunity ID from URL
+    notice_id = Column(String(100), index=True, nullable=True)  # Notice ID from SAM.gov page
     title = Column(String(500), nullable=True)
     description = Column(Text, nullable=True)  # Full description text
     agency = Column(String(255), nullable=True)
@@ -59,6 +60,7 @@ class Opportunity(Base):
     clins = relationship("CLIN", back_populates="opportunity", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="opportunity", cascade="all, delete-orphan")
     deadlines = relationship("Deadline", back_populates="opportunity", cascade="all, delete-orphan")
+    draft_quote_emails = relationship("DraftQuoteEmail", back_populates="opportunity", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Opportunity(id={self.id}, sam_gov_id={self.sam_gov_id}, type={self.solicitation_type})>"
