@@ -70,6 +70,25 @@ export const opportunitiesAPI = {
   delete: (id) => api.delete(`/api/v1/opportunities/${id}`),
   getClinLookupLinks: (opportunityId, clinId) =>
     api.get(`/api/v1/opportunities/${opportunityId}/clins/${clinId}/lookup-links`),
+  updateDealerEmail: (opportunityId, clinId, body) =>
+    api.patch(`/api/v1/opportunities/${opportunityId}/clins/${clinId}/dealer-email`, body),
+  syncCalendar: (opportunityId) =>
+    api.post(`/api/v1/opportunities/${opportunityId}/sync-calendar`),
+  // Quote email drafts (persisted in DB)
+  listQuoteEmailDrafts: (opportunityId) =>
+    api.get(`/api/v1/opportunities/${opportunityId}/quote-email-drafts`),
+  generateQuoteEmailDrafts: (opportunityId) =>
+    api.post(`/api/v1/opportunities/${opportunityId}/quote-email-drafts/generate`),
+  deleteQuoteEmailDraft: (opportunityId, draftId) =>
+    api.delete(`/api/v1/opportunities/${opportunityId}/quote-email-drafts/${draftId}`),
+  updateQuoteEmailDraft: (opportunityId, draftId, body) =>
+    api.patch(`/api/v1/opportunities/${opportunityId}/quote-email-drafts/${draftId}`, body),
+  /** Overwrite document with new file (e.g. after in-app edit). file: File or Blob. */
+  overwriteDocument: (opportunityId, documentId, file, filename) => {
+    const formData = new FormData();
+    formData.append('file', file, filename || (file.name || 'document'));
+    return api.put(`/api/v1/opportunities/${opportunityId}/documents/${documentId}`, formData);
+  },
 };
 
 export default api;
