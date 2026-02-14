@@ -27,7 +27,11 @@ class Deadline(Base):
     # Status
     is_primary = Column(Boolean, default=False, nullable=False)  # Primary submission deadline
     is_passed = Column(Boolean, default=False, nullable=False)
-    
+
+    # Calendar sync (persisted so we don't duplicate events)
+    calendar_event_id = Column(String(255), nullable=True, index=True)  # Google/Microsoft event id
+    calendar_provider = Column(String(20), nullable=True)  # 'google' | 'microsoft'
+
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

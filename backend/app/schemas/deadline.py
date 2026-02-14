@@ -28,7 +28,9 @@ class DeadlineResponse(BaseModel):
     location: Optional[str]
     is_primary: bool
     is_passed: bool
+    calendar_event_id: Optional[str] = None
+    calendar_provider: Optional[str] = None
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
