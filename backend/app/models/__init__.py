@@ -9,6 +9,7 @@ from .document import Document
 from .deadline import Deadline
 from .user_email_connection import UserEmailConnection
 from .oauth_state import OAuthState
+from .draft_quote_email import DraftQuoteEmail
 
 __all__ = [
     "User",
@@ -20,4 +21,5 @@ __all__ = [
     "Deadline",
     "UserEmailConnection",
     "OAuthState",
+    "DraftQuoteEmail",
 ]

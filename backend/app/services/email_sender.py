@@ -46,7 +46,8 @@ def _send_via_gmail(conn: UserEmailConnection, to: str, subject: str, body: str)
         return False
     creds = Credentials(token=token)
     service = build("gmail", "v1", credentials=creds)
-    message = MIMEText(body)
+    subtype = "html" if ("<" in body and ">" in body) else "plain"
+    message = MIMEText(body, subtype)
     message["to"] = to
     message["subject"] = subject
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
@@ -77,10 +78,11 @@ def _send_via_microsoft(conn: UserEmailConnection, to: str, subject: str, body: 
     if not token:
         return False
     sender = conn.sender_email or "me"
+    content_type = "HTML" if ("<" in body and ">" in body) else "Text"
     payload = {
         "message": {
             "subject": subject,
-            "body": {"contentType": "Text", "content": body},
+            "body": {"contentType": content_type, "content": body},
             "toRecipients": [{"emailAddress": {"address": to}}],
         },
         "saveToSentItems": True,
