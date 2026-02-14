@@ -41,7 +41,8 @@ class UserResponse(BaseModel):
     role: UserRole
     is_active: bool
     is_verified: bool
+    auth_provider: str  # 'email' | 'google' | 'microsoft'
     created_at: datetime
-    
+
     class Config:
         from_attributes = True

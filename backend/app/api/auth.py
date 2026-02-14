@@ -373,8 +373,8 @@ async def signin_google(db: Session = Depends(get_db)):
     state = secrets.token_urlsafe(32)
     db.add(OAuthState(state=state, user_id=0, provider="google"))
     db.commit()
-    # Request Gmail + Calendar at sign-in so one consent grants identity and email/calendar. Omit prompt so returning
-    # users can sign in without re-consent (like Microsoft); first time still shows consent and returns refresh_token.
+    # Request Gmail + Calendar at sign-in. Use prompt=consent so we always get a refresh_token and can auto-connect
+    # Gmail/Calendar (Google only returns refresh_token on first consent otherwise).
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
@@ -382,6 +382,7 @@ async def signin_google(db: Session = Depends(get_db)):
         "scope": "openid email profile https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/calendar.events",
         "state": state,
         "access_type": "offline",
+        "prompt": "consent",
     }
     return RedirectResponse(url="https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params))
 
@@ -491,7 +492,7 @@ async def connect_google(
     state = secrets.token_urlsafe(32)
     db.add(OAuthState(state=state, user_id=current_user.id, provider="google"))
     db.commit()
-    # One connect: email (send) + calendar. Omit prompt so returning users aren't forced to re-consent every time.
+    # prompt=consent so Google returns refresh_token (required for Gmail/Calendar; otherwise only returned on first consent).
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
@@ -499,6 +500,7 @@ async def connect_google(
         "scope": "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/calendar.events",
         "state": state,
         "access_type": "offline",
+        "prompt": "consent",
     }
     return RedirectResponse(url="https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params))
 
@@ -597,6 +599,7 @@ async def google_callback(
     db.commit()
 
     import requests
+    _GOOGLE_TIMEOUT = 25  # seconds (avoid 500 on slow networks)
     data = {
         "code": code,
         "client_id": settings.GOOGLE_CLIENT_ID,
@@ -604,7 +607,11 @@ async def google_callback(
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
         "grant_type": "authorization_code",
     }
-    r = requests.post("https://oauth2.googleapis.com/token", data=data, timeout=10)
+    try:
+        r = requests.post("https://oauth2.googleapis.com/token", data=data, timeout=_GOOGLE_TIMEOUT)
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+        logger.warning("Google token exchange failed: %s", e)
+        return err("token_exchange_failed")
     if r.status_code != 200:
         return err("token_exchange_failed")
     tok = r.json()
@@ -613,11 +620,15 @@ async def google_callback(
         return err("no_access_token")
 
     # Get user email and name from userinfo
-    ui = requests.get(
-        "https://www.googleapis.com/oauth2/v2/userinfo",
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=10,
-    )
+    try:
+        ui = requests.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=_GOOGLE_TIMEOUT,
+        )
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+        logger.warning("Google userinfo failed: %s", e)
+        return err("userinfo_failed")
     if ui.status_code != 200:
         return err("userinfo_failed")
     uinfo = ui.json()
@@ -694,6 +705,7 @@ async def microsoft_callback(
         db.delete(row)
         db.commit()
 
+        _OAUTH_TIMEOUT = 25
         # Use "common" to match authorize endpoint (multitenant)
         data = {
             "client_id": settings.MICROSOFT_CLIENT_ID,
@@ -702,12 +714,16 @@ async def microsoft_callback(
             "redirect_uri": settings.MICROSOFT_REDIRECT_URI,
             "grant_type": "authorization_code",
         }
-        r = requests.post(
-            "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-            data=data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=10,
-        )
+        try:
+            r = requests.post(
+                "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=_OAUTH_TIMEOUT,
+            )
+        except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+            logger.warning("Microsoft token exchange failed: %s", e)
+            return err("token_exchange_failed")
         if r.status_code != 200:
             logger.warning("Microsoft token exchange failed: %s %s", r.status_code, r.text[:500])
             return err("token_exchange_failed")
@@ -720,11 +736,15 @@ async def microsoft_callback(
             return err("no_access_token")
 
         # Get user email and name from Graph
-        me = requests.get(
-            "https://graph.microsoft.com/v1.0/me",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=10,
-        )
+        try:
+            me = requests.get(
+                "https://graph.microsoft.com/v1.0/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=_OAUTH_TIMEOUT,
+            )
+        except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+            logger.warning("Microsoft Graph /me failed: %s", e)
+            return err("userinfo_failed")
         if me.status_code != 200:
             logger.warning("Microsoft Graph /me failed: %s %s", me.status_code, me.text[:500])
             return err("userinfo_failed")
@@ -794,7 +814,13 @@ async def send_email(
             detail="Connect your email first (Gmail or Outlook) to send from the app.",
         )
     from ..services.email_sender import send_email_as_user
-    ok = send_email_as_user(conn, body.to, body.subject, body.body)
+    try:
+        ok = send_email_as_user(conn, body.to, body.subject, body.body)
+    except Exception as e:
+        err_str = str(e).lower() if e else ""
+        if any(x in err_str for x in ("unable to find the server", "getaddrinfo failed", "name or service not known", "timed out", "timeout", "connection", "network is unreachable", "nodename nor servname")):
+            raise HTTPException(status_code=502, detail="Email send failed. This often happens with slow or unstable internet. Please check your connection and try again.")
+        raise HTTPException(status_code=502, detail="Failed to send email. Try reconnecting your email.")
     if not ok:
         raise HTTPException(status_code=502, detail="Failed to send email. Try reconnecting your email.")
     return {"message": "Email sent"}
