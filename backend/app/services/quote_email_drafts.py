@@ -65,6 +65,32 @@ def _normalize_dealer_list(clin: CLIN) -> List[dict]:
     return []
 
 
+def _html_escape(s: str) -> str:
+    """Escape for safe HTML content."""
+    if not s:
+        return ""
+    s = str(s)
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _normalize_delivery_timeline(timeline_str: Optional[str]) -> Optional[str]:
+    """Convert delivery timeline jargon to readable commercial language."""
+    if not timeline_str:
+        return None
+    s = str(timeline_str).strip()
+    if not s:
+        return None
+    # Convert "X DAYS ADO" to "X days after order" or similar
+    s = re.sub(r"(\d+)\s*DAYS?\s*ADO", r"\1 days after order", s, flags=re.IGNORECASE)
+    s = re.sub(r"(\d+)\s*DAYS?\s*ARO", r"\1 days after receipt of order", s, flags=re.IGNORECASE)
+    return s
+
+
 def _template(opp: Opportunity, clin: CLIN, contact: dict, contact_type: str) -> tuple[str, str]:
     is_mfr = contact_type == "manufacturer"
     product_name = getattr(clin, "product_name", None) or getattr(clin, "clin_name", None) or "product"
@@ -77,39 +103,48 @@ def _template(opp: Opportunity, clin: CLIN, contact: dict, contact_type: str) ->
     delivery_address_raw = add.get("delivery_address")
     delivery_timeline_raw = add.get("delivery_timeline") or getattr(clin, "timeline", None)
     delivery_address = _sanitize_for_commercial_email(str(delivery_address_raw)) if delivery_address_raw else None
-    delivery_timeline = _sanitize_for_commercial_email(str(delivery_timeline_raw)) if delivery_timeline_raw else None
+    delivery_timeline_raw_sanitized = _sanitize_for_commercial_email(str(delivery_timeline_raw)) if delivery_timeline_raw else None
+    delivery_timeline = _normalize_delivery_timeline(delivery_timeline_raw_sanitized)
+    nsn = add.get("nsn") or None
 
+    # Subject: include quantity if available for better visibility
     subject = f"Quote Request: {product_name}"
     if part_number not in (None, ""):
         subject += f" (Part #{part_number})"
-
-    # Required opening: "Hello, We're currently working on a project and would like to request a quote"
-    body = "Hello,\n\n"
-    body += "We're currently working on a project and would like to request a quote for the following:\n\n"
-    body += "Product Specifications:\n"
-    body += f"• Product Name: {product_name}\n"
-    if manufacturer_name and not is_mfr:
-        body += f"• Manufacturer: {manufacturer_name}\n"
-    if part_number not in (None, ""):
-        body += f"• Part Number: {part_number}\n"
-    if getattr(clin, "model_number", None):
-        body += f"• Model Number: {clin.model_number}\n"
     if quantity:
-        body += f"• Quantity: {quantity}\n"
+        subject += f" — Qty {quantity.split()[0]}"
+
+    # Build HTML body with bold section headers and clear spacing (inline styles for email clients)
+    _p = '<p style="margin: 0 0 0.75em 0;">'
+    _p_section = '<p style="margin: 1.25em 0 0.5em 0;">'  # extra space before section
+    to_name = (contact.get("company_name") or contact.get("name") or "").strip()
+    greeting = f"Hello, {_html_escape(to_name)}," if to_name else "Hello,"
+    opening = "We're currently working on a project and would like to request a quote for the following:"
+    body = f"{_p}{greeting}</p>{_p}{opening}</p>"
+    body += f'{_p_section}<strong>Product Specifications:</strong><br/>'
+    body += f"• Product Name: {_html_escape(product_name)}<br/>"
+    if manufacturer_name and not is_mfr:
+        body += f"• Manufacturer: {_html_escape(manufacturer_name)}<br/>"
+    if part_number not in (None, ""):
+        body += f"• Part Number: {_html_escape(part_number)}<br/>"
+    if getattr(clin, "model_number", None):
+        body += f"• Model Number: {_html_escape(clin.model_number)}<br/>"
+    if nsn:
+        body += f"• NSN: {_html_escape(nsn)}<br/>"
+    if quantity:
+        body += f"• Quantity: {_html_escape(quantity)}<br/>"
     product_description = getattr(clin, "product_description", None)
     if product_description not in (None, ""):
-        body += f"• Description: {product_description}\n"
-    body += "\n"
+        body += f"• Description: {_html_escape(product_description)}<br/>"
+    body += "</p>"
     if delivery_address:
-        body += f"Delivery Address:\n{delivery_address}\n\n"
+        body += f'{_p_section}<strong>Delivery Address:</strong><br/>{_html_escape(delivery_address)}</p>'
     if delivery_timeline:
-        body += f"Delivery Timeline:\n{delivery_timeline}\n\n"
-    body += "We would also appreciate:\n"
-    body += "• Product datasheets/specification sheets\n"
-    body += "• Net payment terms\n\n"
-    body += "Please provide your competitive quote at your earliest convenience. We are evaluating multiple options and would like to move forward promptly.\n\n"
-    body += "Thank you for your time and consideration.\n\n"
-    body += "Best regards"
+        body += f'{_p_section}<strong>Required Delivery Timeline:</strong><br/>{_html_escape(delivery_timeline)}</p>'
+    body += f'{_p_section}<strong>We would also appreciate:</strong><br/>'
+    body += "• Product datasheets/specification sheets<br/>• Net payment terms</p>"
+    body += f'{_p}We\'re currently evaluating competitive quotes from multiple suppliers and would appreciate your best pricing. Please provide your quote at your earliest convenience so we can move forward with our selection process.</p>'
+    body += f'{_p}<em>Thank you for your time and consideration.</em></p>{_p}Best regards</p>'
     return subject, body
 
 
