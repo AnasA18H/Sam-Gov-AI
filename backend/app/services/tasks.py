@@ -23,6 +23,37 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _normalize_due_time(due_time: Optional[str]) -> str:
+    """Normalize due_time to 24-hour HH:MM for consistent dedup and storage. Returns '' if empty/unparseable."""
+    if not due_time or not isinstance(due_time, str):
+        return ""
+    s = due_time.strip()
+    if not s:
+        return ""
+    # Already HH:MM or HH:MM:SS 24h
+    match = re.match(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$", s)
+    if match:
+        h, m = int(match.group(1)), int(match.group(2))
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return f"{h:02d}:{m:02d}"
+    # 12-hour with AM/PM
+    match = re.match(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?\s*$", s, re.IGNORECASE)
+    if match:
+        h, m = int(match.group(1)), int(match.group(2))
+        ampm = (match.group(4) or "").upper()
+        if ampm == "PM" and h != 12:
+            h += 12
+        elif ampm == "AM" and h == 12:
+            h = 0
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return f"{h:02d}:{m:02d}"
+    try:
+        dt = dateutil_parser.parse(f"1970-01-01 {s}", fuzzy=True)
+        return dt.strftime("%H:%M")
+    except Exception:
+        return s  # keep original if unparseable
+
+
 def _truncate_string(value: Optional[str], max_length: int = 255) -> Optional[str]:
     """Truncate string to max_length if it exceeds the limit"""
     if not value:
@@ -111,37 +142,18 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             
             if metadata.get('notice_id'):
                 new_notice_id = metadata['notice_id']
-                # Check if this notice_id already exists for another opportunity
-                existing_notice = db.query(Opportunity).filter(
-                    Opportunity.notice_id == new_notice_id,
-                    Opportunity.id != opportunity_id
-                ).first()
-                
-                if existing_notice:
-                    logger.warning(f"Skipping notice_id update: {new_notice_id} already exists for opportunity {existing_notice.id}")
-                elif opportunity.notice_id and opportunity.notice_id != new_notice_id:
-                    logger.warning(f"Opportunity {opportunity_id} already has notice_id={opportunity.notice_id}, not updating to {new_notice_id}")
-                else:
+                if not opportunity.notice_id or opportunity.notice_id == new_notice_id:
                     opportunity.notice_id = new_notice_id
                     metadata_updated = True
                     logger.info(f"Updated opportunity notice_id: {new_notice_id}")
-                
-                # Only update sam_gov_id if not already set (for backward compatibility)
-                # Don't update if it's already set to avoid unique constraint violations
-                new_sam_gov_id = metadata['notice_id']
-                if not opportunity.sam_gov_id:
-                    # Check if this sam_gov_id already exists for another opportunity
-                    existing_sam = db.query(Opportunity).filter(
-                        Opportunity.sam_gov_id == new_sam_gov_id,
-                        Opportunity.id != opportunity_id
-                    ).first()
-                    if not existing_sam:
-                        opportunity.sam_gov_id = new_sam_gov_id
-                        logger.info(f"Updated opportunity sam_gov_id: {new_sam_gov_id}")
-                    else:
-                        logger.warning(f"Skipping sam_gov_id update: {new_sam_gov_id} already exists for opportunity {existing_sam.id}")
-                elif opportunity.sam_gov_id != new_sam_gov_id:
-                    logger.warning(f"Opportunity {opportunity_id} already has sam_gov_id={opportunity.sam_gov_id}, not updating to {new_sam_gov_id}")
+                else:
+                    logger.warning(f"Opportunity {opportunity_id} already has notice_id={opportunity.notice_id}, not updating to {new_notice_id}")
+
+            # sam_gov_id can be same across users (per-user opportunities)
+            if metadata.get('notice_id') and not opportunity.sam_gov_id:
+                opportunity.sam_gov_id = metadata['notice_id']
+                metadata_updated = True
+                logger.info(f"Updated opportunity sam_gov_id: {metadata['notice_id']}")
             
             if metadata.get('description'):
                 opportunity.description = metadata['description']
@@ -194,6 +206,8 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                     deadline_date_str = metadata['date_offers_due']
                     deadline_time_str = metadata.get('date_offers_due_time', '00:00')
                     timezone_str = metadata.get('date_offers_due_timezone', 'UTC')
+                    # Normalize time to 24h HH:MM for consistency with batch-extracted deadlines
+                    deadline_time_str = _normalize_due_time(deadline_time_str) or deadline_time_str or '00:00'
                     
                     # Combine date and time
                     if isinstance(deadline_date_str, str):
@@ -656,8 +670,10 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                 date_key = due_date
             
             deadline_type = deadline_data.get('deadline_type', 'submission')
-            due_time = deadline_data.get('due_time') or ''
-            timezone = deadline_data.get('timezone') or ''
+            due_time = _normalize_due_time(deadline_data.get('due_time')) or (deadline_data.get('due_time') or '').strip() or ''
+            timezone = (deadline_data.get('timezone') or '').strip()
+            # Keep normalized time on the dict for storage
+            deadline_data['_due_time_normalized'] = due_time or None
             
             # Create unique key: (date, deadline_type, due_time, timezone)
             unique_key = (date_key, deadline_type, due_time, timezone)
@@ -687,8 +703,9 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                 date_key = due_date
             
             deadline_type = deadline_data.get('deadline_type', 'submission')
-            due_time = deadline_data.get('due_time') or ''
-            timezone = deadline_data.get('timezone') or ''
+            # Use normalized time for DB comparison and storage (consistent with scraping)
+            due_time = deadline_data.get('_due_time_normalized') or _normalize_due_time(deadline_data.get('due_time')) or (deadline_data.get('due_time') or '').strip() or ''
+            timezone = (deadline_data.get('timezone') or '').strip()
             
             # Check if similar deadline already exists in database (avoid duplicates)
             # Compare by date (date only), deadline_type, due_time, and timezone
@@ -704,7 +721,7 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                 deadline = Deadline(
                     opportunity_id=opportunity.id,
                     due_date=due_date,
-                    due_time=deadline_data.get('due_time'),
+                    due_time=due_time or deadline_data.get('due_time'),
                     timezone=deadline_data.get('timezone'),
                     deadline_type=deadline_data.get('deadline_type'),
                     description=deadline_data.get('description'),

@@ -1,7 +1,9 @@
 """
 Tavily web search: find manufacturer and dealers per CLIN (runs after CLIN extraction).
 Extracts: manufacturer official website + sales contact email; up to 8 dealers with name, URL, email, pricing.
-All Tavily params and query generation are config-driven or LLM-generated (no hardcoded query templates).
+Missing emails are filled in-core: first from Tavily snippet content, then by fetching dealer/manufacturer
+website_url (and /contact, /contact-us) and scraping with email regex. All Tavily params and query
+generation are config-driven or LLM-generated (no hardcoded query templates).
 """
 import json
 import logging
@@ -66,12 +68,11 @@ def _generate_search_queries_for_clin(clin: Dict[str, Any]) -> List[str]:
     llm = None
     if ANTHROPIC_AVAILABLE and ChatAnthropic is not None and getattr(settings, "ANTHROPIC_API_KEY", None):
         try:
-            llm = ChatAnthropic(
-                model_name=getattr(settings, "ANTHROPIC_MODEL", "claude-3-sonnet-20240229"),
+            llm = ChatAnthropic(  # type: ignore[call-arg, argument]
+                model=getattr(settings, "ANTHROPIC_MODEL", "claude-3-sonnet-20240229"),  # type: ignore[misc]
                 temperature=0,
                 api_key=SecretStr(settings.ANTHROPIC_API_KEY),
                 timeout=60,
-                stop=None,
             )
         except Exception as e:
             logger.debug("Tavily query gen: Claude init failed: %s", e)
@@ -224,6 +225,292 @@ def _normalize_email(s: Optional[str]) -> Optional[str]:
     return s if _is_valid_email(s) else None
 
 
+# Regex to find email addresses in text (whole-page or snippet)
+_EMAIL_PATTERN = re.compile(
+    r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+)
+
+# Domains/local parts we treat as placeholders (not real contact emails)
+_EMAIL_BLACKLIST_LOCAL = frozenset(
+    {"example", "test", "user", "email", "admin", "webmaster", "postmaster", "noreply", "no-reply", "donotreply", "do-not-reply", "null", "undefined"}
+)
+_EMAIL_BLACKLIST_DOMAIN = frozenset(
+    {"example.com", "example.org", "test.com", "domain.com", "email.com", "sentry.io", "wixpress.com"}
+)
+
+
+def _extract_emails_from_text(text: str) -> List[str]:
+    """Extract all email-like strings from text; return deduplicated list (may include some noise)."""
+    if not text or not isinstance(text, str):
+        return []
+    found = set()
+    for m in _EMAIL_PATTERN.finditer(text):
+        email = m.group(0).strip()
+        if len(email) < 6 or len(email) > 254:
+            continue
+        if "/cdn-cgi/" in email or "http" in email.lower() or "mailto:" in email.lower():
+            continue
+        if "@" not in email or email.count("@") != 1:
+            continue
+        local, domain = email.split("@", 1)
+        if not local or not domain or "." not in domain:
+            continue
+        domain_lower = domain.lower()
+        local_lower = local.lower()
+        if local_lower in _EMAIL_BLACKLIST_LOCAL or domain_lower in _EMAIL_BLACKLIST_DOMAIN:
+            continue
+        if domain_lower.endswith(".png") or domain_lower.endswith(".jpg") or domain_lower.endswith(".gif"):
+            continue
+        found.add(email)
+    return list(found)
+
+
+def _pick_best_contact_email(emails: List[str], domain_hint: Optional[str] = None) -> Optional[str]:
+    """Choose the best contact email from a list (prefer sales/contact/info, then domain match)."""
+    if not emails:
+        return None
+    domain_hint_lower = (domain_hint or "").lower()
+    preferred_local = ("sales", "contact", "info", "quotes", "inquiry", "enquir")
+    best = None
+    best_score = -1
+    for e in emails:
+        local = (e.split("@")[0] or "").lower()
+        dom = (e.split("@")[-1] or "").lower() if "@" in e else ""
+        score = 0
+        if domain_hint_lower and domain_hint_lower in dom:
+            score += 10
+        for p in preferred_local:
+            if p in local or local.startswith(p + ".") or local.startswith(p + "_"):
+                score += 5
+                break
+        if local in ("info", "sales", "contact"):
+            score += 3
+        if score > best_score:
+            best_score = score
+            best = e
+    return best or emails[0]
+
+
+def _domain_from_url(url: Optional[str]) -> Optional[str]:
+    """Extract hostname (domain) from URL for matching."""
+    if not url or not isinstance(url, str):
+        return None
+    url = url.strip()
+    for p in ("https://", "http://"):
+        if url.lower().startswith(p):
+            url = url[len(p):]
+            break
+    if "/" in url:
+        url = url.split("/")[0]
+    return url.lower() if url else None
+
+
+def _extract_emails_from_tavily_content(tavily_result: Dict[str, Any], website_url: Optional[str]) -> Optional[str]:
+    """Scan all Tavily result snippets for URLs matching website_url's domain; extract emails and return best."""
+    if not website_url:
+        return None
+    target_domain = _domain_from_url(website_url)
+    if not target_domain:
+        return None
+    combined = []
+    for search in tavily_result.get("searches") or []:
+        for r in search.get("results") or []:
+            url = (r.get("url") or "").strip()
+            result_domain = _domain_from_url(url)
+            if result_domain and target_domain in result_domain:
+                content = (r.get("content") or "").strip()
+                if content:
+                    combined.append(content)
+    if not combined:
+        return None
+    text = "\n".join(combined)
+    emails = _extract_emails_from_text(text)
+    return _pick_best_contact_email(emails, target_domain) if emails else None
+
+
+# Browser-like User-Agent to reduce blocks and 403s
+_FETCH_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+
+def _fetch_page_text(url: str, timeout_sec: int = 12, log_prefix: str = "", retry_on_error: bool = True) -> Optional[str]:
+    """Fetch URL and return plain text (strip HTML). Also extracts mailto: links. Returns None on failure."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+    except ImportError:
+        logger.warning("[Tavily fill] %sNavigation failed (missing requests or bs4): skipping fetch", log_prefix)
+        return None
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url.lstrip("/")
+
+    def _do_fetch() -> Optional[str]:
+        try:
+            r = requests.get(
+                url,
+                timeout=timeout_sec,
+                headers={"User-Agent": _FETCH_USER_AGENT},
+                allow_redirects=True,
+            )
+            # Treat 404 as "page not there" - log at debug, not as hard failure
+            if r.status_code == 404:
+                logger.debug("[Tavily fill] %sPath not found (404) url=%s", log_prefix, url[:80])
+                return None
+            r.raise_for_status()
+            html = r.text
+            soup = BeautifulSoup(html, "html.parser")
+            # Extract mailto: links before stripping (many sites only expose email in links)
+            mailto_emails: List[str] = []
+            for a in soup.find_all("a", href=True):
+                href = (str(a.get("href", "")) or "").strip()
+                if href.lower().startswith("mailto:"):
+                    raw = href[7:].split("?")[0].strip()
+                    if raw and "@" in raw and _normalize_email(raw):
+                        mailto_emails.append(raw)
+            for tag in soup(["script", "style"]):
+                tag.decompose()
+            text = soup.get_text(separator="\n", strip=True)
+            if mailto_emails:
+                text = text + "\n" + "\n".join(mailto_emails)
+            return text or None
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                logger.debug("[Tavily fill] %sPath not found (404) url=%s", log_prefix, url[:80])
+                return None
+            raise
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            logger.info("[Tavily fill] %sNavigation timeout/connection url=%s reason=%s", log_prefix, url[:80], e)
+            raise
+
+    try:
+        return _do_fetch()
+    except Exception as e:
+        # Retry once on 500 or timeout (server may be slow or briefly down)
+        if retry_on_error:
+            if "500" in str(e) or "timed out" in str(e).lower() or "Timeout" in str(e):
+                logger.info("[Tavily fill] %sRetrying once after error url=%s", log_prefix, url[:80])
+                import time
+                time.sleep(2)
+                try:
+                    return _do_fetch()
+                except Exception:
+                    pass
+        logger.info("[Tavily fill] %sNavigation FAILED url=%s reason=%s", log_prefix, url[:80], e)
+        return None
+
+
+# Common contact-page paths (many sites use one of these)
+_CONTACT_PATHS = (
+    "/contact", "/contact-us", "/contact_us", "/contact.html",
+    "/about", "/about-us", "/about_us", "/get-in-touch", "/en/contact",
+)
+
+def _extract_emails_from_page(url: str, timeout_sec: int = 14, log_prefix: str = "") -> List[str]:
+    """Fetch URL and optional contact paths; return all found emails (from text + mailto: links)."""
+    text = _fetch_page_text(url, timeout_sec, log_prefix=log_prefix)
+    if text:
+        emails = _extract_emails_from_text(text)
+        if emails:
+            logger.info("[Tavily fill] %sNavigation PASSED url=%s emails_found=%s", log_prefix, url[:80], len(emails))
+            return emails
+    # Try common contact paths (longer timeout for slow servers)
+    base = url.rstrip("/")
+    path_timeout = min(10, timeout_sec)
+    for path in _CONTACT_PATHS:
+        u = base + path
+        t = _fetch_page_text(u, timeout_sec=path_timeout, log_prefix=log_prefix)
+        if t:
+            emails = _extract_emails_from_text(t)
+            if emails:
+                logger.info("[Tavily fill] %sNavigation PASSED url=%s emails_found=%s", log_prefix, u[:80], len(emails))
+                return emails
+    logger.info("[Tavily fill] %sNavigation FAILED (no emails extracted) url=%s", log_prefix, url[:80])
+    return []
+
+
+def _fill_missing_emails(tavily_data: Dict[str, Any]) -> None:
+    """
+    Fill missing sales_contact_email for manufacturers and dealers using:
+    1) Emails already in Tavily result content (nav/footer in snippets).
+    2) Fetch dealer/manufacturer website_url + /contact, /contact-us and scrape emails.
+    Mutates tavily_data["manufacturer_research"] and tavily_data["dealer_research"] in place.
+    """
+    import time
+    fill_delay_sec = getattr(settings, "TAVILY_FILL_EMAIL_FETCH_DELAY", 1.0)
+    clin_id = (tavily_data.get("clin") or {}).get("id", "?")
+
+    # 1) Fill from Tavily content first (no HTTP)
+    logger.info("[Tavily fill] CLIN %s: finding missing emails (phase 1: Tavily content)", clin_id)
+    mfr_list = tavily_data.get("manufacturer_research")
+    if isinstance(mfr_list, list):
+        for m in mfr_list:
+            if not isinstance(m, dict):
+                continue
+            if m.get("sales_contact_email"):
+                continue
+            name = (m.get("name") or "manufacturer")[:40]
+            url = m.get("official_website")
+            email = _extract_emails_from_tavily_content(tavily_data, url)
+            if email and _normalize_email(email):
+                m["sales_contact_email"] = _normalize_email(email)
+                logger.info("[Tavily fill] CLIN %s: manufacturer '%s' email from content PASSED -> %s", clin_id, name, email[:50])
+            elif url:
+                logger.info("[Tavily fill] CLIN %s: manufacturer '%s' email from content FAILED (no match in snippets)", clin_id, name)
+
+    dealers = tavily_data.get("dealer_research") or []
+    for d in dealers:
+        if not isinstance(d, dict) or d.get("sales_contact_email"):
+            continue
+        name = (d.get("company_name") or "dealer")[:40]
+        url = d.get("website_url")
+        email = _extract_emails_from_tavily_content(tavily_data, url)
+        if email and _normalize_email(email):
+            d["sales_contact_email"] = _normalize_email(email)
+            logger.info("[Tavily fill] CLIN %s: dealer '%s' email from content PASSED -> %s", clin_id, name, email[:50])
+        elif url:
+            logger.info("[Tavily fill] CLIN %s: dealer '%s' email from content FAILED (no match in snippets)", clin_id, name)
+
+    # 2) Fetch pages for those still missing (navigation)
+    logger.info("[Tavily fill] CLIN %s: finding missing emails (phase 2: fetch/navigation)", clin_id)
+    if isinstance(mfr_list, list):
+        for m in mfr_list:
+            if not isinstance(m, dict) or m.get("sales_contact_email"):
+                continue
+            url = m.get("official_website")
+            if not url:
+                continue
+            name = (m.get("name") or "manufacturer")[:40]
+            time.sleep(fill_delay_sec)
+            log_prefix = f"mfr '{name}' "
+            emails = _extract_emails_from_page(url, log_prefix=log_prefix)
+            email = _pick_best_contact_email(emails, _domain_from_url(url))
+            if email and _normalize_email(email):
+                m["sales_contact_email"] = _normalize_email(email)
+                logger.info("[Tavily fill] CLIN %s: manufacturer '%s' email from fetch PASSED -> %s", clin_id, name, email[:50])
+            else:
+                logger.info("[Tavily fill] CLIN %s: manufacturer '%s' email from fetch FAILED (navigation returned no usable email)", clin_id, name)
+
+    for d in dealers:
+        if not isinstance(d, dict) or d.get("sales_contact_email"):
+            continue
+        url = d.get("website_url")
+        if not url:
+            continue
+        name = (d.get("company_name") or "dealer")[:40]
+        time.sleep(fill_delay_sec)
+        log_prefix = f"dealer '{name}' "
+        emails = _extract_emails_from_page(url, log_prefix=log_prefix)
+        email = _pick_best_contact_email(emails, _domain_from_url(url))
+        if email and _normalize_email(email):
+            d["sales_contact_email"] = _normalize_email(email)
+            logger.info("[Tavily fill] CLIN %s: dealer '%s' email from fetch PASSED -> %s", clin_id, name, email[:50])
+        else:
+            logger.info("[Tavily fill] CLIN %s: dealer '%s' email from fetch FAILED (navigation returned no usable email)", clin_id, name)
+
+    logger.info("[Tavily fill] CLIN %s: finding missing emails complete", clin_id)
+
+
 def _build_tavily_context_for_llm(tavily_result: Dict[str, Any]) -> str:
     """Build a concise text context from Tavily searches for the LLM."""
     parts: List[str] = []
@@ -248,12 +535,12 @@ def _build_tavily_context_for_llm(tavily_result: Dict[str, Any]) -> str:
 def _extract_manufacturer_and_dealers_from_tavily(tavily_result: Dict[str, Any]) -> Dict[str, Any]:
     """
     Use LLM to extract from Tavily raw results:
-    - Manufacturer: official_website, sales_contact_email
-    - Up to 8 dealers: company_name, website_url, sales_contact_email, retail_pricing (if available)
-    Returns { "manufacturer_research": {...}, "dealer_research": [...] } or empty on failure.
+    - manufacturer_research: list of { name, official_website, sales_contact_email } (one per manufacturer)
+    - dealer_research: list of { company_name, website_url, sales_contact_email, retail_pricing }; manufacturers that are also dealers are included here too
+    Returns { "manufacturer_research": [...] or {...}, "dealer_research": [...] }. Single-object manufacturer format is supported for backward compat.
     """
     empty = {
-        "manufacturer_research": {"official_website": None, "sales_contact_email": None},
+        "manufacturer_research": [],
         "dealer_research": [],
     }
     clin_info = tavily_result.get("clin") or {}
@@ -263,9 +550,10 @@ def _extract_manufacturer_and_dealers_from_tavily(tavily_result: Dict[str, Any])
     if not context.strip():
         return empty
 
-    prompt = f"""You are extracting structured research from web search results for a government contract line item (CLIN). The goal is to find manufacturer and authorized dealers with website and contact email for quote requests and outreach.
+    prompt = f"""You are extracting structured research from web search results for a government contract line item (CLIN). The goal is to find ALL manufacturers and authorized dealers with website and contact email for quote requests. Contact email is REQUIRED for quote requests—extract it whenever it appears.
 
 CLIN context: manufacturer="{mfr}", product="{product}"
+(The manufacturer field may list multiple companies, e.g. "Company A / Company B" or "Company A - CAGE X / Company B - CAGE Y". Extract research for EACH.)
 
 Web search results (queries, answers, and result snippets). Each result has "Title | URL" then snippet text:
 ---
@@ -273,30 +561,31 @@ Web search results (queries, answers, and result snippets). Each result has "Tit
 ---
 
 RULES:
-1) manufacturer_research:
-   - official_website: manufacturer's official site URL from the results, or null.
-   - sales_contact_email: one real email (e.g. sales@company.com) for quote/contact; null if not found. No URLs or /cdn-cgi/ links.
+1) manufacturer_research: MUST be an ARRAY of objects, one per manufacturer. For EACH manufacturer named in the CLIN (or found in results):
+   - name: company name (e.g. "BAE Systems", "North Atlantic Industries Inc.").
+   - official_website: that manufacturer's official site URL from the results, or null.
+   - sales_contact_email: real email for quote/contact (e.g. sales@company.com). REQUIRED when found. Null only if not in results. No URLs or /cdn-cgi/ links.
 
-2) dealer_research (authorized dealers/distributors for quote requests). For EACH dealer:
-   - company_name: string (dealer/distributor name).
-   - website_url: REQUIRED when possible. Use the result URL (the "| https://..." part) that clearly belongs to that dealer—i.e. the link of the page where that dealer is mentioned. If the snippet is about "Allied Materials" and the result URL is https://alliedmaterials.com/..., set website_url to that URL. Only use null if no result URL clearly refers to that company.
-   - sales_contact_email: dealer's contact/sales email for quote requests (e.g. sales@dealer.com). Extract from snippet (e.g. "email: x@y.com", "contact@", "sales@"). Null if only a contact form or no email found.
-   - retail_pricing: string or null if visible (e.g. "$X.XX" or "from $Y").
+2) dealer_research (authorized dealers/distributors for quote requests). For EACH dealer OR distributor:
+   - company_name: string.
+   - website_url: REQUIRED when possible. Use the result URL that clearly belongs to that company.
+   - sales_contact_email: contact/sales email for quote requests. REQUIRED when found. Extract from snippet (e.g. "email: x@y.com", "contact@", "sales@"). Null only if not found.
+   - retail_pricing: string or null if visible.
+   - If a manufacturer also acts as a distributor or dealer (sells direct), INCLUDE them in dealer_research as well with their website and sales_contact_email.
 
-Prioritize dealers where you have both website_url and sales_contact_email. Include up to 8 dealers clearly identified in the results. Always set website_url from the result URL when the result is about that dealer.
+Prioritize entries where sales_contact_email is found. Include up to 8 dealers. Always set website_url from the result URL when the result is about that company.
 Output ONLY a single valid JSON object (no markdown, no explanation):
-{{"manufacturer_research": {{"official_website": "...", "sales_contact_email": "..."}}, "dealer_research": [{{"company_name": "...", "website_url": "...", "sales_contact_email": "...", "retail_pricing": "..."}}, ...]}}
+{{"manufacturer_research": [{{"name": "...", "official_website": "...", "sales_contact_email": "..."}}, ...], "dealer_research": [{{"company_name": "...", "website_url": "...", "sales_contact_email": "...", "retail_pricing": "..."}}, ...]}}
 """
 
     llm = None
     if ANTHROPIC_AVAILABLE and ChatAnthropic is not None and getattr(settings, "ANTHROPIC_API_KEY", None):
         try:
-            llm = ChatAnthropic(
-                model_name=getattr(settings, "ANTHROPIC_MODEL", "claude-3-sonnet-20240229"),
+            llm = ChatAnthropic(  # type: ignore[call-arg, argument]
+                model=getattr(settings, "ANTHROPIC_MODEL", "claude-3-sonnet-20240229"),  # type: ignore[misc]
                 temperature=0,
                 api_key=SecretStr(settings.ANTHROPIC_API_KEY),
                 timeout=None,
-                stop=None,
             )
         except Exception as e:
             logger.debug("Tavily extract: Claude init failed: %s", e)
@@ -334,12 +623,9 @@ Output ONLY a single valid JSON object (no markdown, no explanation):
         out = json.loads(text)
         m = out.get("manufacturer_research")
         d = out.get("dealer_research")
-        if not isinstance(m, dict):
-            m = empty["manufacturer_research"]
         if not isinstance(d, list):
             d = []
-        # Cap dealers at 8 and ensure each has required keys; validate emails
-        dealers = []
+
         def _normalize_url(u: Optional[str]) -> Optional[str]:
             if not u or not isinstance(u, str):
                 return None
@@ -350,6 +636,34 @@ Output ONLY a single valid JSON object (no markdown, no explanation):
                 return "https://" + u.lstrip("/")
             return u
 
+        # Normalize manufacturer_research: accept array (new) or single object (legacy)
+        manufacturers: List[Dict[str, Any]] = []
+        if isinstance(m, list):
+            for item in m:
+                if not isinstance(item, dict):
+                    continue
+                name = (str(item.get("name") or "").strip()) or None
+                official_website = (item.get("official_website") or "").strip() or None
+                if official_website and not official_website.startswith(("http://", "https://")):
+                    official_website = "https://" + official_website.lstrip("/")
+                manufacturers.append({
+                    "name": name,
+                    "official_website": official_website or None,
+                    "sales_contact_email": _normalize_email((str(item.get("sales_contact_email") or "").strip()) or None),
+                })
+        elif isinstance(m, dict):
+            # Legacy single-object format
+            official_website = (m.get("official_website") or "").strip() or None
+            if official_website and not official_website.startswith(("http://", "https://")):
+                official_website = "https://" + official_website.lstrip("/")
+            manufacturers = [{
+                "name": None,
+                "official_website": official_website or None,
+                "sales_contact_email": _normalize_email((str(m.get("sales_contact_email") or "").strip()) or None),
+            }]
+
+        # Cap dealers at 8 and ensure each has required keys; validate emails
+        dealers = []
         for i, item in enumerate(d[:8]):
             if not isinstance(item, dict):
                 continue
@@ -360,15 +674,9 @@ Output ONLY a single valid JSON object (no markdown, no explanation):
                 "sales_contact_email": _normalize_email(raw_email),
                 "retail_pricing": (str(item.get("retail_pricing") or "").strip()) or None,
             })
-        mfr_email = (str(m.get("sales_contact_email") or "").strip()) or None
-        official_website = (m.get("official_website") or "").strip() or None
-        if official_website and not official_website.startswith(("http://", "https://")):
-            official_website = "https://" + official_website.lstrip("/")
+
         return {
-            "manufacturer_research": {
-                "official_website": official_website,
-                "sales_contact_email": _normalize_email(mfr_email),
-            },
+            "manufacturer_research": manufacturers if manufacturers else [],  # Store as list; frontend/API accept dict or list
             "dealer_research": dealers,
         }
     except json.JSONDecodeError as e:
@@ -418,15 +726,22 @@ def run_tavily_for_opportunity(
             if data.get("searches"):
                 logger.info("[Tavily] CLIN %s: running LLM extraction (searches=%s)", clin_id, len(data.get("searches") or []))
                 extracted = _extract_manufacturer_and_dealers_from_tavily(data)
-                data["manufacturer_research"] = extracted.get("manufacturer_research") or {"official_website": None, "sales_contact_email": None}
+                data["manufacturer_research"] = extracted.get("manufacturer_research") or []
                 data["dealer_research"] = extracted.get("dealer_research") or []
+                _fill_missing_emails(data)  # in-core: fill missing sales_contact_email from snippets + fetch
             else:
-                data["manufacturer_research"] = {"official_website": None, "sales_contact_email": None}
+                data["manufacturer_research"] = []
                 data["dealer_research"] = []
-            mfr = data.get("manufacturer_research") or {}
+            mfr_list = data.get("manufacturer_research") or []
             dealers = data.get("dealer_research") or []
-            logger.info("[Tavily] CLIN %s: extracted mfr_website=%s mfr_email=%s dealers_count=%s",
-                clin_id, bool(mfr.get("official_website")), bool(mfr.get("sales_contact_email")), len(dealers))
+            mfr_count = len(mfr_list) if isinstance(mfr_list, list) else (1 if mfr_list else 0)
+            has_mfr_contact = False
+            if isinstance(mfr_list, list):
+                has_mfr_contact = any((m.get("official_website") or m.get("sales_contact_email")) for m in mfr_list if isinstance(m, dict))
+            elif isinstance(mfr_list, dict):
+                has_mfr_contact = bool(mfr_list.get("official_website") or mfr_list.get("sales_contact_email"))
+            logger.info("[Tavily] CLIN %s: extracted manufacturers=%s has_contact=%s dealers_count=%s",
+                clin_id, mfr_count, has_mfr_contact, len(dealers))
             out_path = run_dir / f"clin_{clin_id}.json"
             with open(out_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, default=str)

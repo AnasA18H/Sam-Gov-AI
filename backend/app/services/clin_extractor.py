@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Pydantic schema for LLM extraction (V1BaseModel/V1Field only defined when import succeeds)
 if PYDANTIC_AVAILABLE:
-    class CLINItem(V1BaseModel):
+    class CLINItem(V1BaseModel):  # type: ignore[misc, valid-type]
         item_number: str = V1Field(description="The CLIN number (e.g., '0001', '0002')")
         description: str = V1Field(description="Full product/service description")
         quantity: Optional[int] = V1Field(None, description="Quantity as integer")
@@ -131,7 +131,7 @@ class CLINExtractor:
             try:
                 from pydantic import SecretStr
                 self.fallback_llm = ChatGroq(  # type: ignore[call-arg]
-                    model=settings.GROQ_MODEL,
+                    model=getattr(settings, "GROQ_MODEL", "llama-3.1-70b-versatile"),
                     temperature=0,
                     api_key=SecretStr(settings.GROQ_API_KEY),
                 )
@@ -555,8 +555,23 @@ IMPORTANT RULES:
 - Only populate a field when the information exists in the document. If not found after searching, use null (not empty string, "N/A", or "TBD")
 - Distinguish CLINs from BOM items - CLINs are top-level contract items, BOM items are components
 
+5. DEADLINES - EXTRACT ALL SUBMISSION AND QUESTION DEADLINES:
+- Search the ENTIRE document (and any SAM.gov page text) for EVERY deadline mentioned. Do NOT return only one deadline.
+- Look for: "Questions are due by...", "Quotes are due by...", "Offers due...", "Proposals due...", "Submission deadline...", "Response due...", date/time in description or headers.
+- For EACH deadline found, add one entry to the "deadlines" array with:
+  - due_date: YYYY-MM-DD
+  - due_time: time in 24-hour HH:MM (e.g. 12:00 for noon, 14:00 for 2:00 PM)
+  - timezone: EST, EDT, CST, CDT, MST, MDT, PST, PDT, or UTC when stated
+  - deadline_type: use exactly one of:
+    * "questions_due" for questions/inquiries/clarifications due (e.g. "Questions are due by January 12, 2026 at 12:00 PM")
+    * "offers_due" for quotes/offers/proposals due (e.g. "Quotes are due by February 02, 2026 at 2:00 PM")
+    * "submission" for general submission deadlines
+    * "other" for any other deadline
+  - description: brief label (e.g. "Questions due", "Quotes due")
+  - is_primary: true ONLY for the main quote/offer/proposal submission deadline (the one that matters most for submitting the bid); false for questions_due and other earlier deadlines
+
 RETURN FORMAT:
-- Return ONLY valid JSON matching this exact schema:
+- Return ONLY valid JSON matching this exact schema (include BOTH "clins" AND "deadlines"):
 {{
   "clins": [
     {{
@@ -580,10 +595,21 @@ RETURN FORMAT:
       "extended_price": "number or null",
       "source_document": "string or null"
     }}
+  ],
+  "deadlines": [
+    {{
+      "due_date": "YYYY-MM-DD",
+      "due_time": "HH:MM or null (24-hour)",
+      "timezone": "EST or null",
+      "deadline_type": "questions_due|offers_due|submission|other",
+      "description": "string or null",
+      "is_primary": true or false
+    }}
   ]
 }}
 - Return ONLY the JSON object. No explanations, no markdown, no code blocks, no text before or after.
-- If no CLINs found, return: {{"clins": []}}
+- If no CLINs found, return: {{"clins": [], "deadlines": [...]}}
+- Always extract and return ALL deadlines found (questions due, quotes due, etc.); "deadlines" must not be empty when the document mentions multiple due dates.
 
 DOCUMENT TEXT:
 {text}"""
@@ -757,8 +783,23 @@ IMPORTANT RULES:
 - Only populate a field when the information exists in the documents. If not found after searching all documents, use null (not empty string, "N/A", or "TBD")
 - Distinguish CLINs from BOM items - CLINs are top-level contract items, BOM items are components
 
+5. DEADLINES - EXTRACT ALL SUBMISSION AND QUESTION DEADLINES FROM ALL DOCUMENTS:
+- Search EVERY document (including "SAM.gov Opportunity Page" if present) for EVERY deadline mentioned. Do NOT return only one deadline.
+- Look for: "Questions are due by...", "Quotes are due by...", "Offers due...", "Proposals due...", "Submission deadline...", "Response due...", date/time in description or headers.
+- For EACH deadline found, add one entry to the "deadlines" array with:
+  - due_date: YYYY-MM-DD
+  - due_time: time in 24-hour HH:MM (e.g. 12:00 for noon, 14:00 for 2:00 PM)
+  - timezone: EST, EDT, CST, CDT, MST, MDT, PST, PDT, or UTC when stated
+  - deadline_type: use exactly one of:
+    * "questions_due" for questions/inquiries/clarifications due (e.g. "Questions are due by January 12, 2026 at 12:00 PM")
+    * "offers_due" for quotes/offers/proposals due (e.g. "Quotes are due by February 02, 2026 at 2:00 PM")
+    * "submission" for general submission deadlines
+    * "other" for any other deadline
+  - description: brief label (e.g. "Questions due", "Quotes due")
+  - is_primary: true ONLY for the main quote/offer/proposal submission deadline; false for questions_due and other earlier deadlines
+
 RETURN FORMAT:
-- Return ONLY valid JSON matching this exact schema:
+- Return ONLY valid JSON matching this exact schema (include BOTH "clins" AND "deadlines"):
 {{
   "clins": [
     {{
@@ -782,10 +823,21 @@ RETURN FORMAT:
       "extended_price": "number or null",
       "source_document": "string or null"
     }}
+  ],
+  "deadlines": [
+    {{
+      "due_date": "YYYY-MM-DD",
+      "due_time": "HH:MM or null (24-hour)",
+      "timezone": "EST or null",
+      "deadline_type": "questions_due|offers_due|submission|other",
+      "description": "string or null",
+      "is_primary": true or false
+    }}
   ]
 }}
 - Return ONLY the JSON object. No explanations, no markdown, no code blocks, no text before or after.
-- If no CLINs found, return: {{"clins": []}}
+- If no CLINs found, return: {{"clins": [], "deadlines": [...]}}
+- Always extract and return ALL deadlines found (questions due, quotes due, etc.); "deadlines" must not be empty when the document mentions multiple due dates.
 
 DOCUMENTS:
 {combined_text}"""
@@ -1298,8 +1350,39 @@ Return ONLY valid JSON:
         logger.info(f"Converted {len(result)} CLINs to dict format")
         return result
     
+    @staticmethod
+    def _normalize_due_time(due_time: Optional[str]) -> Optional[str]:
+        """Normalize due_time to 24-hour HH:MM for consistent dedup and storage. Returns None if empty or unparseable."""
+        if not due_time or not isinstance(due_time, str):
+            return None
+        s = due_time.strip()
+        if not s:
+            return None
+        # Already HH:MM or HH:MM:SS 24h
+        match = re.match(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$", s)
+        if match:
+            h, m = int(match.group(1)), int(match.group(2))
+            if 0 <= h <= 23 and 0 <= m <= 59:
+                return f"{h:02d}:{m:02d}"
+        # 12-hour with AM/PM
+        match = re.match(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?\s*$", s, re.IGNORECASE)
+        if match:
+            h, m = int(match.group(1)), int(match.group(2))
+            ampm = (match.group(4) or "").upper()
+            if ampm == "PM" and h != 12:
+                h += 12
+            elif ampm == "AM" and h == 12:
+                h = 0
+            if 0 <= h <= 23 and 0 <= m <= 59:
+                return f"{h:02d}:{m:02d}"
+        try:
+            dt = dateutil.parser.parse(f"1970-01-01 {s}", fuzzy=True)
+            return dt.strftime("%H:%M")
+        except Exception:
+            return None
+
     def _convert_deadlines_to_dicts(self, deadlines: List) -> List[Dict]:
-        """Convert DeadlineItem objects or dicts to standard dict format"""
+        """Convert DeadlineItem objects or dicts to standard dict format. Normalizes due_time to 24h HH:MM."""
         result = []
         
         if not isinstance(deadlines, list):
@@ -1331,6 +1414,12 @@ Return ONLY valid JSON:
                 else:
                     logger.debug(f"Skipping deadline: unexpected type {type(deadline)}")
                     continue
+                
+                # Normalize due_time to 24h HH:MM for consistent dedup and DB storage
+                raw_time = deadline_dict.get('due_time')
+                deadline_dict['due_time'] = self._normalize_due_time(raw_time) if raw_time else None
+                if raw_time and not deadline_dict['due_time']:
+                    deadline_dict['due_time'] = str(raw_time).strip() or None  # keep original if unparseable
                 
                 # Parse date string to datetime
                 if deadline_dict.get('due_date'):
