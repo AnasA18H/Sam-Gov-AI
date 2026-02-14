@@ -28,6 +28,8 @@ FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
 BACKEND_PID_FILE="${SCRIPT_DIR}/.backend.pid"
 FRONTEND_PID_FILE="${SCRIPT_DIR}/.frontend.pid"
 CELERY_PID_FILE="${SCRIPT_DIR}/.celery.pid"
+DB_VIEWER_PID_FILE="${SCRIPT_DIR}/.dbviewer.pid"
+DB_VIEWER_PORT="${DB_VIEWER_PORT:-5050}"
 
 ###############################################################################
 # Helper Functions
@@ -90,11 +92,22 @@ cleanup() {
             rm -f "$CELERY_PID_FILE"
         fi
     fi
+
+    # Kill DB viewer
+    if [ -f "$DB_VIEWER_PID_FILE" ]; then
+        DBVIEWER_PID=$(cat "$DB_VIEWER_PID_FILE")
+        if kill -0 "$DBVIEWER_PID" 2>/dev/null; then
+            print_info "Stopping DB viewer (PID: $DBVIEWER_PID)..."
+            kill "$DBVIEWER_PID" 2>/dev/null || true
+            rm -f "$DB_VIEWER_PID_FILE"
+        fi
+    fi
     
     # Kill any remaining processes (match start.sh process invocations)
     pkill -f "uvicorn.*backend.app.main" 2>/dev/null || true
     pkill -f "vite" 2>/dev/null || true
     pkill -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
+    pkill -f "dev-db-viewer/server.py" 2>/dev/null || true
     
     print_success "All services stopped"
     exit 0
@@ -109,26 +122,32 @@ trap cleanup SIGINT SIGTERM
 
 print_header "Pre-flight Checks"
 
-# Check if Python venv exists
-if [ ! -d "venv" ]; then
+# Resolve venv path (venv or .venv)
+VENV_DIR="${SCRIPT_DIR}/venv"
+if [ -d "$VENV_DIR" ]; then
+    :
+elif [ -d "${SCRIPT_DIR}/.venv" ]; then
+    VENV_DIR="${SCRIPT_DIR}/.venv"
+else
     print_error "Python virtual environment not found!"
     print_info "Please run: python3 -m venv venv"
     exit 1
 fi
 
 # Check if requirements are installed
-if [ ! -f "venv/bin/python" ]; then
+if [ ! -f "$VENV_DIR/bin/python" ]; then
     print_error "Python executable not found in venv!"
     exit 1
 fi
 
-# Check if key packages are installed
-source venv/bin/activate
+# Load venv and check key packages
+source "$VENV_DIR/bin/activate"
 if ! python -c "import fastapi" 2>/dev/null; then
     print_warning "FastAPI not found in venv - installing requirements..."
     pip install -q -r requirements.txt || print_error "Failed to install requirements"
 fi
-deactivate
+print_success "Virtual environment loaded: $VIRTUAL_ENV"
+# Keep venv active for the rest of the script (backend, Celery, migrations use it)
 
 # Check if .env exists
 if [ ! -f ".env" ]; then
@@ -137,7 +156,7 @@ if [ ! -f ".env" ]; then
     exit 1
 fi
 
-print_success "Virtual environment found"
+print_success "Virtual environment found: $VENV_DIR"
 print_success ".env file found"
 
 # Check PostgreSQL
@@ -188,8 +207,8 @@ fi
 
 print_header "Database Setup"
 
-# Activate virtual environment
-source venv/bin/activate
+# Ensure venv is active (already activated in pre-flight)
+source "$VENV_DIR/bin/activate"
 
 # Check database connection
 print_info "Checking database connection..."
@@ -199,11 +218,13 @@ else
     print_warning "Database connection failed - migrations may fail"
 fi
 
-# Ensure data directories exist
+# Ensure data directories exist (backend documents, Tavily results, logs)
 print_info "Ensuring data directories exist..."
+mkdir -p backend/data/documents
 mkdir -p data/documents
 mkdir -p data/uploads
 mkdir -p data/debug_extracts
+mkdir -p data/tavily_results
 mkdir -p logs
 print_success "Data directories ready"
 
@@ -229,13 +250,14 @@ if curl -s "$BACKEND_URL/health" &> /dev/null; then
     print_warning "Backend server is already running on port $BACKEND_PORT"
     print_info "Skipping backend startup"
 else
-    print_info "Starting FastAPI backend server..."
+    print_info "Starting FastAPI backend server (using venv)..."
     
     # Create logs directory if it doesn't exist
     mkdir -p logs
     
-    # Start backend in background
-    nohup uvicorn backend.app.main:app \
+    # Start backend in background with venv Python so deps are correct
+    source "$VENV_DIR/bin/activate"
+    nohup "$VENV_DIR/bin/uvicorn" backend.app.main:app \
         --host 0.0.0.0 \
         --port "$BACKEND_PORT" \
         --reload \
@@ -244,19 +266,26 @@ else
     BACKEND_PID=$!
     echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
     
-    # Wait for backend to start
+    # Wait for backend to start (with --reload, worker can take a few seconds)
     print_info "Waiting for backend to start..."
-    sleep 3
+    sleep 4
+    BACKEND_READY=0
+    for i in 1 2 3 4 5 6; do
+        if curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" | grep -q 200; then
+            BACKEND_READY=1
+            break
+        fi
+        [ $i -lt 6 ] && sleep 2
+    done
     
-    # Check if backend started successfully
     if kill -0 "$BACKEND_PID" 2>/dev/null; then
-        if curl -s "$BACKEND_URL/health" &> /dev/null; then
+        if [ "$BACKEND_READY" -eq 1 ]; then
             print_success "Backend server started (PID: $BACKEND_PID)"
             print_info "Backend URL: $BACKEND_URL"
             print_info "API Docs: $BACKEND_URL/docs"
         else
-            print_warning "Backend process started but health check failed"
-            print_info "Check logs/backend.log for details"
+            print_warning "Backend process running but health check did not pass yet"
+            print_info "Server may still be starting (--reload). Check logs/backend.log and try: curl $BACKEND_URL/health"
         fi
     else
         print_error "Backend server failed to start"
@@ -284,17 +313,14 @@ fi
 pkill -f "celery.*worker.*backend.app.core.celery_app" 2>/dev/null || true
 sleep 1
 
-print_info "Starting Celery worker for background tasks..."
-
-# Ensure venv is activated
-source venv/bin/activate
+print_info "Starting Celery worker for background tasks (using venv)..."
 
 # Unbuffered output so logs appear immediately in logs/celery.log
 export PYTHONUNBUFFERED=1
 
-# Start Celery worker in background (fresh log file each start)
+# Start Celery worker in background using venv binary
 mkdir -p logs
-nohup celery -A backend.app.core.celery_app worker \
+nohup "$VENV_DIR/bin/celery" -A backend.app.core.celery_app worker \
     --loglevel=info \
     --logfile="$SCRIPT_DIR/logs/celery.log" \
     > logs/celery.log 2>&1 &
@@ -354,6 +380,36 @@ else
 fi
 
 ###############################################################################
+# Start Dev DB Viewer (optional)
+###############################################################################
+
+print_header "Dev DB Viewer"
+
+if [ -d "$SCRIPT_DIR/dev-db-viewer" ] && [ -f "$SCRIPT_DIR/dev-db-viewer/server.py" ]; then
+    if curl -s "http://127.0.0.1:${DB_VIEWER_PORT}" &>/dev/null; then
+        print_warning "DB viewer already running on port $DB_VIEWER_PORT"
+        print_info "Skipping DB viewer startup"
+    else
+        print_info "Starting DB viewer on port $DB_VIEWER_PORT (using project venv)..."
+        mkdir -p logs
+        nohup env DB_VIEWER_PORT="$DB_VIEWER_PORT" "$VENV_DIR/bin/python" "$SCRIPT_DIR/dev-db-viewer/server.py" >> "$SCRIPT_DIR/logs/db-viewer.log" 2>&1 &
+        DBVIEWER_PID=$!
+        echo "$DBVIEWER_PID" > "$DB_VIEWER_PID_FILE"
+        sleep 1
+        if kill -0 "$DBVIEWER_PID" 2>/dev/null; then
+            print_success "DB viewer started (PID: $DBVIEWER_PID)"
+            print_info "DB viewer: http://127.0.0.1:${DB_VIEWER_PORT}"
+        else
+            print_warning "DB viewer may have failed to start"
+            print_info "Check logs/db-viewer.log (ensure DATABASE_URL in .env is correct)"
+            rm -f "$DB_VIEWER_PID_FILE"
+        fi
+    fi
+else
+    print_info "Dev DB viewer not found (optional); skip or add dev-db-viewer/ to enable"
+fi
+
+###############################################################################
 # Final Status
 ###############################################################################
 
@@ -362,6 +418,9 @@ print_header "Application Started"
 echo -e "${GREEN}✓${NC} Backend:  ${BLUE}$BACKEND_URL${NC}"
 echo -e "${GREEN}✓${NC} Frontend: ${BLUE}$FRONTEND_URL${NC}"
 echo -e "${GREEN}✓${NC} Celery:   ${BLUE}Background worker running${NC}"
+if [ -f "$DB_VIEWER_PID_FILE" ] && kill -0 "$(cat "$DB_VIEWER_PID_FILE")" 2>/dev/null; then
+echo -e "${GREEN}✓${NC} DB Viewer: ${BLUE}http://127.0.0.1:${DB_VIEWER_PORT}${NC}"
+fi
 echo ""
 echo -e "${YELLOW}Useful Links:${NC}"
 echo "  • Frontend:        $FRONTEND_URL"
@@ -369,11 +428,13 @@ echo "  • Backend API:     $BACKEND_URL"
 echo "  • API Docs:        $BACKEND_URL/docs"
 echo "  • ReDoc:           $BACKEND_URL/redoc"
 echo "  • Health Check:    $BACKEND_URL/health"
+[ -f "$DB_VIEWER_PID_FILE" ] && kill -0 "$(cat "$DB_VIEWER_PID_FILE")" 2>/dev/null && echo "  • DB Viewer:       http://127.0.0.1:${DB_VIEWER_PORT}"
 echo ""
 echo -e "${YELLOW}Logs:${NC}"
-echo "  • Backend:  tail -f logs/backend.log"
-echo "  • Frontend: tail -f logs/frontend.log"
-echo "  • Celery:   tail -f logs/celery.log"
+echo "  • Backend:   tail -f logs/backend.log"
+echo "  • Frontend:  tail -f logs/frontend.log"
+echo "  • Celery:    tail -f logs/celery.log"
+[ -d "$SCRIPT_DIR/dev-db-viewer" ] && echo "  • DB Viewer:  tail -f logs/db-viewer.log"
 echo ""
 echo -e "${YELLOW}To stop all services:${NC}"
 echo "  Press Ctrl+C or run: ./stop.sh"

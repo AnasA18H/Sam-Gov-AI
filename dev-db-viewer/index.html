@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dev DB Viewer – SAM Gov</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #22d3ee;
+      --green: #34d399;
+      --red: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    .header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .header h1 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--accent); }
+    .header p { margin: 0.25rem 0 0; font-size: 0.8rem; color: var(--muted); }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    .btn:hover { background: #334155; border-color: var(--accent); }
+    .btn.primary { background: #0e7490; border-color: #0e7490; color: #fff; }
+    .btn.primary:hover { background: #0d9488; }
+    .error-banner {
+      margin: 1rem 1.5rem;
+      padding: 1rem;
+      background: rgba(248,113,113,0.15);
+      border: 1px solid var(--red);
+      border-radius: 8px;
+      color: var(--red);
+    }
+    .container { max-width: 1600px; margin: 0 auto; padding: 1rem 1.5rem 2rem; }
+    .table-block {
+      margin-bottom: 1.5rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .table-block h2 {
+      margin: 0;
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      background: rgba(34,211,238,0.08);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .table-block h2 .count { font-weight: 400; color: var(--muted); font-size: 0.875rem; }
+    .table-block .inner { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+    th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: rgba(0,0,0,0.2); color: var(--muted); font-weight: 500; white-space: nowrap; }
+    tr:hover { background: rgba(255,255,255,0.03); }
+    td { vertical-align: top; max-width: 320px; }
+    .cell-json { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; font-size: 0.75rem; }
+    .cell-null { color: var(--muted); font-style: italic; }
+    .table-error { padding: 1rem; color: var(--red); }
+    .loading { padding: 2rem; text-align: center; color: var(--muted); }
+    .meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>Dev DB Viewer</h1>
+      <p>Temporary live view of database – separate from main app. Sensitive fields masked.</p>
+    </div>
+    <button type="button" class="btn primary" id="refresh">Refresh</button>
+  </div>
+  <div class="container">
+    <div id="root">
+      <div class="loading">Loading…</div>
+    </div>
+    <p class="meta" id="meta"></p>
+  </div>
+
+  <script>
+    const root = document.getElementById('root');
+    const meta = document.getElementById('meta');
+    const refreshBtn = document.getElementById('refresh');
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function formatCell(value) {
+      if (value === null || value === undefined) return '<span class="cell-null">null</span>';
+      if (typeof value === 'object') return '<span class="cell-json">' + escapeHtml(JSON.stringify(value, null, 2)) + '</span>';
+      const str = String(value);
+      if (str.length > 200) return '<span class="cell-json" title="' + escapeHtml(str) + '">' + escapeHtml(str.slice(0, 200)) + '…</span>';
+      return escapeHtml(str);
+    }
+
+    function renderTable(name, rows) {
+      if (rows && rows._error) {
+        return '<div class="table-block"><h2>' + escapeHtml(name) + '</h2><div class="table-error">' + escapeHtml(rows._error) + '</div></div>';
+      }
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return '<div class="table-block"><h2>' + escapeHtml(name) + ' <span class="count">0 rows</span></h2><div class="inner"><p class="loading">No rows</p></div></div>';
+      }
+      const cols = Object.keys(rows[0]);
+      let html = '<div class="table-block"><h2>' + escapeHtml(name) + ' <span class="count">' + rows.length + ' row(s)</span></h2><div class="inner"><table><thead><tr>';
+      cols.forEach(c => { html += '<th>' + escapeHtml(c) + '</th>'; });
+      html += '</tr></thead><tbody>';
+      rows.forEach(row => {
+        html += '<tr>';
+        cols.forEach(c => { html += '<td>' + formatCell(row[c]) + '</td>'; });
+        html += '</tr>';
+      });
+      html += '</tbody></table></div></div>';
+      return html;
+    }
+
+    async function load() {
+      root.innerHTML = '<div class="loading">Loading…</div>';
+      refreshBtn.disabled = true;
+      try {
+        const r = await fetch('/api/dump');
+        const data = await r.json();
+        if (!r.ok) {
+          root.innerHTML = '<div class="error-banner">' + escapeHtml(data.error || data.detail || 'Request failed') + (data.hint ? '<br><small>' + escapeHtml(data.hint) + '</small>' : '') + '</div>';
+          meta.textContent = '';
+          return;
+        }
+        const order = ['users','sessions','user_email_connections','oauth_states','opportunities','documents','deadlines','clins','draft_quote_emails'];
+        let out = '';
+        order.forEach(t => {
+          if (data[t] !== undefined) out += renderTable(t, data[t]);
+        });
+        root.innerHTML = out;
+        const total = order.reduce((acc, t) => acc + (Array.isArray(data[t]) ? data[t].length : 0), 0);
+        meta.textContent = 'Total rows: ' + total + ' • Refresh to see live data.';
+      } catch (e) {
+        root.innerHTML = '<div class="error-banner">' + escapeHtml(e.message) + '</div>';
+        meta.textContent = '';
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    }
+
+    refreshBtn.addEventListener('click', load);
+    load();
+  </script>
+</body>
+</html>

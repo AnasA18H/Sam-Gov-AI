@@ -22,6 +22,7 @@ cd "$SCRIPT_DIR"
 BACKEND_PID_FILE="${SCRIPT_DIR}/.backend.pid"
 FRONTEND_PID_FILE="${SCRIPT_DIR}/.frontend.pid"
 CELERY_PID_FILE="${SCRIPT_DIR}/.celery.pid"
+DB_VIEWER_PID_FILE="${SCRIPT_DIR}/.dbviewer.pid"
 
 print_header() {
     echo ""
@@ -83,6 +84,16 @@ if [ -f "$CELERY_PID_FILE" ]; then
     rm -f "$CELERY_PID_FILE"
 fi
 
+if [ -f "$DB_VIEWER_PID_FILE" ]; then
+    DBVIEWER_PID=$(cat "$DB_VIEWER_PID_FILE")
+    if kill -0 "$DBVIEWER_PID" 2>/dev/null; then
+        print_info "Stopping DB viewer (PID: $DBVIEWER_PID)..."
+        kill "$DBVIEWER_PID" 2>/dev/null || true
+        STOPPED="${STOPPED} db-viewer"
+    fi
+    rm -f "$DB_VIEWER_PID_FILE"
+fi
+
 # 3) Clean up any remaining processes (match start.sh)
 print_info "Cleaning up remaining processes..."
 pkill -f "uvicorn.*backend.app.main" 2>/dev/null || true
@@ -90,6 +101,7 @@ pkill -f "vite" 2>/dev/null || true
 pkill -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
 pkill -f "celery.*beat" 2>/dev/null || true
 pkill -f "celery.*flower" 2>/dev/null || true
+pkill -f "dev-db-viewer/server.py" 2>/dev/null || true
 
 sleep 1
 
