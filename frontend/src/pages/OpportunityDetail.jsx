@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { opportunitiesAPI, authAPI } from '../utils/api';
 import ProtectedRoute from '../components/ProtectedRoute';
 import SendEmailModal from '../components/SendEmailModal';
+import DocumentEditorModal from '../components/DocumentEditorModal';
 import {
   HiOutlineTrash,
   HiOutlineArrowLeft,
@@ -37,6 +38,7 @@ import {
   HiOutlineLocationMarker,
   HiOutlineExternalLink,
   HiOutlineSave,
+  HiOutlinePencil,
 } from 'react-icons/hi';
 import { SiGoogle } from 'react-icons/si';
 import { FaMicrosoft } from 'react-icons/fa';
@@ -118,6 +120,7 @@ const OpportunityDetail = () => {
   const [editingDealerEmail, setEditingDealerEmail] = useState(null); // { clinId, dealerIndex }
   const [draftDealerEmail, setDraftDealerEmail] = useState('');
   const [savingDealerEmail, setSavingDealerEmail] = useState(false);
+  const [documentToEdit, setDocumentToEdit] = useState(null);
   const pollIntervalRef = useRef(null);
   const [dealersManufacturersLoading, setDealersManufacturersLoading] = useState(false);
   const dealersPollIntervalRef = useRef(null);
@@ -359,7 +362,7 @@ const OpportunityDetail = () => {
     if (dealersPollIntervalRef.current) return;
     setDealersManufacturersLoading(true);
     dealersPollStartedAtRef.current = Date.now();
-    dealersPollIntervalRef.current = setInterval(() => {
+    const doFetch = () => {
       if (Date.now() - dealersPollStartedAtRef.current > DEALERS_POLL_TIMEOUT_MS) {
         stopDealersPoll();
         return;
@@ -372,7 +375,9 @@ const OpportunityDetail = () => {
           }
         })
         .catch(() => stopDealersPoll());
-    }, DEALERS_POLL_MS);
+    };
+    doFetch(); // immediate first fetch so data auto-loads as soon as it's ready
+    dealersPollIntervalRef.current = setInterval(doFetch, DEALERS_POLL_MS);
   };
 
   const handleDelete = async () => {
@@ -960,7 +965,7 @@ const OpportunityDetail = () => {
               {/* Status Messages */}
               <div className="px-4 py-3 space-y-3">
                 {opportunity.status === 'pending' && (
-                  <div className="bg-white rounded-lg border-2 border-yellow-400 shadow-sm p-4">
+                  <div className="bg-white rounded-lg border-2 border-yellow-400 shadow-sm p-4 animate-fade-in">
                     <div className="flex items-start space-x-3">
                       <HiOutlineExclamationCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                       <div className="flex-1">
@@ -974,7 +979,7 @@ const OpportunityDetail = () => {
                 )}
 
                 {opportunity.status === 'processing' && (
-                  <div className="bg-white rounded-lg border-2 border-blue-400 shadow-sm p-4">
+                  <div className="bg-white rounded-lg border-2 border-blue-400 shadow-sm p-4 animate-fade-in">
                     <div className="flex items-start space-x-3">
                       <div className="relative flex-shrink-0">
                         <HiOutlineSparkles className="w-5 h-5 text-blue-600" />
@@ -986,7 +991,7 @@ const OpportunityDetail = () => {
                           {/* Progress Steps */}
                           <div className="space-y-3">
                             {/* Step 1: Scraping SAM.gov Data */}
-                            <div className="flex items-start space-x-3">
+                            <div className="flex items-start space-x-3 animate-fade-in animate-delay-0">
                               <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
                                 opportunity.title || opportunity.description || opportunity.deadlines?.length > 0
                                   ? 'bg-green-100 text-green-600' 
@@ -1018,7 +1023,7 @@ const OpportunityDetail = () => {
                             </div>
 
                             {/* Step 2: Downloading Documents */}
-                            <div className="flex items-start space-x-3">
+                            <div className="flex items-start space-x-3 animate-fade-in animate-delay-75">
                               <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
                                 opportunity.documents && opportunity.documents.length > 0 
                                   ? 'bg-green-100 text-green-600' 
@@ -1069,7 +1074,7 @@ const OpportunityDetail = () => {
                             </div>
 
                             {/* Step 3: Extracting Text */}
-                            <div className="flex items-start space-x-3">
+                            <div className="flex items-start space-x-3 animate-fade-in animate-delay-150">
                               <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
                                 opportunity.documents && opportunity.documents.length > 0 && opportunity.status === 'processing' && !opportunity.clins
                                   ? 'bg-blue-100 text-blue-600'
@@ -1111,7 +1116,7 @@ const OpportunityDetail = () => {
                             </div>
 
                             {/* Step 4: Analyzing CLINs */}
-                            <div className="flex items-start space-x-3">
+                            <div className="flex items-start space-x-3 animate-fade-in animate-delay-225">
                               <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
                                 opportunity.clins && opportunity.clins.length > 0
                                   ? 'bg-green-100 text-green-600'
@@ -1168,7 +1173,7 @@ const OpportunityDetail = () => {
                             </div>
 
                             {/* Step 5: Complete */}
-                            <div className="flex items-start space-x-3">
+                            <div className="flex items-start space-x-3 animate-fade-in animate-delay-300">
                               <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
                                 opportunity.status === 'completed'
                                   ? 'bg-green-100 text-green-600'
@@ -1217,7 +1222,7 @@ const OpportunityDetail = () => {
                 )}
 
                 {opportunity.error_message && (
-                  <div className="flex items-start space-x-2 bg-red-50 border border-red-200 rounded-md p-3">
+                  <div className="flex items-start space-x-2 bg-red-50 border border-red-200 rounded-md p-3 animate-fade-in">
                     <HiOutlineExclamationCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-red-800">
@@ -1253,20 +1258,23 @@ const OpportunityDetail = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Main Content Column */}
               <div className="lg:col-span-2 space-y-4">
-                {/* Deadlines - CRITICAL */}
+                {/* Deadlines - mostly white, green accent */}
                 {opportunity.deadlines && opportunity.deadlines.length > 0 && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                    <div className="px-4 py-2 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm animate-slide-up overflow-hidden">
+                    <div className="px-4 py-3 bg-white border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
                       <h2 className="text-sm font-semibold text-gray-900 flex items-center">
-                        <HiOutlineClock className="w-4 h-4 mr-2 text-red-600" />
-                        Deadlines {opportunity.deadlines.some(d => d.is_primary) && <span className="ml-2 text-xs font-normal text-red-600">(CRITICAL)</span>}
+                        <HiOutlineClock className="w-4 h-4 mr-2 text-green-600" />
+                        Deadlines
+                        {opportunity.deadlines.some(d => d.is_primary) && (
+                          <span className="ml-2 text-xs font-medium text-green-700 bg-white border border-green-200 px-2 py-0.5 rounded">CRITICAL</span>
+                        )}
                       </h2>
                       {emailConnection?.connected && (
                         <button
                           type="button"
                           onClick={handleSyncCalendar}
                           disabled={syncingCalendar}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 disabled:opacity-50 flex items-center gap-1.5"
+                          className="text-xs font-medium px-3 py-2 rounded-lg bg-[#14B8A6] text-white hover:bg-[#0D9488] disabled:opacity-50 flex items-center gap-1.5 transition-colors shadow-sm"
                         >
                           <HiOutlineCalendar className="w-3.5 h-3.5" />
                           {syncingCalendar ? 'Adding…' : 'Add to Calendar'}
@@ -1274,57 +1282,49 @@ const OpportunityDetail = () => {
                       )}
                     </div>
                     {calendarSyncMessage && (
-                      <div className="px-4 py-2 text-xs text-gray-600 bg-gray-50 border-b border-gray-100">
+                      <div className="px-4 py-2 text-xs text-gray-600 bg-white border-b border-gray-100">
                         {calendarSyncMessage}
                       </div>
                     )}
-                    <div className="p-3 space-y-2">
+                    <div className="p-3 space-y-3 bg-white">
                       {[...(opportunity.deadlines || [])]
                         .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
                         .map((deadline) => (
                         <div
                           key={deadline.id}
-                          className={`p-2.5 rounded border ${
-                            deadline.is_primary
-                              ? 'border-red-300 bg-red-50'
-                              : 'border-gray-200 bg-gray-50'
-                          }`}
+                          className="rounded-lg p-3 bg-white border border-gray-200 transition-colors"
                         >
                           <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div className="flex items-center space-x-2 flex-1 min-w-0">
-                              <HiOutlineCalendar className={`w-3.5 h-3.5 flex-shrink-0 ${deadline.is_primary ? 'text-red-600' : 'text-gray-600'}`} />
-                              <div className="flex items-center space-x-2 flex-wrap">
-                                <span className="text-xs font-semibold text-gray-900">
-                                  {deadline.deadline_type?.replace('_', ' ').toUpperCase() || 'Deadline'}
-                                </span>
-                                {deadline.is_primary && (
-                                  <span className="text-xs font-medium text-red-600">(PRIMARY)</span>
-                                )}
-                                <span className="text-sm font-semibold text-gray-900">
-                                  {formatDate(deadline.due_date)}
-                                </span>
-                                {deadline.calendar_event_id && (
-                                  <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">In calendar</span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center space-x-3 text-xs text-gray-600">
-                              {deadline.timezone && (
-                                <span className="flex items-center space-x-1">
-                                  <HiOutlineGlobe className="w-3 h-3" />
-                                  <span>{deadline.timezone}</span>
-                                </span>
+                            <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+                              <span className={`text-xs font-semibold uppercase tracking-wide ${deadline.is_primary ? 'text-green-700' : 'text-gray-600'}`}>
+                                {deadline.deadline_type?.replace('_', ' ') || 'Deadline'}
+                              </span>
+                              {deadline.is_primary && (
+                                <span className="text-xs font-medium text-green-700 bg-white border border-green-200 px-1.5 py-0.5 rounded">PRIMARY</span>
                               )}
-                              {deadline.due_time && (
-                                <span className="flex items-center space-x-1">
-                                  <HiOutlineClock className="w-3 h-3" />
-                                  <span>{deadline.due_time}</span>
+                              {deadline.calendar_event_id && (
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-white border border-green-200 text-green-700 font-medium">In calendar</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-sm">
+                              <span className="font-semibold text-gray-900">
+                                {formatDate(deadline.due_date)}
+                              </span>
+                              {(deadline.due_time || deadline.timezone) && (
+                                <span className="text-xs text-gray-600 flex items-center gap-1.5">
+                                  {deadline.due_time && <span>{deadline.due_time}</span>}
+                                  {deadline.timezone && (
+                                    <span className="flex items-center gap-1">
+                                      <HiOutlineGlobe className="w-3 h-3" />
+                                      {deadline.timezone}
+                                    </span>
+                                  )}
                                 </span>
                               )}
                             </div>
                           </div>
                           {deadline.description && (
-                            <p className="text-xs text-gray-700 mt-1.5 ml-6">{deadline.description}</p>
+                            <p className="text-xs text-gray-600 mt-2 pl-0">{deadline.description}</p>
                           )}
                         </div>
                       ))}
@@ -1334,7 +1334,7 @@ const OpportunityDetail = () => {
 
                 {/* Description - Read More (classification next to label, fade when long) */}
                 {opportunity.description && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm animate-slide-up">
                     <div className="px-4 py-3 border-b border-gray-200">
                       <div className="flex items-center flex-wrap gap-2">
                         <HiOutlineDocumentText className="w-5 h-5 text-gray-600" />
@@ -1376,7 +1376,7 @@ const OpportunityDetail = () => {
                 {/* CLINs - Contract Line Items */}
                 {/* Empty state with fading effect when processing */}
                 {(!opportunity.clins || opportunity.clins.length === 0) && (opportunity.status === 'processing' || opportunity.status === 'pending') && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm opacity-50 transition-opacity duration-500">
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm opacity-50 transition-opacity duration-500 animate-fade-in">
                     <div className="px-4 py-3 border-b border-gray-200">
                       <h2 className="text-base font-semibold text-gray-900 flex items-center">
                         <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
@@ -1393,7 +1393,7 @@ const OpportunityDetail = () => {
 
                 {/* No CLINs found - Show when completed with 0 CLINs */}
                 {(!opportunity.clins || opportunity.clins.length === 0) && opportunity.status === 'completed' && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm animate-slide-up">
                     <div className="px-4 py-3 border-b border-gray-200">
                       <h2 className="text-base font-semibold text-gray-900 flex items-center">
                         <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
@@ -1414,7 +1414,7 @@ const OpportunityDetail = () => {
 
                 {/* CLINs - Contract Line Items (when data is available) */}
                 {opportunity.clins && opportunity.clins.length > 0 && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm animate-slide-up">
                     <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
                       <h2 className="text-base font-semibold text-gray-900 flex items-center">
                         <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
@@ -1429,6 +1429,14 @@ const OpportunityDetail = () => {
                       <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center gap-2 text-sm text-amber-800">
                         <HiOutlineRefresh className="w-4 h-4 animate-spin flex-shrink-0" />
                         <span>Finding dealers and manufacturers… Results will appear when ready.</span>
+                      </div>
+                    )}
+                    {!dealersManufacturersLoading && opportunity.status === 'completed' && opportunity.clins?.length > 0 && !hasAnyDealerOrManufacturerResearch(opportunity) && (
+                      <div className="px-4 py-2 bg-gray-100 border-b border-gray-200 flex items-center justify-between gap-2 text-sm text-gray-600">
+                        <span>Manufacturer and dealer research may still be loading or is not yet available.</span>
+                        <button type="button" onClick={() => fetchOpportunity()} className="text-[#14B8A6] hover:underline font-medium flex items-center gap-1">
+                          <HiOutlineRefresh className="w-4 h-4" /> Refresh
+                        </button>
                       </div>
                     )}
 
@@ -1583,13 +1591,18 @@ const OpportunityDetail = () => {
                                                             <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
                                                           </span>
                                                         )}
-                                                        {mfr.sales_contact_email && (
+                                                        {mfr.sales_contact_email ? (
                                                           <span className="inline-flex items-center gap-1.5">
                                                             <HiOutlineMail className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
                                                             <span className="text-gray-600">Email (quote/contact):</span>
                                                             <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
                                                           </span>
-                                                        )}
+                                                        ) : dealersManufacturersLoading && websiteHref ? (
+                                                          <span className="inline-flex items-center gap-1.5 text-gray-400 animate-pulse" aria-busy="true">
+                                                            <HiOutlineMail className="w-3.5 h-3.5 flex-shrink-0" />
+                                                            <span>Finding…</span>
+                                                          </span>
+                                                        ) : null}
                                                       </div>
                                                     </div>
                                                   );
@@ -1613,6 +1626,8 @@ const OpportunityDetail = () => {
                                                           <td className="py-1.5 px-2">
                                                             {d.sales_contact_email ? (
                                                               <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button>
+                                                            ) : dealersManufacturersLoading ? (
+                                                              <span className="inline-flex items-center gap-1 text-gray-400 animate-pulse" aria-busy="true">Finding…</span>
                                                             ) : (
                                                               <div className="flex items-center gap-1.5">
                                                                 <input
@@ -1808,13 +1823,18 @@ const OpportunityDetail = () => {
                                                 <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
                                               </div>
                                             )}
-                                            {mfr.sales_contact_email && (
+                                            {mfr.sales_contact_email ? (
                                               <div className="flex items-center gap-2 flex-wrap">
                                                 <HiOutlineMail className="w-4 h-4 text-[#0D9488] flex-shrink-0" />
                                                 <span className="text-gray-600">Email (quote/contact):</span>
                                                 <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
                                               </div>
-                                            )}
+                                            ) : dealersManufacturersLoading && websiteHref ? (
+                                              <div className="flex items-center gap-2 flex-wrap text-gray-400 animate-pulse" aria-busy="true">
+                                                <HiOutlineMail className="w-4 h-4 flex-shrink-0" />
+                                                <span>Finding…</span>
+                                              </div>
+                                            ) : null}
                                           </div>
                                         </div>
                                       );
@@ -1838,6 +1858,8 @@ const OpportunityDetail = () => {
                                             <td className="py-2 px-3">
                                               {d.sales_contact_email ? (
                                                 <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button>
+                                              ) : dealersManufacturersLoading ? (
+                                                <span className="inline-flex items-center gap-1 text-gray-400 animate-pulse" aria-busy="true">Finding…</span>
                                               ) : (
                                                 <div className="flex items-center gap-2">
                                                   <input
@@ -1950,18 +1972,41 @@ const OpportunityDetail = () => {
                               </div>
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleViewDocument(doc.id, doc.file_type)}
-                            className="ml-3 p-2 text-[#14B8A6] bg-white border-2 border-[#14B8A6] rounded-lg hover:bg-teal-50 transition-colors flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
-                            title="View Document"
-                          >
-                            <HiOutlineDocumentText className="w-4 h-4" />
-                          </button>
+                          <div className="ml-3 flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => setDocumentToEdit(doc)}
+                              className="p-2 text-amber-600 bg-white border-2 border-amber-500 rounded-lg hover:bg-amber-50 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+                              title="Edit Document"
+                            >
+                              <HiOutlinePencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleViewDocument(doc.id, doc.file_type)}
+                              className="p-2 text-[#14B8A6] bg-white border-2 border-[#14B8A6] rounded-lg hover:bg-teal-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                              title="View Document"
+                            >
+                              <HiOutlineDocumentText className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
+
+                <DocumentEditorModal
+                  open={!!documentToEdit}
+                  onClose={() => setDocumentToEdit(null)}
+                  opportunityId={id ? parseInt(id, 10) : null}
+                  document={documentToEdit}
+                  onSaved={async () => {
+                    try {
+                      const res = await opportunitiesAPI.get(id);
+                      setOpportunity(res.data);
+                    } catch (_) {}
+                    setDocumentToEdit(null);
+                  }}
+                />
 
                 {/* Email and calendar access */}
                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -2051,8 +2096,8 @@ const OpportunityDetail = () => {
                   </div>
                 </div>
 
-                {/* Quote emails - separate block under Email and calendar. View = navigate; Generate = API then navigate. */}
-                {(() => {
+                {/* Quote emails - separate block. While finding dealers/manufacturers, show faded pulsing placeholder. */}
+                {opportunity.status === 'completed' && opportunity.clins?.length > 0 && (() => {
                   let emailCount = 0;
                   let manufacturerCount = 0;
                   let dealerCount = 0;
@@ -2063,8 +2108,12 @@ const OpportunityDetail = () => {
                     dlr.filter((d) => d.sales_contact_email).forEach(() => { emailCount++; dealerCount++; });
                   });
                   const hasContactEmails = emailCount > 0;
-                  if (!hasContactEmails) return null;
+                  const isLoading = dealersManufacturersLoading;
+
+                  if (!isLoading && !hasContactEmails) return null;
+
                   const handleGenerateThenView = async () => {
+                    if (isLoading) return;
                     try {
                       await opportunitiesAPI.generateQuoteEmailDrafts(id);
                       navigate(`/opportunities/${id}/quote-emails`);
@@ -2072,12 +2121,14 @@ const OpportunityDetail = () => {
                       navigate(`/opportunities/${id}/quote-emails`);
                     }
                   };
+
                   const breakdown = [];
                   if (manufacturerCount > 0) breakdown.push(`${manufacturerCount} manufacturer${manufacturerCount !== 1 ? 's' : ''}`);
                   if (dealerCount > 0) breakdown.push(`${dealerCount} dealer${dealerCount !== 1 ? 's' : ''}`);
                   const breakdownText = breakdown.length ? breakdown.join(' · ') : null;
+
                   return (
-                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                    <div className={`bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden ${isLoading ? 'animate-fade-pulse pointer-events-none' : ''}`}>
                       <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60">
                         <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
                           <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#14B8A6]/10 text-[#0D9488]">
@@ -2085,30 +2136,42 @@ const OpportunityDetail = () => {
                           </span>
                           Quote emails
                         </h2>
-                        <p className="text-xs text-gray-500 mt-1 ml-10">Create and send quote requests to manufacturers and dealers.</p>
+                        <p className="text-xs text-gray-500 mt-1 ml-10">
+                          {isLoading
+                            ? 'Finding dealers and manufacturers… Results will appear when ready.'
+                            : 'Create and send quote requests to manufacturers and dealers.'}
+                        </p>
                       </div>
                       <div className="p-4 space-y-4">
-                        <p className="text-xs text-gray-600">
-                          <span className="font-semibold text-gray-900">{emailCount}</span> recipient{emailCount !== 1 ? 's' : ''} with contact email
-                          {breakdownText && <span className="text-gray-500"> ({breakdownText})</span>}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/opportunities/${id}/quote-emails`)}
-                            className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-[#0D9488] text-white hover:bg-[#0f766e] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
-                          >
-                            <HiOutlineMail className="w-4 h-4" />
-                            View quote emails
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleGenerateThenView}
-                            className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
-                          >
-                            Generate drafts
-                          </button>
-                        </div>
+                        {isLoading ? (
+                          <p className="text-xs text-gray-500">
+                            Recipients and actions will appear when research is ready.
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-xs text-gray-600">
+                              <span className="font-semibold text-gray-900">{emailCount}</span> recipient{emailCount !== 1 ? 's' : ''} with contact email
+                              {breakdownText && <span className="text-gray-500"> ({breakdownText})</span>}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/opportunities/${id}/quote-emails`)}
+                                className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-[#0D9488] text-white hover:bg-[#0f766e] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                              >
+                                <HiOutlineMail className="w-4 h-4" />
+                                View quote emails
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleGenerateThenView}
+                                className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+                              >
+                                Generate drafts
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   );

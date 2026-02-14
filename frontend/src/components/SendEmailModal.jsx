@@ -100,13 +100,20 @@ export default function SendEmailModal({ isOpen, onClose, to = '', subject = '',
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
-              <textarea
-                value={form.body}
-                onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
-                rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                placeholder="Your message…"
-              />
+              {form.body && form.body.includes('<') ? (
+                <div
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-800 text-sm prose prose-sm max-w-none prose-p:my-1 prose-strong:font-semibold"
+                  dangerouslySetInnerHTML={{ __html: form.body }}
+                />
+              ) : (
+                <textarea
+                  value={form.body}
+                  onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  placeholder="Your message…"
+                />
+              )}
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <div className="flex justify-end gap-2 pt-2">
