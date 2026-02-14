@@ -1,8 +1,10 @@
 """
 Opportunities API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from fastapi.responses import FileResponse
+import re
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pathlib import Path
@@ -20,14 +22,76 @@ from ..models.opportunity import Opportunity
 from ..models.document import Document, DocumentType, DocumentSource
 from ..models.clin import CLIN
 from ..models.deadline import Deadline
+from ..models.user_email_connection import UserEmailConnection
+from ..models.draft_quote_email import DraftQuoteEmail
 from ..schemas.opportunity import OpportunityCreate, OpportunityResponse, OpportunityDetailResponse, OpportunityList
+from ..schemas.document import DocumentResponse
+from ..schemas.draft_quote_email import DraftQuoteEmailList, DraftQuoteEmailResponse
 from sqlalchemy.orm import joinedload
 from ..services.tasks import scrape_sam_gov_opportunity
 from ..services.lookup_links import get_clin_lookup_links
+from ..services.calendar_sync import sync_deadlines_to_calendar, delete_calendar_events_for_deadlines
+from ..services.quote_email_drafts import generate_drafts_for_opportunity
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/opportunities", tags=["opportunities"])
+
+
+def _delivery_timeline_string_from_clins(opportunity) -> Optional[str]:
+    """Build a single delivery-timeline string from opportunity CLINs for calendar event descriptions."""
+    if not getattr(opportunity, "clins", None):
+        return None
+    parts = []
+    seen = set()
+    for c in opportunity.clins:
+        add = getattr(c, "additional_data", None) or {}
+        timeline = add.get("delivery_timeline") or getattr(c, "timeline", None)
+        if timeline and isinstance(timeline, str) and timeline.strip():
+            t = timeline.strip()
+            if t not in seen:
+                seen.add(t)
+                parts.append(t)
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    return " | ".join(parts) if len(parts) == 2 else "\n".join(parts)
+
+
+def _aggregate_delivery_requirements_from_clins(opportunity) -> Optional[dict]:
+    """Build delivery_requirements dict from CLIN additional_data and timeline for the opportunity detail response.
+    Frontend expects delivery_address (with street_address or full text), special_instructions (list), delivery_timeline.
+    """
+    if not opportunity.clins:
+        return None
+    delivery_address_texts = []
+    special_instructions = []
+    delivery_timelines = []
+    for c in opportunity.clins:
+        add = c.additional_data or {}
+        addr = add.get("delivery_address")
+        if addr and isinstance(addr, str) and addr.strip():
+            delivery_address_texts.append(addr.strip())
+        spec = add.get("special_delivery_instructions")
+        if spec and isinstance(spec, str) and spec.strip():
+            special_instructions.append(spec.strip())
+        timeline = add.get("delivery_timeline") or getattr(c, "timeline", None)
+        if timeline and isinstance(timeline, str) and timeline.strip():
+            delivery_timelines.append(timeline.strip())
+    if not delivery_address_texts and not special_instructions and not delivery_timelines:
+        return None
+    out = {}
+    if delivery_address_texts:
+        # Use first address as primary; UI can show street_address as full text when no parsed parts
+        out["delivery_address"] = {"street_address": delivery_address_texts[0]}
+        if len(delivery_address_texts) > 1:
+            out["delivery_address"]["additional_addresses"] = delivery_address_texts[1:]
+    if special_instructions:
+        out["special_instructions"] = special_instructions
+    if delivery_timelines:
+        out["delivery_timeline"] = delivery_timelines[0] if len(delivery_timelines) == 1 else " | ".join(delivery_timelines)
+    return out if out else None
 
 
 @router.post("", response_model=OpportunityResponse, status_code=status.HTTP_201_CREATED)
@@ -39,22 +103,36 @@ async def create_opportunity(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new opportunity from SAM.gov URL with optional file uploads"""
-    # Check if opportunity already exists
-    existing = db.query(Opportunity).filter(
-        Opportunity.sam_gov_url == sam_gov_url
-    ).first()
-    
-    if existing:
+    """Create a new opportunity from SAM.gov URL with optional file uploads.
+    Same URL can exist for different users (no cross-account conflict). If this user already has this URL,
+    returns the existing opportunity (200) so the client can open it.
+    """
+    # Normalize URL for comparison (strip trailing slash and whitespace)
+    url_normalized = (sam_gov_url or "").strip().rstrip("/")
+    if not url_normalized:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Opportunity with this URL already exists"
+            detail="SAM.gov URL is required"
         )
-    
-    # Create new opportunity
+
+    # Only check for this user: same URL for another user is allowed (per-user opportunity)
+    existing = db.query(Opportunity).filter(
+        Opportunity.user_id == current_user.id,
+        Opportunity.sam_gov_url.in_([url_normalized, url_normalized + "/"])
+    ).first()
+
+    if existing:
+        # Same user re-submitted: return existing opportunity so frontend can navigate to it
+        logger.info("Opportunity already exists for user %s, returning existing id=%s", current_user.id, existing.id)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=OpportunityResponse.model_validate(existing).model_dump(mode="json")
+        )
+
+    # Create new opportunity (store normalized URL for consistent duplicate detection)
     new_opportunity = Opportunity(
         user_id=current_user.id,
-        sam_gov_url=sam_gov_url,
+        sam_gov_url=url_normalized,
         status="pending",
         enable_document_analysis=enable_document_analysis.lower() if enable_document_analysis else "false",
         enable_clin_extraction=enable_clin_extraction.lower() if enable_clin_extraction else "false"
@@ -120,7 +198,7 @@ async def create_opportunity(
             db.commit()
     
     # Trigger background task to scrape SAM.gov and analyze documents (including uploaded files)
-    scrape_sam_gov_opportunity.delay(new_opportunity.id)
+    getattr(scrape_sam_gov_opportunity, "delay")(new_opportunity.id)
     
     return new_opportunity
 
@@ -148,15 +226,20 @@ async def list_opportunities(
 
 
 def _normalize_clin_for_response(clin):
-    """Ensure manufacturer_research and dealer_research are dict/list for API (DB may return JSON string)."""
+    """Ensure manufacturer_research and dealer_research are lists for API (DB may return JSON string or object)."""
     mfr = getattr(clin, "manufacturer_research", None)
     if isinstance(mfr, str):
         try:
             mfr = json.loads(mfr) if mfr.strip() else None
         except Exception:
             mfr = None
-    if mfr is not None and not isinstance(mfr, dict):
+    if mfr is not None and not isinstance(mfr, dict) and not isinstance(mfr, list):
         mfr = None
+    # Always return manufacturer_research as a list for frontend (legacy single dict -> [dict])
+    if isinstance(mfr, dict):
+        mfr = [mfr]
+    if mfr is None:
+        mfr = []
     dr = getattr(clin, "dealer_research", None)
     if isinstance(dr, str):
         try:
@@ -223,7 +306,226 @@ async def get_opportunity(
         ))
     resp = OpportunityDetailResponse.model_validate(opportunity)
     resp.clins = clins_out
+    # Populate delivery_requirements from CLINs when not set (aggregate from CLIN additional_data)
+    dr = _aggregate_delivery_requirements_from_clins(opportunity)
+    if dr:
+        base_codes = dict(resp.classification_codes or {})
+        base_codes["delivery_requirements"] = dr
+        resp.classification_codes = base_codes
     return resp
+
+
+@router.post("/{opportunity_id}/sync-calendar")
+async def sync_opportunity_calendar(
+    opportunity_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Create calendar events for all opportunity deadlines in the user's connected calendar (Google or Outlook). Events are persisted so they are not duplicated. Includes delivery timeline from CLINs in event description when available."""
+    opportunity = db.query(Opportunity).options(
+        joinedload(Opportunity.deadlines),
+        joinedload(Opportunity.clins),
+    ).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    conn = db.query(UserEmailConnection).filter(UserEmailConnection.user_id == current_user.id).first()
+    if not conn:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connect your email/calendar (Gmail or Outlook) first to add deadlines to your calendar.",
+        )
+    deadlines = [d for d in opportunity.deadlines]
+    if not deadlines:
+        return {"created": 0, "message": "No deadlines to sync."}
+    opportunity_title = getattr(opportunity, "title", None)
+    delivery_timeline = _delivery_timeline_string_from_clins(opportunity)
+    try:
+        created = sync_deadlines_to_calendar(
+            conn,
+            deadlines,
+            opportunity_title=opportunity_title,
+            delivery_timeline=delivery_timeline,
+        )
+        db.commit()
+        logger.info("Add to calendar: opportunity_id=%s created=%s total_deadlines=%s", opportunity_id, created, len(deadlines))
+        return {"created": created, "total_deadlines": len(deadlines)}
+    except Exception as e:
+        logger.exception("Add to calendar failed: opportunity_id=%s error=%s", opportunity_id, e)
+        err_str = str(e).lower() if e else ""
+        detail = "Calendar sync failed. "
+        if "RefreshError" in type(e).__name__ or "refresh" in err_str:
+            detail += "Your calendar connection needs to be refreshed. Please disconnect and reconnect your Google account in Settings."
+        elif "credentials" in err_str:
+            detail += "Please disconnect and reconnect your email/calendar account in Settings."
+        elif any(x in err_str for x in ("unable to find the server", "getaddrinfo failed", "name or service not known", "timed out", "timeout", "connection", "network is unreachable", "nodename nor servname")):
+            detail += "This often happens with slow or unstable internet. Please check your connection and try again in a moment."
+        else:
+            detail += err_str if err_str else "Please try again or reconnect your email/calendar in Settings."
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+
+# ----- Quote email drafts (persisted in DB; generate saves, send/discard delete) -----
+
+
+@router.get("/{opportunity_id}/quote-email-drafts", response_model=DraftQuoteEmailList)
+async def list_quote_email_drafts(
+    opportunity_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """List draft quote emails for this opportunity (from DB). View does not generate."""
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    drafts = db.query(DraftQuoteEmail).filter(DraftQuoteEmail.opportunity_id == opportunity_id).order_by(DraftQuoteEmail.id).all()
+    return DraftQuoteEmailList(drafts=[DraftQuoteEmailResponse.model_validate(d) for d in drafts])
+
+
+@router.post("/{opportunity_id}/quote-email-drafts/generate", response_model=DraftQuoteEmailList)
+async def generate_quote_email_drafts(
+    opportunity_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Generate draft quote emails from CLINs (manufacturers/dealers with contact emails) and save to DB. Replaces existing drafts."""
+    opportunity = db.query(Opportunity).options(joinedload(Opportunity.clins)).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    generate_drafts_for_opportunity(db, opportunity_id, opportunity=opportunity)
+    drafts = db.query(DraftQuoteEmail).filter(DraftQuoteEmail.opportunity_id == opportunity_id).order_by(DraftQuoteEmail.id).all()
+    return DraftQuoteEmailList(drafts=[DraftQuoteEmailResponse.model_validate(d) for d in drafts])
+
+
+@router.delete("/{opportunity_id}/quote-email-drafts/{draft_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_quote_email_draft(
+    opportunity_id: int,
+    draft_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Delete one draft (after send or discard)."""
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    draft = db.query(DraftQuoteEmail).filter(
+        DraftQuoteEmail.id == draft_id,
+        DraftQuoteEmail.opportunity_id == opportunity_id,
+    ).first()
+    if not draft:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
+    db.delete(draft)
+    db.commit()
+    return None
+
+
+@router.patch("/{opportunity_id}/quote-email-drafts/{draft_id}", response_model=DraftQuoteEmailResponse)
+async def update_quote_email_draft(
+    opportunity_id: int,
+    draft_id: int,
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Update draft to, to_name, subject, body (when user edits)."""
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    draft = db.query(DraftQuoteEmail).filter(
+        DraftQuoteEmail.id == draft_id,
+        DraftQuoteEmail.opportunity_id == opportunity_id,
+    ).first()
+    if not draft:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
+    for key in ("to", "to_name", "subject", "body"):
+        if key in body and body[key] is not None:
+            setattr(draft, key, body[key] if key != "body" else str(body[key]))
+    db.add(draft)
+    db.commit()
+    db.refresh(draft)
+    return DraftQuoteEmailResponse.model_validate(draft)
+
+
+def _is_valid_email(s: Optional[str]) -> bool:
+    """Return True if s looks like a valid email (no URLs/obfuscation)."""
+    if not s or not isinstance(s, str):
+        return False
+    s = s.strip()
+    if len(s) < 6 or len(s) > 254 or " " in s or "@" not in s:
+        return False
+    if "/cdn-cgi/" in s or s.startswith("/") or "http" in s.lower() or "mailto:" in s.lower():
+        return False
+    if not re.match(r"^[^@]+@[^@]+\.[^@]+$", s):
+        return False
+    return True
+
+
+class UpdateDealerEmailBody(BaseModel):
+    dealer_index: int
+    sales_contact_email: str
+
+
+@router.patch("/{opportunity_id}/clins/{clin_id}/dealer-email", status_code=status.HTTP_200_OK)
+async def update_dealer_email(
+    opportunity_id: int,
+    clin_id: int,
+    body: UpdateDealerEmailBody = Body(...),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Update a dealer's sales_contact_email for a CLIN. User can add an email they found themselves; persisted to DB."""
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    clin = db.query(CLIN).filter(
+        CLIN.id == clin_id,
+        CLIN.opportunity_id == opportunity_id
+    ).first()
+    if not clin:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CLIN not found")
+    email = (body.sales_contact_email or "").strip()
+    if not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="sales_contact_email is required")
+    if not _is_valid_email(email):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email format")
+    dealers = clin.dealer_research
+    if isinstance(dealers, str):
+        try:
+            dealers = json.loads(dealers) if dealers.strip() else []
+        except Exception:
+            dealers = []
+    if not isinstance(dealers, list):
+        dealers = []
+    idx = body.dealer_index
+    if idx < 0 or idx >= len(dealers):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid dealer_index")
+    item = dealers[idx]
+    if not isinstance(item, dict):
+        item = {}
+    dealers = list(dealers)
+    dealers[idx] = {**item, "sales_contact_email": email}
+    setattr(clin, "dealer_research", dealers)
+    db.add(clin)
+    db.commit()
+    db.refresh(clin)
+    return {"ok": True, "dealer_index": idx, "sales_contact_email": email}
 
 
 @router.delete("/{opportunity_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -232,7 +534,7 @@ async def delete_opportunity(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Delete an opportunity and all related data (documents, deadlines, CLINs) and files"""
+    """Delete an opportunity and all related data: removes synced calendar events from user's Google/Outlook, deletes all document files and opportunity directories from disk, then deletes the opportunity and related DB records (documents, deadlines, CLINs) via CASCADE."""
     opportunity = db.query(Opportunity).filter(
         Opportunity.id == opportunity_id,
         Opportunity.user_id == current_user.id
@@ -282,6 +584,15 @@ async def delete_opportunity(
             logger.info(f"    - {deadline.deadline_type}: {deadline.due_date} {deadline.due_time or ''}")
     
     logger.info(f"=" * 80)
+
+    # Remove calendar events from user's Google/Outlook calendar (if any were synced)
+    conn = db.query(UserEmailConnection).filter(UserEmailConnection.user_id == current_user.id).first()
+    if conn and any(d.calendar_event_id for d in deadlines):
+        try:
+            removed = delete_calendar_events_for_deadlines(conn, deadlines)
+            logger.info(f"Removed {removed} calendar event(s) from user calendar")
+        except Exception as e:
+            logger.warning("Calendar event removal failed (continuing with delete): %s", e)
     
     # Delete individual files from disk
     deleted_files = []
@@ -289,7 +600,7 @@ async def delete_opportunity(
     for doc in documents:
         try:
             # Resolve file path
-            file_path = Path(doc.file_path)
+            file_path = Path(str(doc.file_path))
             
             # Handle relative paths
             if not file_path.is_absolute():
@@ -488,48 +799,158 @@ async def view_document(
         )
     
     # If document has a public URL (S3), redirect to it
-    if document.file_url:
+    file_url = getattr(document, "file_url", None)
+    if file_url:
         from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=document.file_url)
+        return RedirectResponse(url=str(file_url))
     
-    # For local files, serve the file
-    file_path = Path(document.file_path)
-    
-    # Handle relative paths (from project root or data directory)
+    # For local files, serve the file (resolve path: try all known storage locations)
+    doc_file_path = str(getattr(document, "file_path", "") or "")
+    file_path = Path(doc_file_path)
+    doc_name = getattr(document, "file_name", None) or file_path.name
     if not file_path.is_absolute():
-        from ..core.config import settings
-        # Try relative to project root first
-        project_root = Path(__file__).parent.parent.parent.parent
-        file_path = project_root / file_path
-        
-        # If still doesn't exist, try relative to DATA_DIR (which is already relative to project root)
-        if not file_path.exists():
-            # Remove any leading slashes and normalize
-            relative_path = document.file_path.lstrip('/').lstrip('\\')
-            # Try with DATA_DIR
-            file_path = settings.DATA_DIR / relative_path
-    
+        candidates = [
+            settings.PROJECT_ROOT / file_path,
+            Path.cwd() / file_path,
+        ]
+        if hasattr(settings, "STORAGE_BASE_PATH"):
+            storage_base = Path(settings.STORAGE_BASE_PATH)
+            if not storage_base.is_absolute():
+                storage_base = settings.PROJECT_ROOT / storage_base
+            candidates.append(storage_base / str(opportunity_id) / doc_name)
+            candidates.append(storage_base / file_path)
+        relative_path = doc_file_path.lstrip("/").lstrip("\\")
+        candidates.append(settings.DATA_DIR / relative_path)
+        if hasattr(settings, "DOCUMENTS_DIR"):
+            candidates.append(settings.DOCUMENTS_DIR / str(opportunity_id) / doc_name)
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                file_path = candidate
+                break
+        else:
+            file_path = candidates[0]
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document file not found at path: {doc_file_path}"
+        )
+
+    # Determine media type (use plain str for type checker)
+    doc_mime = getattr(document, "mime_type", None)
+    doc_ftype = getattr(document, "file_type", None)
+    media_type = str(doc_mime) if doc_mime else "application/octet-stream"
+    if doc_ftype == "pdf":
+        media_type = "application/pdf"
+    elif doc_ftype == "word":
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif doc_ftype == "excel":
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    doc_name = getattr(document, "original_file_name", None) or getattr(document, "file_name", None) or ""
+    return FileResponse(
+        path=str(file_path),
+        filename=str(doc_name),
+        media_type=media_type,
+    )
+
+
+def _resolve_document_file_path(document, doc_file_path_str: str, opportunity_id: int) -> Path:
+    """Resolve document file_path to absolute Path. Uses same candidate logic as view_document."""
+    file_path = Path(doc_file_path_str)
+    if file_path.is_absolute():
+        return file_path
+    doc_name = getattr(document, "file_name", None) or file_path.name
+    candidates = [
+        settings.PROJECT_ROOT / file_path,
+        Path.cwd() / file_path,
+    ]
+    if hasattr(settings, "STORAGE_BASE_PATH"):
+        storage_base = Path(settings.STORAGE_BASE_PATH)
+        if not storage_base.is_absolute():
+            storage_base = settings.PROJECT_ROOT / storage_base
+        candidates.append(storage_base / str(opportunity_id) / doc_name)
+        candidates.append(storage_base / file_path)
+    relative_path = doc_file_path_str.lstrip("/").lstrip("\\")
+    candidates.append(settings.DATA_DIR / relative_path)
+    if hasattr(settings, "DOCUMENTS_DIR"):
+        candidates.append(settings.DOCUMENTS_DIR / str(opportunity_id) / doc_name)
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
+@router.put("/{opportunity_id}/documents/{document_id}")
+async def overwrite_document(
+    opportunity_id: int,
+    document_id: int,
+    file: UploadFile = File(..., description="Replacement file (PDF or Word). Overwrites existing document."),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Overwrite an existing opportunity document with new file content (e.g. after in-app edit). Saves to same path in data."""
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    document = db.query(Document).filter(
+        Document.id == document_id,
+        Document.opportunity_id == opportunity_id
+    ).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if getattr(document, "file_url", None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot overwrite document stored externally (S3)"
+        )
+    doc_file_path_str = str(getattr(document, "file_path", "") or "")
+    if not doc_file_path_str:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document has no file path")
+    file_path = _resolve_document_file_path(document, doc_file_path_str, opportunity_id)
     if not file_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document file not found at path: {document.file_path}"
+            detail=f"Document file not found at path: {doc_file_path_str}"
         )
-    
-    # Determine media type
-    media_type = document.mime_type or "application/octet-stream"
-    if document.file_type == "pdf":
-        media_type = "application/pdf"
-    elif document.file_type == "word":
-        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    elif document.file_type == "excel":
-        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    
-    # Return file with appropriate filename
-    return FileResponse(
-        path=str(file_path),
-        filename=document.original_file_name or document.file_name,
-        media_type=media_type
-    )
+    # Allow PDF or Word replacement; optionally keep same type
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    if ext not in (".pdf", ".doc", ".docx"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Replacement file must be PDF or Word (.pdf, .doc, .docx)"
+        )
+    try:
+        content = await file.read()
+    except Exception as e:
+        logger.error(f"Error reading upload for overwrite: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to read uploaded file")
+    try:
+        file_path.write_bytes(content)
+    except Exception as e:
+        logger.error(f"Error writing document overwrite: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save file")
+    file_size = len(content)
+    mime_type, _ = mimetypes.guess_type(filename)
+    if ext == ".pdf":
+        doc_type = DocumentType.PDF
+        if not mime_type:
+            mime_type = "application/pdf"
+    elif ext in (".doc", ".docx"):
+        doc_type = DocumentType.WORD
+        if not mime_type:
+            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    else:
+        doc_type = getattr(document, "file_type", DocumentType.OTHER)
+    document.file_size = file_size  # type: ignore[assignment]
+    document.mime_type = mime_type or "application/octet-stream"  # type: ignore[assignment]
+    document.file_type = doc_type  # type: ignore[assignment]
+    db.commit()
+    db.refresh(document)
+    return DocumentResponse.model_validate(document)
 
 
 @router.get("/{opportunity_id}/clins/{clin_id}/lookup-links")
