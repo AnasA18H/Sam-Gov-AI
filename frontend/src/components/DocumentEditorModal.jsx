@@ -202,11 +202,11 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
           setPdfPageHeightPoints(h);
           const blob = new Blob([bytesCopy], { type: 'application/pdf' });
           setPdfPreviewUrl(URL.createObjectURL(blob));
-          // Fetch server form-fields (for mapping_key) so "Fill from opportunity" can prefill
-          try {
-            const ffRes = await opportunitiesAPI.getFormFields(oid, docId);
+          setLoading(false);
+          // Defer server form-fields so editor shows fast; "Fill from opportunity" will use when ready or fetch on click
+          opportunitiesAPI.getFormFields(oid, docId).then((ffRes) => {
             if (ffRes?.data?.fields) setApiFormFields(ffRes.data.fields);
-          } catch (_) {}
+          }).catch(() => {});
         } catch (e) {
           const detail = e?.response?.data;
           let msg = 'Failed to load document.';
