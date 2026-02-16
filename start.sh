@@ -230,13 +230,7 @@ print_success "Data directories ready"
 
 # Run migrations
 print_info "Running database migrations..."
-if [ -f "scripts/run_migrations.sh" ]; then
-    ./scripts/run_migrations.sh || print_warning "Migrations may have failed"
-else
-    # Fallback: run alembic directly
-    print_info "Running alembic migrations directly..."
-    alembic upgrade head || print_warning "Migrations may have failed"
-fi
+alembic upgrade head || print_warning "Migrations may have failed"
 print_success "Database migrations completed"
 
 ###############################################################################

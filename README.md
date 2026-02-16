@@ -243,14 +243,14 @@ playwright install chromium
 ### Step 3: Database Setup
 
 ```bash
-# Automated setup (recommended)
-./scripts/setup_database.sh
+# Full setup on a new system (creates PostgreSQL user + database, runs migrations, verifies)
+python scripts/initialize_database.py --create-db
 
-# Or manual setup:
-# 1. Install PostgreSQL
-# 2. Create database and user
-# 3. Update .env with DATABASE_URL
+# If database/user already exist: ensure .env has DATABASE_URL, then run migrations + verify
+python scripts/initialize_database.py
 ```
+
+Requires PostgreSQL installed and running. With `--create-db`, the script creates the database and user, writes `DATABASE_URL` to `.env`, runs all Alembic migrations, and verifies the connection and tables.
 
 ### Step 4: Environment Configuration
 
@@ -282,17 +282,16 @@ GROQ_MODEL=llama-3.1-70b-versatile
 GOOGLE_SERVICE_ACCOUNT_JSON=extras/your-service-account.json
 GOOGLE_PROJECT_ID=your-project-id
 GOOGLE_PROCESSOR_ID=your-processor-id
+GOOGLE_FORM_PARSER_PROCESSOR_ID=your-form-parser-processor-id
 GOOGLE_LOCATION=us
 GOOGLE_DOCAI_ENABLED=True
 ```
 
 ### Step 5: Run Migrations
 
-```bash
-# Automated (recommended)
-./scripts/run_migrations.sh
+Migrations are run automatically by `scripts/initialize_database.py`. To run only migrations:
 
-# Or manually
+```bash
 alembic upgrade head
 ```
 
@@ -394,7 +393,7 @@ sam-project/
 │   ├── documents/            # Downloaded documents
 │   ├── uploads/              # User uploads
 │   └── debug_extracts/       # Debug extraction files
-├── scripts/                  # Setup and DB scripts (db_utils, reset_database, run_migrations, etc.)
+├── scripts/                  # DB: initialize_database, reset_database, db_utils; send_email
 ├── logs/                     # Application logs
 ├── start.sh                  # Start script
 └── stop.sh                   # Stop script
@@ -488,6 +487,8 @@ alembic downgrade -1
 
 | Script | Purpose |
 |--------|---------|
+| `python scripts/initialize_database.py --create-db` | Full setup: create DB/user, run migrations, verify |
+| `python scripts/initialize_database.py` | Run migrations and verify (DB must exist) |
 | `scripts/db_utils.py display` | Show database content summary |
 | `scripts/db_utils.py stats` | Row counts per table |
 | `scripts/db_utils.py clear` | Clear all data (prompts for confirmation) |
