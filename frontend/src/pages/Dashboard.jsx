@@ -8,13 +8,13 @@ import { opportunitiesAPI, authAPI } from '../utils/api';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { SiGoogle } from 'react-icons/si';
 import { FaMicrosoft } from 'react-icons/fa';
-import { 
-  HiOutlineTrash, 
-  HiOutlinePlus, 
-  HiOutlineLogout, 
-  HiOutlineDocumentText, 
-  HiOutlineClock, 
-  HiOutlineChevronRight, 
+import {
+  HiOutlineTrash,
+  HiOutlinePlus,
+  HiOutlineLogout,
+  HiOutlineDocumentText,
+  HiOutlineClock,
+  HiOutlineChevronRight,
   HiOutlineArrowLeft,
   HiOutlineSearch,
   HiOutlineFilter,
@@ -32,6 +32,7 @@ import {
   HiOutlineMail,
   HiOutlineCheckCircle
 } from 'react-icons/hi';
+import ThemeToggle from '../components/ThemeToggle';
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -182,9 +183,9 @@ const Dashboard = () => {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         {/* Navigation */}
-        <nav className="bg-white border-b border-gray-200 shadow-sm">
+        <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-14">
               <div className="flex items-center space-x-2">
@@ -193,13 +194,14 @@ const Dashboard = () => {
                   <div className="h-0.5 w-6 bg-yellow-400 rounded"></div>
                   <div className="h-0.5 w-6 bg-blue-500 rounded"></div>
                 </div>
-                <h1 className="text-lg font-semibold text-[#2D1B3D]">Sam Gov AI</h1>
+                <h1 className="text-lg font-semibold text-[#2D1B3D] dark:text-gray-100">Sam Gov AI</h1>
               </div>
               <div className="flex items-center space-x-2 sm:space-x-3">
+                <ThemeToggle />
                 {!emailConnectionLoading && (
                   <>
                     {emailConnection?.connected ? (
-                      <span className="hidden sm:flex items-center gap-1.5 text-xs text-gray-600 px-2 py-1 rounded bg-gray-100">
+                      <span className="hidden sm:flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 px-2 py-1 rounded bg-gray-100 dark:bg-gray-700">
                         <HiOutlineCheckCircle className="w-4 h-4 text-green-600" />
                         <span className="capitalize">{emailConnection.provider || 'Email'}</span>
                       </span>
@@ -235,16 +237,16 @@ const Dashboard = () => {
                 <div className="relative">
                   <button
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="flex items-center space-x-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                    className="flex items-center space-x-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                   >
-                    <div className="flex items-center justify-center w-8 h-8 bg-[#14B8A6] text-white rounded-full text-xs font-semibold">
+                    <div className="flex items-center justify-center w-8 h-8 bg-[#14B8A6] dark:bg-teal-dm text-white dark:text-gray-900 rounded-full text-xs font-semibold">
                       {user?.full_name ? user.full_name.charAt(0).toUpperCase() : user?.email?.charAt(0).toUpperCase() || 'U'}
                     </div>
                     <div className="hidden sm:block text-left">
-                      <div className="text-xs font-medium text-gray-900">
+                      <div className="text-xs font-medium text-gray-900 dark:text-gray-100">
                         {user?.full_name || 'User'}
                       </div>
-                      <div className="text-xs text-gray-500 truncate max-w-[120px]">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">
                         {user?.email}
                       </div>
                     </div>
@@ -262,12 +264,12 @@ const Dashboard = () => {
                         className="fixed inset-0 z-10" 
                         onClick={() => setUserMenuOpen(false)}
                       ></div>
-                      <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
-                        <div className="px-4 py-3 border-b border-gray-200 sm:hidden">
-                          <div className="text-sm font-medium text-gray-900">
+                      <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 py-1 z-20">
+                        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 sm:hidden">
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                             {user?.full_name || 'User'}
                           </div>
-                          <div className="text-xs text-gray-500 truncate">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                             {user?.email}
                           </div>
                         </div>
@@ -276,7 +278,7 @@ const Dashboard = () => {
                             setUserMenuOpen(false);
                             navigate('/profile');
                           }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
                         >
                           <HiOutlineUser className="w-4 h-4" />
                           <span>Profile</span>
@@ -286,7 +288,7 @@ const Dashboard = () => {
                             setUserMenuOpen(false);
                             navigate('/settings');
                           }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
                         >
                           <HiOutlineCog className="w-4 h-4" />
                           <span>Settings</span>
@@ -297,7 +299,7 @@ const Dashboard = () => {
                             setUserMenuOpen(false);
                             handleLogout();
                           }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors focus:outline-none focus:bg-red-50"
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors focus:outline-none focus:bg-red-50 dark:focus:bg-red-900/20"
                         >
                           <HiOutlineLogout className="w-4 h-4" />
                           <span>Logout</span>
@@ -314,18 +316,18 @@ const Dashboard = () => {
         {/* Main Content */}
         <div className="relative">
           {/* Floating Left Side Utilities Panel */}
-          <div className={`fixed left-6 top-6 bottom-6 z-40 bg-white border-2 border-[#14B8A6] rounded-xl shadow-lg transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
+          <div className={`fixed left-6 top-6 bottom-6 z-40 bg-white dark:bg-gray-800 border-2 border-[#14B8A6] dark:border-teal-dm rounded-xl shadow-lg transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
             sidebarOpen ? 'w-80' : 'w-20'
           }`}>
             {/* Toggle Button / Header */}
             <div 
-              className="bg-[#14B8A6] h-14 flex items-center justify-between cursor-pointer hover:bg-[#0D9488] transition-colors rounded-t-lg flex-shrink-0 shadow-sm"
+              className="bg-[#14B8A6] dark:bg-teal-dm h-14 flex items-center justify-between cursor-pointer hover:bg-[#0D9488] dark:hover:bg-teal-400 transition-colors rounded-t-lg flex-shrink-0 shadow-sm"
               onClick={() => setSidebarOpen(!sidebarOpen)}
             >
               <div className="flex items-center space-x-2 px-3 min-w-0">
-                <HiOutlineCog className="w-5 h-5 text-white flex-shrink-0" />
+                <HiOutlineCog className="w-5 h-5 text-white dark:text-gray-900 flex-shrink-0" />
                 {sidebarOpen && (
-                  <h3 className="text-sm font-semibold text-white transition-opacity duration-300 whitespace-nowrap">Utilities</h3>
+                  <h3 className="text-sm font-semibold text-white dark:text-gray-900 transition-opacity duration-300 whitespace-nowrap">Utilities</h3>
                 )}
               </div>
               <button
@@ -333,7 +335,7 @@ const Dashboard = () => {
                   e.stopPropagation();
                   setSidebarOpen(!sidebarOpen);
                 }}
-                className="p-2 text-white hover:bg-[#0D9488] rounded-md transition-colors flex-shrink-0 mr-1"
+                className="p-2 text-white dark:text-gray-900 hover:bg-[#0D9488] dark:hover:bg-teal-400 rounded-md transition-colors flex-shrink-0 mr-1"
                 title={sidebarOpen ? 'Collapse' : 'Expand'}
               >
                 {sidebarOpen ? (
@@ -349,30 +351,30 @@ const Dashboard = () => {
               <div className="flex-1 flex flex-col items-center justify-start py-4 space-y-2 overflow-y-auto">
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
+                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
                   title="Statistics"
                 >
                   <HiOutlineChartBar className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
+                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
                   title="Search"
                 >
                   <HiOutlineSearch className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
+                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
                   title="Filters"
                 >
                   <HiOutlineFilter className="w-5 h-5" />
                 </button>
-                <div className="h-px w-8 bg-gray-200 my-1"></div>
+                <div className="h-px w-8 bg-gray-200 dark:bg-gray-600 my-1"></div>
                 <button
                   onClick={handleRefresh}
                   disabled={loading}
-                  className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
+                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
                   title="Refresh"
                 >
                   <HiOutlineRefresh className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
@@ -380,7 +382,7 @@ const Dashboard = () => {
                 <button
                   onClick={handleExport}
                   disabled={opportunities.length === 0}
-                  className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
+                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
                   title="Export"
                 >
                   <HiOutlineDownload className="w-5 h-5" />
@@ -395,37 +397,37 @@ const Dashboard = () => {
               <div className="px-4 py-5 space-y-6 h-full overflow-y-auto custom-scrollbar">
                   {/* Statistics */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
-                      <HiOutlineChartBar className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineChartBar className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Statistics
                     </h4>
-                    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
+                    <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 p-4 space-y-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Total</span>
-                        <span className="text-sm font-bold text-gray-900">{stats.total}</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{stats.total}</span>
+                      </div>
+                      <div className="h-px bg-gray-200 dark:bg-gray-600"></div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Completed</span>
+                        <span className="text-sm font-bold text-[#14B8A6] dark:text-teal-dm">{stats.completed}</span>
                       </div>
                       <div className="h-px bg-gray-200"></div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Completed</span>
-                        <span className="text-sm font-bold text-[#14B8A6]">{stats.completed}</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Processing</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{stats.processing}</span>
                       </div>
                       <div className="h-px bg-gray-200"></div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Processing</span>
-                        <span className="text-sm font-bold text-gray-900">{stats.processing}</span>
-                      </div>
-                      <div className="h-px bg-gray-200"></div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Failed</span>
-                        <span className="text-sm font-bold text-gray-900">{stats.failed}</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Failed</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{stats.failed}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Search */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
-                      <HiOutlineSearch className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineSearch className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Search
                     </h4>
                     <div className="relative">
@@ -435,7 +437,7 @@ const Dashboard = () => {
                         placeholder="Search opportunities..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white placeholder-gray-400 transition-all"
+                        className="w-full pl-10 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-all"
                       />
                       {searchQuery && (
                         <button
@@ -451,8 +453,8 @@ const Dashboard = () => {
 
                   {/* Filters */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
-                      <HiOutlineFilter className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineFilter className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Filters
                     </h4>
                     <div className="space-y-3">
@@ -461,7 +463,7 @@ const Dashboard = () => {
                         <select
                           value={statusFilter}
                           onChange={(e) => setStatusFilter(e.target.value)}
-                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white text-gray-900 transition-all cursor-pointer"
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 transition-all cursor-pointer"
                         >
                           <option value="all">All Status</option>
                           <option value="completed">Completed</option>
@@ -475,7 +477,7 @@ const Dashboard = () => {
                         <select
                           value={sortBy}
                           onChange={(e) => setSortBy(e.target.value)}
-                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white text-gray-900 transition-all cursor-pointer"
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 transition-all cursor-pointer"
                         >
                           <option value="newest">Newest First</option>
                           <option value="oldest">Oldest First</option>
@@ -487,8 +489,8 @@ const Dashboard = () => {
 
                   {/* Email & calendar */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
-                      <HiOutlineMail className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineMail className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Email & calendar
                     </h4>
                     {emailConnectionLoading ? (
@@ -528,7 +530,7 @@ const Dashboard = () => {
                       <button
                         onClick={handleRefresh}
                         disabled={loading}
-                        className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-300 hover:border-gray-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                       >
                         <HiOutlineRefresh className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                         Refresh
@@ -546,11 +548,11 @@ const Dashboard = () => {
 
                   {/* Help */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
-                      <HiOutlineInformationCircle className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineInformationCircle className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Help
                     </h4>
-                    <div className="space-y-2.5 text-sm text-gray-600 bg-gray-50 rounded-lg p-3 border border-gray-200">
+                    <div className="space-y-2.5 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
                       <p className="text-xs leading-relaxed">
                         <span className="font-medium text-gray-700">Search:</span> Find opportunities by title, notice ID, or description.
                       </p>
@@ -571,8 +573,8 @@ const Dashboard = () => {
             <div className="px-4 py-4 sm:px-0">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">Dashboard</h2>
-                  <p className="mt-0.5 text-sm text-gray-500">
+                  <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Dashboard</h2>
+                  <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
                     Welcome back, {user?.full_name || user?.email}
                   </p>
                 </div>
@@ -586,7 +588,7 @@ const Dashboard = () => {
                         setSearchQuery('');
                         setStatusFilter('all');
                       }}
-                      className="text-xs text-[#14B8A6] hover:text-[#0D9488] font-medium"
+                      className="text-xs text-[#14B8A6] dark:text-teal-dm hover:text-[#0D9488] dark:hover:text-teal-400 font-medium"
                     >
                       Clear filters
                     </button>
@@ -595,9 +597,9 @@ const Dashboard = () => {
               </div>
 
             {/* Opportunities List */}
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
               <div className="px-4 py-3 border-b border-gray-200">
-                <h3 className="text-sm font-semibold text-gray-900">Your Opportunities</h3>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Your Opportunities</h3>
               </div>
               
               <div className="divide-y divide-gray-200">
@@ -635,7 +637,7 @@ const Dashboard = () => {
                   filteredAndSortedOpportunities.map((opp) => (
                     <div
                       key={opp.id}
-                      className="px-4 py-3 hover:bg-gray-50 transition-colors group"
+                      className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
                     >
                       <div className="flex items-center justify-between">
                         <div
@@ -643,7 +645,7 @@ const Dashboard = () => {
                           onClick={() => navigate(`/opportunities/${opp.id}`)}
                         >
                           <div className="flex items-center space-x-2">
-                            <h4 className="text-sm font-medium text-gray-900 truncate">
+                            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                               {opp.title || 'Untitled Opportunity'}
                             </h4>
                             <span className={`px-2 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${
@@ -694,9 +696,9 @@ const Dashboard = () => {
         {/* Confirm before analysis when email/calendar not connected */}
         {showAnalyzeConfirm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-200 dark:border-gray-700">
               <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-base font-semibold text-gray-900">Email & calendar not connected</h3>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Email & calendar not connected</h3>
               </div>
               <div className="px-6 py-4">
                 <p className="text-sm text-gray-600 mb-3">
@@ -743,9 +745,9 @@ const Dashboard = () => {
         {/* Delete Confirmation Modal */}
         {showDeleteConfirm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-200 dark:border-gray-700">
               <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-base font-semibold text-gray-900">Delete Opportunity</h3>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Delete Opportunity</h3>
               </div>
               <div className="px-6 py-4">
                 <p className="text-sm text-gray-600">

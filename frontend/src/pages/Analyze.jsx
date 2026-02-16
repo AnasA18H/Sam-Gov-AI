@@ -14,6 +14,7 @@ import {
   HiOutlineSearch,
   HiOutlineX,
 } from 'react-icons/hi';
+import ThemeToggle from '../components/ThemeToggle';
 
 const Analyze = () => {
   const [samGovUrl, setSamGovUrl] = useState('');
@@ -102,9 +103,9 @@ const Analyze = () => {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         {/* Navigation */}
-        <nav className="bg-white border-b border-gray-200 shadow-sm">
+        <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-14">
               <div className="flex items-center space-x-2">
@@ -115,12 +116,13 @@ const Analyze = () => {
                 </div>
                 <button
                   onClick={() => navigate('/dashboard')}
-                  className="text-lg font-semibold text-[#2D1B3D] hover:text-[#14B8A6] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2 rounded"
+                  className="text-lg font-semibold text-[#2D1B3D] dark:text-gray-100 hover:text-[#14B8A6] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2 dark:focus:ring-offset-gray-800 rounded"
                 >
                   Sam Gov AI
                 </button>
               </div>
               <div className="flex items-center space-x-2">
+                <ThemeToggle />
                 <button
                   onClick={() => navigate('/dashboard')}
                   className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-colors"

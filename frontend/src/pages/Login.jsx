@@ -10,6 +10,7 @@ import {
   HiOutlineMail,
   HiOutlineArrowRight,
 } from 'react-icons/hi';
+import ThemeToggle from '../components/ThemeToggle';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -82,11 +83,14 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen w-full flex bg-[#18242b]">
+    <div className="min-h-screen w-full flex bg-[#18242b] dark:bg-gray-900">
       {/* Container with green border - full screen */}
-      <div className="w-full h-screen min-h-screen flex border-[7px] border-[#18242b] rounded-[25px] overflow-hidden bg-white shadow-2xl">
+      <div className="w-full h-screen min-h-screen flex border-[7px] border-[#18242b] dark:border-gray-800 rounded-[25px] overflow-hidden bg-white dark:bg-gray-800 shadow-2xl">
         {/* Left Section - Login Form */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white">
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white dark:bg-gray-800 relative">
+        <div className="absolute top-4 right-4">
+          <ThemeToggle />
+        </div>
         <div className="w-full max-w-md space-y-8">
           {/* Logo */}
           <div className="flex items-center space-x-2">
@@ -95,15 +99,15 @@ const Login = () => {
               <div className="h-1 w-8 bg-yellow-400 rounded"></div>
               <div className="h-1 w-8 bg-blue-500 rounded"></div>
             </div>
-            <h1 className="text-2xl font-semibold text-[#2D1B3D]">Sam Gov AI</h1>
+            <h1 className="text-2xl font-semibold text-[#2D1B3D] dark:text-gray-100">Sam Gov AI</h1>
           </div>
 
           {/* Welcome Section */}
           <div>
-            <h2 className="text-3xl font-bold text-[#2D1B3D] mb-2">
+            <h2 className="text-3xl font-bold text-[#2D1B3D] dark:text-gray-100 mb-2">
               Welcome Back!
             </h2>
-            <p className="text-gray-600 text-sm">
+            <p className="text-gray-600 dark:text-gray-400 text-sm">
               Please Log in to your account.
             </p>
           </div>
@@ -111,18 +115,18 @@ const Login = () => {
           {/* Form */}
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+              <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 px-4 py-3 rounded-xl text-sm">
                 {error}
               </div>
             )}
 
             {showVerify ? (
               <>
-                <p className="text-sm text-gray-600">
-                  Enter the 6-digit code we sent to <strong>{unverifiedEmail}</strong>.
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Enter the 6-digit code we sent to <strong className="text-gray-900 dark:text-gray-100">{unverifiedEmail}</strong>.
                 </p>
                 <div>
-                  <label htmlFor="code" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Verification code
                   </label>
                   <input
@@ -132,7 +136,7 @@ const Login = () => {
                     inputMode="numeric"
                     maxLength={6}
                     placeholder="000000"
-                    className="block w-full px-4 py-2.5 border-2 border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="block w-full px-4 py-2.5 border-2 border-gray-300 dark:border-gray-500 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-teal-dm dark:!bg-gray-600 bg-white text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-400"
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   />
@@ -141,7 +145,7 @@ const Login = () => {
                   <button
                     type="submit"
                     disabled={loading || code.length !== 6}
-                    className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl text-sm font-medium text-white bg-[#14B8A6] hover:bg-[#0D9488] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:opacity-50 transition-colors"
+                    className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl text-sm font-medium text-white dark:text-gray-900 bg-[#14B8A6] dark:bg-teal-dm hover:bg-[#0D9488] dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm disabled:opacity-50 transition-colors"
                   >
                     {loading ? (
                       <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -156,7 +160,7 @@ const Login = () => {
                     type="button"
                     onClick={handleResendCode}
                     disabled={loading}
-                    className="px-4 py-2.5 border-2 border-[#14B8A6] rounded-xl text-sm font-medium text-[#14B8A6] hover:bg-teal-50 disabled:opacity-50 transition-colors"
+                    className="px-4 py-2.5 border-2 border-[#14B8A6] dark:border-teal-dm rounded-xl text-sm font-medium text-[#14B8A6] dark:text-teal-dm hover:bg-teal-50 dark:hover:bg-teal-dm/20 disabled:opacity-50 transition-colors"
                   >
                     Resend code
                   </button>
@@ -164,7 +168,7 @@ const Login = () => {
                 <button
                   type="button"
                   onClick={() => { setShowVerify(false); setError(''); setCode(''); }}
-                  className="text-sm text-gray-500 hover:text-gray-700"
+                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
                   ← Back to password login
                 </button>
@@ -173,12 +177,12 @@ const Login = () => {
               <>
             {/* Email Field */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Email Address
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <HiOutlineMail className="h-5 w-5 text-gray-400" />
+                  <HiOutlineMail className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                 </div>
                 <input
                   id="email"
@@ -186,7 +190,7 @@ const Login = () => {
                   type="email"
                   autoComplete="email"
                   required
-                  className="block w-full pl-10 pr-3 py-2.5 border-2 border-gray-300 rounded-xl text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] transition-colors"
+                  className="block w-full pl-10 pr-3 py-2.5 border-2 border-gray-300 dark:border-gray-500 rounded-xl text-sm placeholder-gray-400 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:border-[#14B8A6] dark:focus:border-teal-dm transition-colors bg-white dark:!bg-gray-600 text-gray-900 dark:text-gray-100"
                   placeholder="tuhelrana@gmail.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -196,12 +200,12 @@ const Login = () => {
 
             {/* Password Field */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Password
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <HiOutlineLockClosed className="h-5 w-5 text-gray-400" />
+                  <HiOutlineLockClosed className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                 </div>
                 <input
                   id="password"
@@ -209,7 +213,7 @@ const Login = () => {
                   type="password"
                   autoComplete="current-password"
                   required
-                  className="block w-full pl-10 pr-3 py-2.5 border-2 border-gray-300 rounded-xl text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  className="block w-full pl-10 pr-3 py-2.5 border-2 border-gray-300 dark:border-gray-500 rounded-xl text-sm placeholder-gray-400 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-teal-dm focus:border-teal-500 dark:focus:border-teal-dm transition-colors bg-white dark:!bg-gray-600 text-gray-900 dark:text-gray-100"
                   placeholder="•••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -220,17 +224,17 @@ const Login = () => {
             {/* Continue with Google / Microsoft */}
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300" />
+                <div className="w-full border-t border-gray-300 dark:border-gray-600" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Or continue with</span>
+                <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">Or continue with</span>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => { window.location.href = authAPI.signinGoogleUrl(); }}
-                className="inline-flex items-center justify-center px-4 py-2.5 border-2 border-gray-300 rounded-xl text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-colors"
+                className="inline-flex items-center justify-center px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-600 hover:bg-gray-50 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm transition-colors"
               >
                 <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -243,7 +247,7 @@ const Login = () => {
               <button
                 type="button"
                 onClick={() => { window.location.href = authAPI.signinMicrosoftUrl(); }}
-                className="inline-flex items-center justify-center px-4 py-2.5 border-2 border-gray-300 rounded-xl text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-colors"
+                className="inline-flex items-center justify-center px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-600 hover:bg-gray-50 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm transition-colors"
               >
                 <svg className="w-5 h-5 mr-2" viewBox="0 0 23 23">
                   <path fill="#f35325" d="M1 1h10v10H1z"/>
@@ -262,13 +266,13 @@ const Login = () => {
                   id="remember-me"
                   name="remember-me"
                   type="checkbox"
-                  className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded-md"
+                  className="h-4 w-4 text-teal-600 dark:text-teal-dm focus:ring-teal-500 dark:focus:ring-teal-dm border-gray-300 dark:border-gray-500 rounded-md bg-white dark:bg-gray-600"
                 />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-600">
+                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-600 dark:text-gray-400">
                   Remember me
                 </label>
               </div>
-              <Link to="#" className="text-sm text-red-600 hover:text-red-700">
+              <Link to="#" className="text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
                 Forgot password?
               </Link>
             </div>
@@ -278,7 +282,7 @@ const Login = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl text-sm font-medium text-white bg-[#14B8A6] hover:bg-[#0D9488] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl text-sm font-medium text-white dark:text-gray-900 bg-[#14B8A6] dark:bg-teal-dm hover:bg-[#0D9488] dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title={loading ? 'Signing in...' : 'Sign in'}
               >
                 {loading ? (
@@ -292,7 +296,7 @@ const Login = () => {
               </button>
               <Link
                 to="/signup"
-                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border-2 border-[#14B8A6] rounded-xl text-sm font-medium text-[#14B8A6] bg-white hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-colors"
+                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border-2 border-[#14B8A6] dark:border-teal-dm rounded-xl text-sm font-medium text-[#14B8A6] dark:text-teal-dm bg-white dark:bg-gray-600 hover:bg-teal-50 dark:hover:bg-teal-dm/20 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm transition-colors"
               >
                 Create account
               </Link>
@@ -302,7 +306,7 @@ const Login = () => {
           </form>
 
           {/* Footer */}
-          <p className="text-xs text-gray-500 text-center">
+          <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
             By sign up you agree to our term and that you have read our data policy
           </p>
         </div>

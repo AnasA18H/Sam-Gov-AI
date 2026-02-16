@@ -12,6 +12,7 @@ import {
 } from 'react-icons/hi';
 import { SiGoogle } from 'react-icons/si';
 import { FaMicrosoft } from 'react-icons/fa';
+import ThemeToggle from '../components/ThemeToggle';
 
 const Profile = () => {
   const { user } = useAuth();
@@ -33,8 +34,8 @@ const Profile = () => {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
-        <nav className="bg-white border-b border-gray-200 shadow-sm">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-14 items-center">
               <div className="flex items-center space-x-2">
@@ -43,28 +44,31 @@ const Profile = () => {
                   <div className="h-0.5 w-6 bg-yellow-400 rounded" />
                   <div className="h-0.5 w-6 bg-blue-500 rounded" />
                 </div>
-                <span className="text-lg font-semibold text-[#2D1B3D]">Sam Gov AI</span>
+                <span className="text-lg font-semibold text-[#2D1B3D] dark:text-gray-100">Sam Gov AI</span>
               </div>
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
+              <div className="flex items-center gap-2">
+                <ThemeToggle />
+                <button
+                  onClick={() => navigate('/dashboard')}
+                  className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
+                >
                 <HiOutlineArrowLeft className="w-4 h-4 mr-1.5" />
                 Dashboard
               </button>
+              </div>
             </div>
           </div>
         </nav>
 
         <main className="max-w-2xl mx-auto py-8 px-4 sm:px-6">
-          <h1 className="text-xl font-semibold text-gray-900 mb-6 flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6 flex items-center gap-2">
             <HiOutlineUser className="w-6 h-6 text-[#14B8A6]" />
             Profile
           </h1>
 
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/60">
-              <h2 className="text-sm font-semibold text-gray-900">Account</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-700/50">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Account</h2>
               <p className="text-xs text-gray-500 mt-0.5">Your account information</p>
             </div>
             <div className="p-6 space-y-6">
