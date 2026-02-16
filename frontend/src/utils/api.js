@@ -19,6 +19,10 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Let the browser set Content-Type with boundary for FormData (required for file uploads)
+    if (config.data instanceof FormData && config.headers) {
+      delete config.headers['Content-Type'];
+    }
     return config;
   },
   (error) => {
@@ -85,10 +89,20 @@ export const opportunitiesAPI = {
     api.patch(`/api/v1/opportunities/${opportunityId}/quote-email-drafts/${draftId}`, body),
   /** Overwrite document with new file (e.g. after in-app edit). file: File or Blob. */
   overwriteDocument: (opportunityId, documentId, file, filename) => {
+    if (!file) return Promise.reject(new Error('Replacement file is required'));
     const formData = new FormData();
-    formData.append('file', file, filename || (file.name || 'document'));
+    formData.append('file', file, filename || (file?.name || 'document'));
     return api.put(`/api/v1/opportunities/${opportunityId}/documents/${documentId}`, formData);
   },
+  /** Get PDF form fields (for editor / autofill). */
+  getFormFields: (opportunityId, documentId) =>
+    api.get(`/api/v1/opportunities/${opportunityId}/documents/${documentId}/form-fields`),
+  /** Get opportunity form data for prefill (flat key-value). */
+  getFormData: (opportunityId) =>
+    api.get(`/api/v1/opportunities/${opportunityId}/form-data`),
+  /** Fill PDF form. body: { fields?: {}, use_opportunity_data?: boolean, save_as_new?: boolean }. */
+  fillForm: (opportunityId, documentId, body) =>
+    api.post(`/api/v1/opportunities/${opportunityId}/documents/${documentId}/fill-form`, body),
 };
 
 export default api;

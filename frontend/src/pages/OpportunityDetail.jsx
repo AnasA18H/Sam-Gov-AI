@@ -42,6 +42,7 @@ import {
 } from 'react-icons/hi';
 import { SiGoogle } from 'react-icons/si';
 import { FaMicrosoft } from 'react-icons/fa';
+import ThemeToggle from '../components/ThemeToggle';
 
 const OpportunityDetail = () => {
   const { id } = useParams();
@@ -55,7 +56,7 @@ const OpportunityDetail = () => {
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(
-        `${API_BASE_URL}/api/v1/opportunities/${id}/documents/${documentId}/view`,
+        `${API_BASE_URL}/api/v1/opportunities/${id}/documents/${documentId}/view?t=${Date.now()}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -499,9 +500,9 @@ const OpportunityDetail = () => {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         {/* Navigation */}
-        <nav className="bg-white border-b border-gray-200 shadow-sm">
+        <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-14">
               <div className="flex items-center space-x-2">
@@ -512,20 +513,21 @@ const OpportunityDetail = () => {
                 </div>
                 <button
                   onClick={() => navigate('/dashboard')}
-                  className="text-lg font-semibold text-[#2D1B3D] hover:text-[#14B8A6] transition-colors"
+                  className="text-lg font-semibold text-[#2D1B3D] dark:text-gray-100 hover:text-[#14B8A6] dark:hover:text-teal-dm transition-colors"
                 >
                   Sam Gov AI
                 </button>
               </div>
               <div className="flex items-center space-x-2">
+                <ThemeToggle />
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="p-2 text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                  className="p-2 text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-700 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/70 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-500 dark:focus:ring-red-400 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                   disabled={deleteLoading}
                   title={deleteLoading ? 'Deleting...' : 'Delete'}
                 >
                   {deleteLoading ? (
-                    <svg className="animate-spin h-5 w-5 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg className="animate-spin h-5 w-5 text-red-600 dark:text-red-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
@@ -535,7 +537,7 @@ const OpportunityDetail = () => {
                 </button>
                 <button
                   onClick={() => navigate('/dashboard')}
-                  className="p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+                  className="p-2 text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-600 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-500 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                   title="Back to Dashboard"
                 >
                   <HiOutlineArrowLeft className="w-5 h-5" />
@@ -545,23 +547,23 @@ const OpportunityDetail = () => {
                 <div className="relative">
                   <button
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="flex items-center space-x-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                    className="flex items-center space-x-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                   >
-                    <div className="flex items-center justify-center w-8 h-8 bg-[#14B8A6] text-white rounded-full text-xs font-semibold">
+                    <div className="flex items-center justify-center w-8 h-8 bg-[#14B8A6] dark:bg-teal-dm text-white dark:text-gray-900 rounded-full text-xs font-semibold">
                       {user?.full_name ? user.full_name.charAt(0).toUpperCase() : user?.email?.charAt(0).toUpperCase() || 'U'}
                     </div>
                     <div className="hidden sm:block text-left">
-                      <div className="text-xs font-medium text-gray-900">
+                      <div className="text-xs font-medium text-gray-900 dark:text-gray-100">
                         {user?.full_name || 'User'}
                       </div>
-                      <div className="text-xs text-gray-500 truncate max-w-[120px]">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">
                         {user?.email}
                       </div>
                     </div>
                     {userMenuOpen ? (
-                      <HiOutlineChevronUp className="w-4 h-4 text-gray-600 hidden sm:block" />
+                      <HiOutlineChevronUp className="w-4 h-4 text-gray-600 dark:text-gray-400 hidden sm:block" />
                     ) : (
-                      <HiOutlineChevronDown className="w-4 h-4 text-gray-600 hidden sm:block" />
+                      <HiOutlineChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400 hidden sm:block" />
                     )}
                   </button>
 
@@ -572,12 +574,12 @@ const OpportunityDetail = () => {
                         className="fixed inset-0 z-10" 
                         onClick={() => setUserMenuOpen(false)}
                       ></div>
-                      <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
-                        <div className="px-4 py-3 border-b border-gray-200 sm:hidden">
-                          <div className="text-sm font-medium text-gray-900">
+                      <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 py-1 z-20">
+                        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 sm:hidden">
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                             {user?.full_name || 'User'}
                           </div>
-                          <div className="text-xs text-gray-500 truncate">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                             {user?.email}
                           </div>
                         </div>
@@ -586,7 +588,7 @@ const OpportunityDetail = () => {
                             setUserMenuOpen(false);
                             navigate('/dashboard');
                           }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
                         >
                           <HiOutlineArrowLeft className="w-4 h-4" />
                           <span>Dashboard</span>
@@ -596,7 +598,7 @@ const OpportunityDetail = () => {
                             setUserMenuOpen(false);
                             navigate('/profile');
                           }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
                         >
                           <HiOutlineUser className="w-4 h-4" />
                           <span>Profile</span>
@@ -606,18 +608,18 @@ const OpportunityDetail = () => {
                             setUserMenuOpen(false);
                             navigate('/settings');
                           }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:bg-gray-100"
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
                         >
                           <HiOutlineCog className="w-4 h-4" />
                           <span>Settings</span>
                         </button>
-                        <div className="border-t border-gray-200 my-1"></div>
+                        <div className="border-t border-gray-200 dark:border-gray-600 my-1"></div>
                         <button
                           onClick={() => {
                             setUserMenuOpen(false);
                             handleLogout();
                           }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors focus:outline-none focus:bg-red-50"
+                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors focus:outline-none focus:bg-red-50 dark:focus:bg-red-900/30"
                         >
                           <HiOutlineLogout className="w-4 h-4" />
                           <span>Logout</span>
@@ -634,18 +636,18 @@ const OpportunityDetail = () => {
         {/* Main Content */}
         <div className="relative">
           {/* Floating Left Side Utilities Panel */}
-          <div className={`fixed left-6 top-6 bottom-6 z-40 bg-white border-2 border-[#14B8A6] rounded-xl shadow-lg transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
+          <div className={`fixed left-6 top-6 bottom-6 z-40 bg-white dark:bg-gray-800 border-2 border-[#14B8A6] dark:border-teal-dm rounded-xl shadow-lg transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
             sidebarOpen ? 'w-80' : 'w-20'
           }`}>
             {/* Toggle Button / Header */}
             <div 
-              className="bg-[#14B8A6] h-14 flex items-center justify-between cursor-pointer hover:bg-[#0D9488] transition-colors rounded-t-lg flex-shrink-0 shadow-sm"
+              className="bg-[#14B8A6] dark:bg-teal-dm h-14 flex items-center justify-between cursor-pointer hover:bg-[#0D9488] dark:hover:bg-teal-400 transition-colors rounded-t-lg flex-shrink-0 shadow-sm"
               onClick={() => setSidebarOpen(!sidebarOpen)}
             >
               <div className="flex items-center space-x-2 px-3 min-w-0">
-                <HiOutlineCog className="w-5 h-5 text-white flex-shrink-0" />
+                <HiOutlineCog className="w-5 h-5 text-white dark:text-gray-900 flex-shrink-0" />
                 {sidebarOpen && (
-                  <h3 className="text-sm font-semibold text-white transition-opacity duration-300 whitespace-nowrap">Utilities</h3>
+                  <h3 className="text-sm font-semibold text-white dark:text-gray-900 transition-opacity duration-300 whitespace-nowrap">Utilities</h3>
                 )}
               </div>
               <button
@@ -653,7 +655,7 @@ const OpportunityDetail = () => {
                   e.stopPropagation();
                   setSidebarOpen(!sidebarOpen);
                 }}
-                className="p-2 text-white hover:bg-[#0D9488] rounded-md transition-colors flex-shrink-0 mr-1 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#14B8A6]"
+                className="p-2 text-white dark:text-gray-900 hover:bg-[#0D9488] dark:hover:bg-teal-400 rounded-md transition-colors flex-shrink-0 mr-1 focus:outline-none focus:ring-2 focus:ring-white dark:focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-[#14B8A6] dark:focus:ring-offset-teal-dm"
                 title={sidebarOpen ? 'Collapse' : 'Expand'}
               >
                 {sidebarOpen ? (
@@ -669,7 +671,7 @@ const OpportunityDetail = () => {
               <div className="flex-1 flex flex-col items-center justify-start py-4 space-y-2 overflow-y-auto">
                 <button
                   onClick={() => navigate('/dashboard')}
-                  className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                   title="Back to Dashboard"
                 >
                   <HiOutlineArrowLeft className="w-5 h-5" />
@@ -677,12 +679,12 @@ const OpportunityDetail = () => {
                 <button
                   onClick={fetchOpportunity}
                   disabled={loading}
-                  className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                   title="Refresh"
                 >
                   <HiOutlineRefresh className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
-                <div className="h-px w-8 bg-gray-200 my-1"></div>
+                <div className="h-px w-8 bg-gray-200 dark:bg-gray-600 my-1"></div>
                 {opportunity?.clins?.some((clin) => {
                   const mfr = getClinManufacturerResearchList(clin);
                   const dlr = getClinDealerResearch(clin);
@@ -690,7 +692,7 @@ const OpportunityDetail = () => {
                 }) && (
                   <button
                     onClick={() => navigate(`/opportunities/${id}/quote-emails`)}
-                    className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                    className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                     title="View quote emails"
                   >
                     <HiOutlineMail className="w-5 h-5" />
@@ -700,13 +702,13 @@ const OpportunityDetail = () => {
                   <button
                     onClick={handleSyncCalendar}
                     disabled={syncingCalendar}
-                    className="p-2.5 text-gray-600 hover:text-[#14B8A6] hover:bg-[#14B8A6] hover:bg-opacity-10 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                    className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                     title="Add to Calendar"
                   >
                     <HiOutlineCalendar className={`w-5 h-5 ${syncingCalendar ? 'animate-spin' : ''}`} />
                   </button>
                 )}
-                <div className="h-px w-8 bg-gray-200 my-1"></div>
+                <div className="h-px w-8 bg-gray-200 dark:bg-gray-600 my-1"></div>
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
                   disabled={deleteLoading}
@@ -725,11 +727,11 @@ const OpportunityDetail = () => {
               <div className="px-4 py-5 space-y-6 h-full overflow-y-auto custom-scrollbar">
                 {/* Quick Actions */}
                 <div>
-                  <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3">Quick Actions</h4>
+                  <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3">Quick Actions</h4>
                   <div className="space-y-2.5">
                     <button
                       onClick={() => navigate('/dashboard')}
-                      className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-300 hover:border-gray-400 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                      className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                     >
                       <HiOutlineArrowLeft className="w-4 h-4 mr-2" />
                       Back to Dashboard
@@ -737,7 +739,7 @@ const OpportunityDetail = () => {
                     <button
                       onClick={fetchOpportunity}
                       disabled={loading}
-                      className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-300 hover:border-gray-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                      className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                     >
                       <HiOutlineRefresh className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                       Refresh
@@ -756,8 +758,8 @@ const OpportunityDetail = () => {
                 {/* Email & calendar in utility bar */}
                 {opportunity && (
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
-                      <HiOutlineMail className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineMail className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Email & calendar
                     </h4>
                     <div className="space-y-2.5">
@@ -768,7 +770,7 @@ const OpportunityDetail = () => {
                       }) && (
                         <button
                           onClick={() => navigate(`/opportunities/${id}/quote-emails`)}
-                          className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-[#0D9488] bg-[#14B8A6]/10 rounded-lg hover:bg-[#14B8A6]/20 border border-[#14B8A6]/40 transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                          className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-[#0D9488] dark:text-teal-dm bg-[#14B8A6]/10 dark:bg-teal-dm/20 rounded-lg hover:bg-[#14B8A6]/20 dark:hover:bg-teal-dm/30 border border-[#14B8A6]/40 dark:border-teal-dm/40 transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                         >
                           <HiOutlineMail className="w-4 h-4 mr-2" />
                           View quote emails
@@ -778,7 +780,7 @@ const OpportunityDetail = () => {
                         <button
                           onClick={handleSyncCalendar}
                           disabled={syncingCalendar}
-                          className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-[#0D9488] bg-[#14B8A6]/10 rounded-lg hover:bg-[#14B8A6]/20 border border-[#14B8A6]/40 transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                          className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-[#0D9488] dark:text-teal-dm bg-[#14B8A6]/10 dark:bg-teal-dm/20 rounded-lg hover:bg-[#14B8A6]/20 dark:hover:bg-teal-dm/30 border border-[#14B8A6]/40 dark:border-teal-dm/40 transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                         >
                           <HiOutlineCalendar className={`w-4 h-4 mr-2 ${syncingCalendar ? 'animate-spin' : ''}`} />
                           {syncingCalendar ? 'Adding…' : 'Add to Calendar'}
@@ -791,48 +793,48 @@ const OpportunityDetail = () => {
                 {/* Summary */}
                 {opportunity && (
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center">
-                      <HiOutlineChartBar className="w-4 h-4 mr-2 text-[#14B8A6]" />
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                      <HiOutlineChartBar className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Summary
                     </h4>
-                    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
+                    <div className="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4 space-y-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Type</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Type</span>
                         <span className={`text-xs font-bold px-2.5 py-1 rounded capitalize ${
-                          opportunity.solicitation_type === 'product' ? 'bg-[#14B8A6]/20 text-[#0D9488]' :
-                          opportunity.solicitation_type === 'service' ? 'bg-blue-100 text-blue-800' :
-                          opportunity.solicitation_type === 'both' ? 'bg-amber-100 text-amber-800' :
-                          'bg-gray-200 text-gray-600'
+                          opportunity.solicitation_type === 'product' ? 'bg-[#14B8A6]/20 dark:bg-teal-dm/20 text-[#0D9488] dark:text-teal-dm' :
+                          opportunity.solicitation_type === 'service' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200' :
+                          opportunity.solicitation_type === 'both' ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200' :
+                          'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
                         }`}>
                           {opportunity.solicitation_type === 'unknown' ? '—' : opportunity.solicitation_type}
                         </span>
                       </div>
-                      <div className="h-px bg-gray-200"></div>
+                      <div className="h-px bg-gray-200 dark:bg-gray-600"></div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Status</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Status</span>
                         <span className={`text-xs font-bold px-2 py-1 rounded ${
-                          opportunity.status === 'completed' ? 'bg-green-100 text-green-700' :
-                          opportunity.status === 'processing' ? 'bg-yellow-100 text-yellow-700' :
-                          opportunity.status === 'failed' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
+                          opportunity.status === 'completed' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-200' :
+                          opportunity.status === 'processing' ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-200' :
+                          opportunity.status === 'failed' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-200' :
+                          'bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-300'
                         }`}>
                           {opportunity.status}
                         </span>
                       </div>
-                      <div className="h-px bg-gray-200"></div>
+                      <div className="h-px bg-gray-200 dark:bg-gray-600"></div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">CLINs</span>
-                        <span className="text-sm font-bold text-gray-900">{opportunity.clins?.length || 0}</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">CLINs</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{opportunity.clins?.length || 0}</span>
                       </div>
-                      <div className="h-px bg-gray-200"></div>
+                      <div className="h-px bg-gray-200 dark:bg-gray-600"></div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Documents</span>
-                        <span className="text-sm font-bold text-gray-900">{opportunity.documents?.length || 0}</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Documents</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{opportunity.documents?.length || 0}</span>
                       </div>
-                      <div className="h-px bg-gray-200"></div>
+                      <div className="h-px bg-gray-200 dark:bg-gray-600"></div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-700">Deadlines</span>
-                        <span className="text-sm font-bold text-gray-900">{opportunity.deadlines?.length || 0}</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Deadlines</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{opportunity.deadlines?.length || 0}</span>
                       </div>
                     </div>
                   </div>
@@ -840,16 +842,16 @@ const OpportunityDetail = () => {
 
                 {/* Navigation */}
                 <div>
-                  <h4 className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-3">Navigation</h4>
-                  <div className="space-y-2 text-sm text-gray-600 bg-gray-50 rounded-lg p-3 border border-gray-200">
+                  <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3">Navigation</h4>
+                  <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
                     <p className="text-xs leading-relaxed">
-                      <span className="font-medium text-gray-700">Scroll:</span> View all sections of this opportunity.
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Scroll:</span> View all sections of this opportunity.
                     </p>
                     <p className="text-xs leading-relaxed">
-                      <span className="font-medium text-gray-700">CLINs:</span> View extracted contract line items.
+                      <span className="font-medium text-gray-700 dark:text-gray-300">CLINs:</span> View extracted contract line items.
                     </p>
                     <p className="text-xs leading-relaxed">
-                      <span className="font-medium text-gray-700">Documents:</span> Access all downloaded files.
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Documents:</span> Access all downloaded files.
                     </p>
                   </div>
                 </div>
@@ -859,10 +861,10 @@ const OpportunityDetail = () => {
 
         <main className="max-w-7xl mx-auto py-4 sm:px-6 lg:px-8">
           <div className="px-4 py-4 sm:px-0">
-            {/* Title Section - green background + contact info */}
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm mb-6 overflow-visible">
+            {/* Title Section - green background; light mode: white text, dark mode: green bg + dark text */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm mb-6 overflow-visible">
               <div 
-                className="relative z-10 rounded-lg shadow-md px-4 py-4 text-white"
+                className="relative z-10 rounded-lg shadow-md px-4 py-4 text-white dark:text-gray-900"
                 style={{
                   backgroundImage: 'repeating-linear-gradient(-55deg, transparent, transparent 8px, rgba(255,255,255,0.06) 8px, rgba(255,255,255,0.06) 9px), repeating-linear-gradient(35deg, transparent, transparent 8px, rgba(255,255,255,0.04) 8px, rgba(255,255,255,0.04) 9px), linear-gradient(to right, #14B8A6, #0D9488)',
                 }}
@@ -870,7 +872,7 @@ const OpportunityDetail = () => {
                 <div className="relative flex justify-between items-start flex-wrap gap-3">
                   <div className="flex-1 min-w-0">
                     <div className={opportunity.title && opportunity.title.length > 60 ? 'max-h-[3.6rem] overflow-hidden' : ''}>
-                      <h1 className="text-xl font-semibold text-white mb-1.5">
+                      <h1 className="text-xl font-semibold text-white dark:text-gray-900 mb-1.5">
                         {opportunity.title || (opportunity.status === 'processing' ? 'Analyzing Opportunity...' : 'Untitled Opportunity')}
                       </h1>
                     </div>
@@ -879,24 +881,24 @@ const OpportunityDetail = () => {
                         href={opportunity.sam_gov_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-white/90 hover:text-white inline-flex items-center gap-1 mt-1"
+                        className="text-xs text-white/90 dark:text-gray-800 hover:text-white dark:hover:text-gray-900 inline-flex items-center gap-1 mt-1"
                       >
                         <HiOutlineExternalLink className="w-3.5 h-3.5" />
                         <span className="truncate max-w-[280px] sm:max-w-none">{opportunity.sam_gov_url}</span>
                       </a>
                     )}
                     {opportunity.notice_id && (
-                      <div className="flex items-center space-x-2 text-xs text-white/90 mt-1">
+                      <div className="flex items-center space-x-2 text-xs text-white/90 dark:text-gray-800 mt-1">
                         <HiOutlineInformationCircle className="w-4 h-4 flex-shrink-0" />
                         <span>Notice ID: <span className="font-mono font-medium">{opportunity.notice_id}</span></span>
                       </div>
                     )}
                   </div>
                   <span className={`px-3 py-1.5 rounded-lg text-xs font-medium flex-shrink-0 ${
-                    opportunity.status === 'completed' ? 'bg-white/25 text-white' :
-                    opportunity.status === 'processing' ? 'bg-yellow-400/90 text-yellow-900 animate-pulse' :
-                    opportunity.status === 'failed' ? 'bg-red-400/90 text-white' :
-                    'bg-white/20 text-white'
+                    opportunity.status === 'completed' ? 'bg-white/25 dark:bg-black/20 text-white dark:text-gray-900' :
+                    opportunity.status === 'processing' ? 'bg-yellow-400/90 dark:bg-amber-400/80 text-yellow-900 dark:text-amber-900 animate-pulse' :
+                    opportunity.status === 'failed' ? 'bg-red-400/90 dark:bg-red-800/80 text-white dark:text-red-100' :
+                    'bg-white/20 dark:bg-black/20 text-white dark:text-gray-900'
                   }`}>
                     {opportunity.status}
                   </span>
@@ -905,23 +907,23 @@ const OpportunityDetail = () => {
 
               {/* Contact info - directly under title (one block: title over contact) */}
               {(opportunity.agency || opportunity.primary_contact || opportunity.alternative_contact) && (
-                <div className="bg-white px-4 pt-4 pb-3 border-b border-gray-200 overflow-visible">
-                  <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1 mb-2">
+                <div className="bg-white dark:bg-gray-800 px-4 pt-4 pb-3 border-b border-gray-200 dark:border-gray-600 overflow-visible">
+                  <div className="text-xs font-semibold text-[#0D9488] dark:text-teal-dm uppercase tracking-wide flex items-center gap-1 mb-2">
                     <HiOutlineUser className="w-3.5 h-3.5" /> Contact
                   </div>
                   {(opportunity.primary_contact || opportunity.alternative_contact) && (
                   <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm mb-2">
                     {opportunity.primary_contact && (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        {opportunity.primary_contact.name && <span className="text-gray-900 font-medium">{opportunity.primary_contact.name}</span>}
+                        {opportunity.primary_contact.name && <span className="text-gray-900 dark:text-gray-100 font-medium">{opportunity.primary_contact.name}</span>}
                         {opportunity.primary_contact.email && (
-                          <a href={`mailto:${opportunity.primary_contact.email}`} className="text-[#0D9488] hover:text-[#14B8A6] inline-flex items-center gap-1">
+                          <a href={`mailto:${opportunity.primary_contact.email}`} className="text-[#0D9488] dark:text-teal-dm hover:text-[#14B8A6] dark:hover:text-teal-400 inline-flex items-center gap-1">
                             <HiOutlineMail className="w-3.5 h-3.5" />
                             <span className="truncate max-w-[200px]">{opportunity.primary_contact.email}</span>
                           </a>
                         )}
                         {opportunity.primary_contact.phone && (
-                          <a href={`tel:${opportunity.primary_contact.phone}`} className="text-gray-700 hover:text-gray-900 inline-flex items-center gap-1">
+                          <a href={`tel:${opportunity.primary_contact.phone}`} className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 inline-flex items-center gap-1">
                             <HiOutlinePhone className="w-3.5 h-3.5" />
                             {opportunity.primary_contact.phone}
                           </a>
@@ -930,15 +932,15 @@ const OpportunityDetail = () => {
                     )}
                     {opportunity.alternative_contact && (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        {opportunity.alternative_contact.name && <span className="text-gray-600 text-xs">Alt: {opportunity.alternative_contact.name}</span>}
+                        {opportunity.alternative_contact.name && <span className="text-gray-600 dark:text-gray-400 text-xs">Alt: {opportunity.alternative_contact.name}</span>}
                         {opportunity.alternative_contact.email && (
-                          <a href={`mailto:${opportunity.alternative_contact.email}`} className="text-[#0D9488] hover:text-[#14B8A6] text-xs inline-flex items-center gap-1">
+                          <a href={`mailto:${opportunity.alternative_contact.email}`} className="text-[#0D9488] dark:text-teal-dm hover:text-[#14B8A6] dark:hover:text-teal-400 text-xs inline-flex items-center gap-1">
                             <HiOutlineMail className="w-3 h-3" />
                             <span className="truncate max-w-[180px]">{opportunity.alternative_contact.email}</span>
                           </a>
                         )}
                         {opportunity.alternative_contact.phone && (
-                          <a href={`tel:${opportunity.alternative_contact.phone}`} className="text-gray-600 hover:text-gray-900 text-xs inline-flex items-center gap-1">
+                          <a href={`tel:${opportunity.alternative_contact.phone}`} className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 text-xs inline-flex items-center gap-1">
                             <HiOutlinePhone className="w-3 h-3" />
                             {opportunity.alternative_contact.phone}
                           </a>
@@ -1260,13 +1262,13 @@ const OpportunityDetail = () => {
               <div className="lg:col-span-2 space-y-4">
                 {/* Deadlines - mostly white, green accent */}
                 {opportunity.deadlines && opportunity.deadlines.length > 0 && (
-                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm animate-slide-up overflow-hidden">
-                    <div className="px-4 py-3 bg-white border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
-                      <h2 className="text-sm font-semibold text-gray-900 flex items-center">
-                        <HiOutlineClock className="w-4 h-4 mr-2 text-green-600" />
+                  <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-600 shadow-sm animate-slide-up overflow-hidden">
+                    <div className="px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600 flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center">
+                        <HiOutlineClock className="w-4 h-4 mr-2 text-green-600 dark:text-teal-dm" />
                         Deadlines
                         {opportunity.deadlines.some(d => d.is_primary) && (
-                          <span className="ml-2 text-xs font-medium text-green-700 bg-white border border-green-200 px-2 py-0.5 rounded">CRITICAL</span>
+                          <span className="ml-2 text-xs font-medium text-green-700 dark:text-teal-dm bg-white dark:bg-gray-700 border border-green-200 dark:border-teal-dm/50 px-2 py-0.5 rounded">CRITICAL</span>
                         )}
                       </h2>
                       {emailConnection?.connected && (
@@ -1274,7 +1276,7 @@ const OpportunityDetail = () => {
                           type="button"
                           onClick={handleSyncCalendar}
                           disabled={syncingCalendar}
-                          className="text-xs font-medium px-3 py-2 rounded-lg bg-[#14B8A6] text-white hover:bg-[#0D9488] disabled:opacity-50 flex items-center gap-1.5 transition-colors shadow-sm"
+                          className="text-xs font-medium px-3 py-2 rounded-lg bg-[#14B8A6] dark:bg-teal-dm text-white dark:text-gray-900 hover:bg-[#0D9488] dark:hover:bg-teal-600 disabled:opacity-50 flex items-center gap-1.5 transition-colors shadow-sm"
                         >
                           <HiOutlineCalendar className="w-3.5 h-3.5" />
                           {syncingCalendar ? 'Adding…' : 'Add to Calendar'}
@@ -1282,36 +1284,36 @@ const OpportunityDetail = () => {
                       )}
                     </div>
                     {calendarSyncMessage && (
-                      <div className="px-4 py-2 text-xs text-gray-600 bg-white border-b border-gray-100">
+                      <div className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-600">
                         {calendarSyncMessage}
                       </div>
                     )}
-                    <div className="p-3 space-y-3 bg-white">
+                    <div className="p-3 space-y-3 bg-white dark:bg-gray-800">
                       {[...(opportunity.deadlines || [])]
                         .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
                         .map((deadline) => (
                         <div
                           key={deadline.id}
-                          className="rounded-lg p-3 bg-white border border-gray-200 transition-colors"
+                          className="rounded-lg p-3 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 transition-colors"
                         >
                           <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
-                              <span className={`text-xs font-semibold uppercase tracking-wide ${deadline.is_primary ? 'text-green-700' : 'text-gray-600'}`}>
+                              <span className={`text-xs font-semibold uppercase tracking-wide ${deadline.is_primary ? 'text-green-700 dark:text-teal-dm' : 'text-gray-600 dark:text-gray-400'}`}>
                                 {deadline.deadline_type?.replace('_', ' ') || 'Deadline'}
                               </span>
                               {deadline.is_primary && (
-                                <span className="text-xs font-medium text-green-700 bg-white border border-green-200 px-1.5 py-0.5 rounded">PRIMARY</span>
+                                <span className="text-xs font-medium text-green-700 dark:text-teal-dm bg-white dark:bg-gray-700 border border-green-200 dark:border-teal-dm/50 px-1.5 py-0.5 rounded">PRIMARY</span>
                               )}
                               {deadline.calendar_event_id && (
-                                <span className="text-xs px-1.5 py-0.5 rounded bg-white border border-green-200 text-green-700 font-medium">In calendar</span>
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-white dark:bg-gray-700 border border-green-200 dark:border-teal-dm/50 text-green-700 dark:text-teal-dm font-medium">In calendar</span>
                               )}
                             </div>
                             <div className="flex items-center gap-3 text-sm">
-                              <span className="font-semibold text-gray-900">
+                              <span className="font-semibold text-gray-900 dark:text-gray-100">
                                 {formatDate(deadline.due_date)}
                               </span>
                               {(deadline.due_time || deadline.timezone) && (
-                                <span className="text-xs text-gray-600 flex items-center gap-1.5">
+                                <span className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1.5">
                                   {deadline.due_time && <span>{deadline.due_time}</span>}
                                   {deadline.timezone && (
                                     <span className="flex items-center gap-1">
@@ -1324,7 +1326,7 @@ const OpportunityDetail = () => {
                             </div>
                           </div>
                           {deadline.description && (
-                            <p className="text-xs text-gray-600 mt-2 pl-0">{deadline.description}</p>
+                            <p className="text-xs text-gray-600 dark:text-gray-400 mt-2 pl-0">{deadline.description}</p>
                           )}
                         </div>
                       ))}
@@ -1334,13 +1336,13 @@ const OpportunityDetail = () => {
 
                 {/* Description - Read More (classification next to label, fade when long) */}
                 {opportunity.description && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm animate-slide-up">
-                    <div className="px-4 py-3 border-b border-gray-200">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm animate-slide-up">
+                    <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-600">
                       <div className="flex items-center flex-wrap gap-2">
-                        <HiOutlineDocumentText className="w-5 h-5 text-gray-600" />
-                        <h2 className="text-base font-semibold text-gray-900">Description</h2>
+                        <HiOutlineDocumentText className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Description</h2>
                         {opportunity.solicitation_type && (
-                          <span className="inline-flex items-center gap-1 font-mono text-xs font-medium text-[#0D9488]">
+                          <span className="inline-flex items-center gap-1 font-mono text-xs font-medium text-[#0D9488] dark:text-teal-dm">
                             <HiOutlineTag className="w-3.5 h-3.5" />
                             {opportunity.solicitation_type}
                           </span>
@@ -1349,17 +1351,17 @@ const OpportunityDetail = () => {
                     </div>
                     <div className="px-4 py-3">
                       <div className="relative">
-                        <p className={`text-sm text-gray-700 italic whitespace-pre-wrap leading-relaxed ${!isDescriptionExpanded ? 'line-clamp-3' : ''}`}>
+                        <p className={`text-sm text-gray-700 dark:text-gray-300 italic whitespace-pre-wrap leading-relaxed ${!isDescriptionExpanded ? 'line-clamp-3' : ''}`}>
                           {opportunity.description}
                         </p>
                         {!isDescriptionExpanded && opportunity.description.length > 200 && (
-                          <div className="absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-white to-transparent pointer-events-none" aria-hidden />
+                          <div className="absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-white dark:from-gray-800 to-transparent pointer-events-none" aria-hidden />
                         )}
                       </div>
                       {opportunity.description.length > 200 && (
                         <button
                           onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
-                          className="mt-2 text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center space-x-1 transition-colors"
+                          className="mt-2 text-sm text-blue-600 dark:text-teal-dm hover:text-blue-700 dark:hover:text-teal-400 font-medium flex items-center space-x-1 transition-colors"
                         >
                           <span>{isDescriptionExpanded ? 'Read less' : 'Read more'}</span>
                           {isDescriptionExpanded ? (
@@ -1376,16 +1378,16 @@ const OpportunityDetail = () => {
                 {/* CLINs - Contract Line Items */}
                 {/* Empty state with fading effect when processing */}
                 {(!opportunity.clins || opportunity.clins.length === 0) && (opportunity.status === 'processing' || opportunity.status === 'pending') && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm opacity-50 transition-opacity duration-500 animate-fade-in">
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
-                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm opacity-50 transition-opacity duration-500 animate-fade-in">
+                    <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-600">
+                      <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center">
+                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600 dark:text-teal-dm" />
                         Contract Line Items (CLINs)
                       </h2>
                     </div>
                     <div className="p-4">
                       <div className="h-32 flex items-center justify-center">
-                        <p className="text-sm text-gray-400">CLINs will appear here once analysis is complete...</p>
+                        <p className="text-sm text-gray-400 dark:text-gray-500">CLINs will appear here once analysis is complete...</p>
                         </div>
                     </div>
                   </div>
@@ -1393,18 +1395,18 @@ const OpportunityDetail = () => {
 
                 {/* No CLINs found - Show when completed with 0 CLINs */}
                 {(!opportunity.clins || opportunity.clins.length === 0) && opportunity.status === 'completed' && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm animate-slide-up">
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
-                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm animate-slide-up">
+                    <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-600">
+                      <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center">
+                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600 dark:text-teal-dm" />
                         Contract Line Items (CLINs)
                       </h2>
                     </div>
                     <div className="p-4">
                       <div className="flex flex-col items-center justify-center py-8 space-y-3">
-                        <HiOutlineCheckCircle className="w-12 h-12 text-gray-400" />
+                        <HiOutlineCheckCircle className="w-12 h-12 text-gray-400 dark:text-gray-500" />
                         <div className="text-center">
-                          <p className="text-sm font-medium text-gray-700 mb-1">No CLINs found</p>
+                          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">No CLINs found</p>
                           <p className="text-xs text-gray-500">Analysis completed. No Contract Line Items were detected in the documents.</p>
                         </div>
                       </div>
@@ -1414,14 +1416,14 @@ const OpportunityDetail = () => {
 
                 {/* CLINs - Contract Line Items (when data is available) */}
                 {opportunity.clins && opportunity.clins.length > 0 && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm animate-slide-up">
-                    <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
-                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
-                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600" />
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm animate-slide-up">
+                    <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center">
+                        <HiOutlineTag className="w-5 h-5 mr-2 text-blue-600 dark:text-teal-dm" />
                         Contract Line Items (CLINs) ({opportunity.clins.length})
                       </h2>
                       {opportunity.clins.length > 1 && (
-                        <p className="text-xs text-gray-500">Click a row to expand full details</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Click a row to expand full details</p>
                       )}
                     </div>
 
@@ -1432,9 +1434,9 @@ const OpportunityDetail = () => {
                       </div>
                     )}
                     {!dealersManufacturersLoading && opportunity.status === 'completed' && opportunity.clins?.length > 0 && !hasAnyDealerOrManufacturerResearch(opportunity) && (
-                      <div className="px-4 py-2 bg-gray-100 border-b border-gray-200 flex items-center justify-between gap-2 text-sm text-gray-600">
+                      <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 flex items-center justify-between gap-2 text-sm text-gray-600 dark:text-gray-400">
                         <span>Manufacturer and dealer research may still be loading or is not yet available.</span>
-                        <button type="button" onClick={() => fetchOpportunity()} className="text-[#14B8A6] hover:underline font-medium flex items-center gap-1">
+                        <button type="button" onClick={() => fetchOpportunity()} className="text-[#14B8A6] dark:text-teal-dm hover:underline font-medium flex items-center gap-1">
                           <HiOutlineRefresh className="w-4 h-4" /> Refresh
                         </button>
                       </div>
@@ -1445,13 +1447,13 @@ const OpportunityDetail = () => {
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm border-collapse">
                           <thead>
-                            <tr className="bg-gray-100 border-b border-gray-200">
-                              <th className="text-left py-2.5 px-3 font-semibold text-gray-700 w-20">CLIN</th>
-                              <th className="text-left py-2.5 px-3 font-semibold text-gray-700 min-w-[140px]">Name / Title</th>
-                              <th className="text-left py-2.5 px-3 font-semibold text-gray-700 hidden sm:table-cell min-w-[100px]">Manufacturer</th>
-                              <th className="text-left py-2.5 px-3 font-semibold text-gray-700 hidden md:table-cell w-24">Part #</th>
-                              <th className="text-right py-2.5 px-3 font-semibold text-gray-700 w-20">Qty</th>
-                              <th className="text-right py-2.5 px-3 font-semibold text-gray-700 w-28">Price</th>
+                            <tr className="bg-gray-100 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                              <th className="text-left py-2.5 px-3 font-semibold text-gray-700 dark:text-gray-200 w-20">CLIN</th>
+                              <th className="text-left py-2.5 px-3 font-semibold text-gray-700 dark:text-gray-200 min-w-[140px]">Name / Title</th>
+                              <th className="text-left py-2.5 px-3 font-semibold text-gray-700 dark:text-gray-200 hidden sm:table-cell min-w-[100px]">Manufacturer</th>
+                              <th className="text-left py-2.5 px-3 font-semibold text-gray-700 dark:text-gray-200 hidden md:table-cell w-24">Part #</th>
+                              <th className="text-right py-2.5 px-3 font-semibold text-gray-700 dark:text-gray-200 w-20">Qty</th>
+                              <th className="text-right py-2.5 px-3 font-semibold text-gray-700 dark:text-gray-200 w-28">Price</th>
                               <th className="w-8 py-2.5 px-2" aria-label="Expand" />
                             </tr>
                           </thead>
@@ -1471,98 +1473,98 @@ const OpportunityDetail = () => {
                                       else next.add(clin.id);
                                       setExpandedClins(next);
                                     }}
-                                    className={`border-b cursor-pointer transition-colors ${isExpanded ? 'text-white' : 'border-gray-200 hover:bg-gray-50'}`}
+                                    className={`border-b cursor-pointer transition-colors ${isExpanded ? 'text-gray-900' : 'border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
                                     style={isExpanded ? {
                                       backgroundImage: 'repeating-linear-gradient(-55deg, transparent, transparent 8px, rgba(255,255,255,0.06) 8px, rgba(255,255,255,0.06) 9px), repeating-linear-gradient(35deg, transparent, transparent 8px, rgba(255,255,255,0.04) 8px, rgba(255,255,255,0.04) 9px), linear-gradient(to right, #14B8A6, #0D9488)',
                                     } : undefined}
                                   >
                                     <td className="py-2.5 px-3">
-                                      <span className={`font-bold ${isExpanded ? 'text-white' : 'text-[#0D9488]'}`}>CLIN {clin.clin_number}</span>
+                                      <span className={`font-bold ${isExpanded ? 'text-gray-900' : 'text-[#0D9488] dark:text-teal-dm'}`}>CLIN {clin.clin_number}</span>
                                       {(clin.base_item_number || clin.additional_data?.nsn) && (
-                                        <span className={`block text-xs ${isExpanded ? 'text-white/90' : 'text-gray-500'}`}>NSN: {clin.base_item_number || clin.additional_data?.nsn}</span>
+                                        <span className={`block text-xs ${isExpanded ? 'text-gray-800' : 'text-gray-500 dark:text-gray-400'}`}>NSN: {clin.base_item_number || clin.additional_data?.nsn}</span>
                                       )}
                                     </td>
                                     <td className="py-2.5 px-3">
                                       <div className="flex flex-col gap-1">
                                         {clinTypeLabel && (
-                                          <span className={`inline-flex items-center text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded w-fit ${isExpanded ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'}`} title="Service/support line item, not a product">
+                                          <span className={`inline-flex items-center text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded w-fit ${isExpanded ? 'bg-black/20 text-gray-900' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'}`} title="Service/support line item, not a product">
                                             {clinTypeLabel}
                                           </span>
                                         )}
-                                        <span className={`font-medium line-clamp-2 ${isExpanded ? 'text-white' : 'text-gray-900'}`} title={clin.product_name || clin.clin_name || clin.product_description}>
+                                        <span className={`font-medium line-clamp-2 ${isExpanded ? 'text-gray-900' : 'text-gray-900 dark:text-gray-100'}`} title={clin.product_name || clin.clin_name || clin.product_description}>
                                           {clin.product_name || clin.clin_name || (clin.product_description ? (clin.product_description.length > 80 ? `${clin.product_description.slice(0, 80)}…` : clin.product_description) : '—')}
                                         </span>
                                       </div>
                                     </td>
-                                    <td className={`py-2.5 px-3 hidden sm:table-cell ${isExpanded ? 'text-white' : 'text-gray-700'}`} title={!clin.manufacturer_name ? 'Not specified in document for this line' : undefined}>
+                                    <td className={`py-2.5 px-3 hidden sm:table-cell ${isExpanded ? 'text-gray-900' : 'text-gray-700 dark:text-gray-300'}`} title={!clin.manufacturer_name ? 'Not specified in document for this line' : undefined}>
                                       {clin.manufacturer_name || '—'}
                                     </td>
-                                    <td className={`py-2.5 px-3 hidden md:table-cell font-mono text-xs ${isExpanded ? 'text-white' : 'text-gray-700'}`} title={!(clin.part_number || clin.model_number) ? 'Not specified in document for this line' : undefined}>
+                                    <td className={`py-2.5 px-3 hidden md:table-cell font-mono text-xs ${isExpanded ? 'text-gray-900' : 'text-gray-700 dark:text-gray-300'}`} title={!(clin.part_number || clin.model_number) ? 'Not specified in document for this line' : undefined}>
                                       {clin.part_number || clin.model_number || '—'}
                                     </td>
-                                    <td className={`py-2.5 px-3 text-right font-medium ${isExpanded ? 'text-white' : 'text-gray-900'}`}>
+                                    <td className={`py-2.5 px-3 text-right font-medium ${isExpanded ? 'text-gray-900' : 'text-gray-900 dark:text-gray-100'}`}>
                                       {clin.quantity != null ? `${clin.quantity}${clin.unit_of_measure ? ` ${clin.unit_of_measure}` : ''}` : '—'}
                                     </td>
-                                    <td className={`py-2.5 px-3 text-right font-semibold ${isExpanded ? 'text-white' : 'text-gray-900'}`}>
+                                    <td className={`py-2.5 px-3 text-right font-semibold ${isExpanded ? 'text-gray-900' : 'text-gray-900 dark:text-gray-100'}`}>
                                       {clin.extended_price != null ? `$${Number(clin.extended_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                                     </td>
                                     <td className="py-2.5 px-2">
                                       {hasMore && (
-                                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded ${isExpanded ? 'text-white' : 'text-gray-500'}`}>
+                                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded ${isExpanded ? 'text-gray-900' : 'text-gray-500 dark:text-gray-400'}`}>
                                           {isExpanded ? <HiOutlineChevronUp className="w-4 h-4" /> : <HiOutlineChevronDown className="w-4 h-4" />}
                                         </span>
                                       )}
                                     </td>
                                   </tr>
                                   {isExpanded && (
-                                    <tr key={`${clin.id}-detail`} className="border-b border-gray-200">
-                                      <td colSpan={7} className="p-0 align-top bg-white">
+                                    <tr key={`${clin.id}-detail`} className="border-b border-gray-200 dark:border-gray-600">
+                                      <td colSpan={7} className="p-0 align-top bg-white dark:bg-gray-800">
                                         {/* Card aligns full-width with table; same px as table cells */}
-                                        <div className="border-x-2 border-b-2 border-[#14B8A6] bg-white text-sm">
+                                        <div className="border-x-2 border-b-2 border-[#14B8A6] dark:border-teal-dm bg-white dark:bg-gray-800 text-sm">
                                           <div className="px-4 py-4 space-y-4">
                                             {/* Key details */}
-                                            <div className="rounded-lg border border-[#14B8A6]/50 bg-gray-50/50 p-4">
+                                            <div className="rounded-lg border border-[#14B8A6]/50 dark:border-teal-dm/50 bg-gray-50/50 dark:bg-gray-700/50 p-4">
                                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3">
-                                                {clin.product_name && <div><span className="text-gray-700 font-bold">Name:</span> <span className="text-gray-600">{clin.product_name}</span></div>}
-                                                {(clin.base_item_number || clin.additional_data?.nsn) && <div><span className="text-gray-700 font-bold">NSN:</span> <span className="font-mono text-gray-600">{clin.base_item_number || clin.additional_data?.nsn}</span></div>}
-                                                {clin.manufacturer_name && <div><span className="text-gray-700 font-bold">Manufacturer:</span> <span className="text-gray-600">{clin.manufacturer_name}</span></div>}
-                                                {clin.part_number && <div><span className="text-gray-700 font-bold">Part #:</span> <span className="font-mono text-gray-600">{clin.part_number}</span></div>}
-                                                {clin.model_number && <div><span className="text-gray-700 font-bold">Model #:</span> <span className="font-mono text-gray-600">{clin.model_number}</span></div>}
-                                                {(clin.additional_data?.drawing_number || clin.drawing_number) && <div><span className="text-gray-700 font-bold">Drawing #:</span> <span className="font-mono text-gray-600">{clin.additional_data?.drawing_number || clin.drawing_number}</span></div>}
-                                                {clin.contract_type && <div><span className="text-gray-700 font-bold">Contract type:</span> <span className="text-gray-600">{clin.contract_type}</span></div>}
+                                                {clin.product_name && <div><span className="text-gray-700 dark:text-gray-200 font-bold">Name:</span> <span className="text-gray-600 dark:text-gray-300">{clin.product_name}</span></div>}
+                                                {(clin.base_item_number || clin.additional_data?.nsn) && <div><span className="text-gray-700 dark:text-gray-200 font-bold">NSN:</span> <span className="font-mono text-gray-600 dark:text-gray-300">{clin.base_item_number || clin.additional_data?.nsn}</span></div>}
+                                                {clin.manufacturer_name && <div><span className="text-gray-700 dark:text-gray-200 font-bold">Manufacturer:</span> <span className="text-gray-600 dark:text-gray-300">{clin.manufacturer_name}</span></div>}
+                                                {clin.part_number && <div><span className="text-gray-700 dark:text-gray-200 font-bold">Part #:</span> <span className="font-mono text-gray-600 dark:text-gray-300">{clin.part_number}</span></div>}
+                                                {clin.model_number && <div><span className="text-gray-700 dark:text-gray-200 font-bold">Model #:</span> <span className="font-mono text-gray-600 dark:text-gray-300">{clin.model_number}</span></div>}
+                                                {(clin.additional_data?.drawing_number || clin.drawing_number) && <div><span className="text-gray-700 dark:text-gray-200 font-bold">Drawing #:</span> <span className="font-mono text-gray-600 dark:text-gray-300">{clin.additional_data?.drawing_number || clin.drawing_number}</span></div>}
+                                                {clin.contract_type && <div><span className="text-gray-700 dark:text-gray-200 font-bold">Contract type:</span> <span className="text-gray-600 dark:text-gray-300">{clin.contract_type}</span></div>}
                                               </div>
                                             </div>
                                             {(clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline) && (
                                               <div className="space-y-1.5">
-                                                <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineClock className="w-3.5 h-3.5" /> Delivery timeline</div>
-                                                <p className="text-gray-800 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 bg-white p-3">{clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}</p>
+                                                <div className="text-xs font-semibold text-[#0D9488] dark:text-teal-dm uppercase tracking-wide flex items-center gap-1"><HiOutlineClock className="w-3.5 h-3.5" /> Delivery timeline</div>
+                                                <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 dark:border-teal-dm/50 bg-white dark:bg-gray-700 p-3">{clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}</p>
                                               </div>
                                             )}
                                             {clin.additional_data?.delivery_address && (
                                               <div className="space-y-1.5">
-                                                <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineLocationMarker className="w-3.5 h-3.5" /> Delivery address</div>
-                                                <p className="text-gray-800 whitespace-pre-wrap font-mono rounded-lg border border-[#14B8A6]/50 bg-white p-3 text-xs">{clin.additional_data.delivery_address}</p>
+                                                <div className="text-xs font-semibold text-[#0D9488] dark:text-teal-dm uppercase tracking-wide flex items-center gap-1"><HiOutlineLocationMarker className="w-3.5 h-3.5" /> Delivery address</div>
+                                                <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap font-mono rounded-lg border border-[#14B8A6]/50 dark:border-teal-dm/50 bg-white dark:bg-gray-700 p-3 text-xs">{clin.additional_data.delivery_address}</p>
                                               </div>
                                             )}
                                             {clin.additional_data?.special_delivery_instructions && (
                                               <div className="space-y-1.5">
-                                                <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineExclamationCircle className="w-3.5 h-3.5" /> Special instructions</div>
-                                                <p className="text-gray-800 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 bg-white p-3">{clin.additional_data.special_delivery_instructions}</p>
+                                                <div className="text-xs font-semibold text-[#0D9488] dark:text-teal-dm uppercase tracking-wide flex items-center gap-1"><HiOutlineExclamationCircle className="w-3.5 h-3.5" /> Special instructions</div>
+                                                <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 dark:border-teal-dm/50 bg-white dark:bg-gray-700 p-3">{clin.additional_data.special_delivery_instructions}</p>
                                               </div>
                                             )}
                                             {clin.product_description && (
                                               <div className="space-y-1.5">
-                                                <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide">Supplies / services</div>
-                                                <p className="text-gray-800 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 bg-white p-3 italic">{clin.product_description}</p>
+                                                <div className="text-xs font-semibold text-[#0D9488] dark:text-teal-dm uppercase tracking-wide">Supplies / services</div>
+                                                <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 dark:border-teal-dm/50 bg-white dark:bg-gray-700 p-3 italic">{clin.product_description}</p>
                                               </div>
                                             )}
                                             {(clin.service_description || clin.scope_of_work || clin.service_requirements) && (
-                                              <div className="pt-3 border-t border-[#14B8A6]/40 space-y-2">
-                                                <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineDocumentText className="w-3.5 h-3.5" /> Service details</div>
+                                              <div className="pt-3 border-t border-[#14B8A6]/40 dark:border-teal-dm/40 space-y-2">
+                                                <div className="text-xs font-semibold text-[#0D9488] dark:text-teal-dm uppercase tracking-wide flex items-center gap-1"><HiOutlineDocumentText className="w-3.5 h-3.5" /> Service details</div>
                                                 <div className="space-y-2">
-                                                  {clin.service_description && <p className="text-gray-800 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 bg-white p-3">{clin.service_description}</p>}
-                                                  {clin.scope_of_work && <p className="text-gray-800 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 bg-white p-3 font-medium">{clin.scope_of_work}</p>}
-                                                  {clin.service_requirements && <p className="text-gray-800 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 bg-white p-3">{clin.service_requirements}</p>}
+                                                  {clin.service_description && <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 dark:border-teal-dm/50 bg-white dark:bg-gray-700 p-3">{clin.service_description}</p>}
+                                                  {clin.scope_of_work && <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 dark:border-teal-dm/50 bg-white dark:bg-gray-700 p-3 font-medium">{clin.scope_of_work}</p>}
+                                                  {clin.service_requirements && <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap rounded-lg border border-[#14B8A6]/50 dark:border-teal-dm/50 bg-white dark:bg-gray-700 p-3">{clin.service_requirements}</p>}
                                                 </div>
                                               </div>
                                             )}
@@ -1573,32 +1575,32 @@ const OpportunityDetail = () => {
                                               const mfrList = getClinManufacturerResearchList(clin);
                                               if (mfrList.length === 0 || !mfrList.some(m => m.official_website || m.sales_contact_email)) return null;
                                               return (
-                                              <div className="pt-3 border-t border-[#14B8A6]/40 space-y-3">
-                                                <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineOfficeBuilding className="w-3.5 h-3.5" /> Manufacturer research</div>
-                                                <p className="text-xs text-gray-500 -mt-0.5">Use these to request quotes or contact for this CLIN. Contact email is required for quote requests.</p>
+                                              <div className="pt-3 border-t border-[#14B8A6]/40 dark:border-teal-dm/40 space-y-3">
+                                                <div className="text-xs font-semibold text-[#0D9488] dark:text-teal-dm uppercase tracking-wide flex items-center gap-1"><HiOutlineOfficeBuilding className="w-3.5 h-3.5" /> Manufacturer research</div>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400 -mt-0.5">Use these to request quotes or contact for this CLIN. Contact email is required for quote requests.</p>
                                                 {mfrList.map((mfr, idx) => {
                                                   const websiteHref = mfr.official_website?.startsWith('http') ? mfr.official_website : (mfr.official_website ? `https://${mfr.official_website.replace(/^\/*/, '')}` : null);
                                                   const label = mfr.name || (mfrList.length === 1 ? manufacturerName || 'Manufacturer' : `Manufacturer ${idx + 1}`);
                                                   if (!websiteHref && !mfr.sales_contact_email) return null;
                                                   return (
-                                                    <div key={idx} className="rounded-lg border border-[#14B8A6]/30 bg-gray-50/50 p-2.5 space-y-1.5">
-                                                      {mfrList.length > 1 && <p className="text-xs font-medium text-gray-800">{label}</p>}
+                                                    <div key={idx} className="rounded-lg border border-[#14B8A6]/30 dark:border-teal-dm/30 bg-gray-50/50 dark:bg-gray-700/50 p-2.5 space-y-1.5">
+                                                      {mfrList.length > 1 && <p className="text-xs font-medium text-gray-800 dark:text-gray-200">{label}</p>}
                                                       <div className="flex flex-wrap gap-3 text-sm">
                                                         {websiteHref && (
                                                           <span className="inline-flex items-center gap-1.5">
-                                                            <HiOutlineGlobe className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
-                                                            <span className="text-gray-600">Official website:</span>
-                                                            <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
+                                                            <HiOutlineGlobe className="w-3.5 h-3.5 text-[#0D9488] dark:text-teal-dm flex-shrink-0" />
+                                                            <span className="text-gray-600 dark:text-gray-300">Official website:</span>
+                                                            <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] dark:text-teal-dm hover:underline break-all">{websiteHref.replace(/^https?:\/\//, '')}</a>
                                                           </span>
                                                         )}
                                                         {mfr.sales_contact_email ? (
                                                           <span className="inline-flex items-center gap-1.5">
-                                                            <HiOutlineMail className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
-                                                            <span className="text-gray-600">Email (quote/contact):</span>
-                                                            <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
+                                                            <HiOutlineMail className="w-3.5 h-3.5 text-[#0D9488] dark:text-teal-dm flex-shrink-0" />
+                                                            <span className="text-gray-600 dark:text-gray-300">Email (quote/contact):</span>
+                                                            <button type="button" onClick={() => openSendEmail(mfr.sales_contact_email)} className="text-[#0D9488] dark:text-teal-dm hover:underline break-all text-left" title="Send email from the app">{mfr.sales_contact_email}</button>
                                                           </span>
                                                         ) : dealersManufacturersLoading && websiteHref ? (
-                                                          <span className="inline-flex items-center gap-1.5 text-gray-400 animate-pulse" aria-busy="true">
+                                                          <span className="inline-flex items-center gap-1.5 text-gray-400 dark:text-gray-500 animate-pulse" aria-busy="true">
                                                             <HiOutlineMail className="w-3.5 h-3.5 flex-shrink-0" />
                                                             <span>Finding…</span>
                                                           </span>
@@ -1612,28 +1614,28 @@ const OpportunityDetail = () => {
                                             })()}
                                             {/* Dealers / distributors (Tavily) */}
                                             {getClinDealerResearch(clin).length > 0 && (
-                                              <div className="pt-3 border-t border-[#14B8A6]/40 space-y-2">
-                                                <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineChartBar className="w-3.5 h-3.5" /> Authorized dealers / distributors</div>
-                                                <p className="text-xs text-gray-500 -mt-0.5">Contact email is required for quote requests and outreach.</p>
+                                              <div className="pt-3 border-t border-[#14B8A6]/40 dark:border-teal-dm/40 space-y-2">
+                                                <div className="text-xs font-semibold text-[#0D9488] dark:text-teal-dm uppercase tracking-wide flex items-center gap-1"><HiOutlineChartBar className="w-3.5 h-3.5" /> Authorized dealers / distributors</div>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400 -mt-0.5">Contact email is required for quote requests and outreach.</p>
                                                 <div className="overflow-x-auto">
-                                                  <table className="min-w-full text-xs border border-gray-200 rounded-lg">
-                                                    <thead><tr className="bg-gray-50 text-left"><th className="py-1.5 px-2 font-semibold text-gray-700">Company</th><th className="py-1.5 px-2 font-semibold text-gray-700">Website</th><th className="py-1.5 px-2 font-semibold text-gray-700">Contact email (quote)</th><th className="py-1.5 px-2 font-semibold text-gray-700">Price</th></tr></thead>
+                                                  <table className="min-w-full text-xs border border-gray-200 dark:border-gray-600 rounded-lg">
+                                                    <thead><tr className="bg-gray-50 dark:bg-gray-700 text-left"><th className="py-1.5 px-2 font-semibold text-gray-700 dark:text-gray-200">Company</th><th className="py-1.5 px-2 font-semibold text-gray-700 dark:text-gray-200">Website</th><th className="py-1.5 px-2 font-semibold text-gray-700 dark:text-gray-200">Contact email (quote)</th><th className="py-1.5 px-2 font-semibold text-gray-700 dark:text-gray-200">Price</th></tr></thead>
                                                     <tbody>
                                                       {getClinDealerResearch(clin).slice(0, 8).map((d, idx) => (
-                                                        <tr key={idx} className="border-t border-gray-100">
-                                                          <td className="py-1.5 px-2 text-gray-800">{d.company_name || '—'}</td>
-                                                          <td className="py-1.5 px-2">{d.website_url ? <a href={d.website_url} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] hover:underline inline-flex items-center gap-0.5"><HiOutlineExternalLink className="w-3 h-3" /> Link</a> : '—'}</td>
+                                                        <tr key={idx} className="border-t border-gray-100 dark:border-gray-600">
+                                                          <td className="py-1.5 px-2 text-gray-800 dark:text-gray-200">{d.company_name || '—'}</td>
+                                                          <td className="py-1.5 px-2">{d.website_url ? <a href={d.website_url} target="_blank" rel="noopener noreferrer" className="text-[#0D9488] dark:text-teal-dm hover:underline inline-flex items-center gap-0.5"><HiOutlineExternalLink className="w-3 h-3" /> Link</a> : '—'}</td>
                                                           <td className="py-1.5 px-2">
                                                             {d.sales_contact_email ? (
-                                                              <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button>
+                                                              <button type="button" onClick={() => openSendEmail(d.sales_contact_email)} className="text-[#0D9488] dark:text-teal-dm hover:underline break-all text-left" title="Send email from the app">{d.sales_contact_email}</button>
                                                             ) : dealersManufacturersLoading ? (
-                                                              <span className="inline-flex items-center gap-1 text-gray-400 animate-pulse" aria-busy="true">Finding…</span>
+                                                              <span className="inline-flex items-center gap-1 text-gray-400 dark:text-gray-500 animate-pulse" aria-busy="true">Finding…</span>
                                                             ) : (
                                                               <div className="flex items-center gap-1.5">
                                                                 <input
                                                                   type="email"
                                                                   placeholder="Add contact email"
-                                                                  className="text-xs border-0 border-b border-gray-400 bg-transparent px-0 py-0.5 w-28 max-w-full focus:outline-none focus:border-[#14B8A6] focus:ring-0"
+                                                                  className="text-xs border-0 border-b border-gray-400 dark:border-gray-500 bg-transparent px-0 py-0.5 w-28 max-w-full focus:outline-none focus:border-[#14B8A6] dark:focus:border-teal-dm focus:ring-0 text-gray-900 dark:text-gray-100"
                                                                   value={editingDealerEmail?.clinId === clin.id && editingDealerEmail?.dealerIndex === idx ? draftDealerEmail : ''}
                                                                   onChange={(e) => { setEditingDealerEmail({ clinId: clin.id, dealerIndex: idx }); setDraftDealerEmail(e.target.value); }}
                                                                   onFocus={() => { setEditingDealerEmail({ clinId: clin.id, dealerIndex: idx }); }}
@@ -1643,21 +1645,21 @@ const OpportunityDetail = () => {
                                                                   title="Save"
                                                                   disabled={savingDealerEmail || !(editingDealerEmail?.clinId === clin.id && editingDealerEmail?.dealerIndex === idx && draftDealerEmail.trim())}
                                                                   onClick={() => handleSaveDealerEmail(clin.id, idx, draftDealerEmail)}
-                                                                  className="p-1 text-[#14B8A6] hover:text-[#0D9488] hover:bg-[#14B8A6]/10 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                  className="p-1 text-[#14B8A6] dark:text-teal-dm hover:text-[#0D9488] dark:hover:text-teal-400 hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                                                                 >
                                                                   <HiOutlineSave className="w-4 h-4" />
                                                                 </button>
                                                               </div>
                                                             )}
                                                           </td>
-                                                          <td className="py-1.5 px-2 text-gray-600">{d.retail_pricing || '—'}</td>
+                                                          <td className="py-1.5 px-2 text-gray-600 dark:text-gray-300">{d.retail_pricing || '—'}</td>
                                                         </tr>
                                                       ))}
                                                     </tbody>
                                                   </table>
                                                 </div>
                                                 {getClinDealerResearch(clin).length > 0 && !getClinDealerResearch(clin).some(d => d.sales_contact_email) && (
-                                                  <p className="mt-1.5 text-xs text-gray-500">
+                                                  <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                                                     {getClinDealerResearch(clin).some(d => d.website_url)
                                                       ? 'Dealer contact emails not found; use website links above to request quotes.'
                                                       : 'Dealer contact details not found. Use the lookup links below to find dealers online or search for the company to request a quote.'}
@@ -1666,14 +1668,14 @@ const OpportunityDetail = () => {
                                               </div>
                                             )}
                                             {/* Find manufacturers & dealers - external lookup links */}
-                                            <div className="pt-3 border-t border-[#14B8A6]/40 space-y-2">
-                                              <div className="text-xs font-semibold text-[#0D9488] uppercase tracking-wide flex items-center gap-1"><HiOutlineGlobe className="w-3.5 h-3.5" /> Find manufacturers & dealers</div>
+                                            <div className="pt-3 border-t border-[#14B8A6]/40 dark:border-teal-dm/40 space-y-2">
+                                              <div className="text-xs font-semibold text-[#0D9488] dark:text-teal-dm uppercase tracking-wide flex items-center gap-1"><HiOutlineGlobe className="w-3.5 h-3.5" /> Find manufacturers & dealers</div>
                                               {!lookupLinksByClinId[clin.id] ? (
                                                 <button
                                                   type="button"
                                                   onClick={() => loadClinLookupLinks(clin.id)}
                                                   disabled={loadingLookupClinId === clin.id}
-                                                  className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 disabled:opacity-50"
+                                                  className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] dark:border-teal-dm text-[#0D9488] dark:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 disabled:opacity-50"
                                                 >
                                                   {loadingLookupClinId === clin.id ? 'Loading…' : 'Load lookup links'}
                                                 </button>
@@ -1685,7 +1687,7 @@ const OpportunityDetail = () => {
                                                       href={link.url}
                                                       target="_blank"
                                                       rel="noopener noreferrer"
-                                                      className="inline-flex items-center gap-1 text-sm px-2.5 py-1.5 rounded border border-[#14B8A6]/60 bg-white text-[#0D9488] hover:bg-[#14B8A6]/10"
+                                                      className="inline-flex items-center gap-1 text-sm px-2.5 py-1.5 rounded border border-[#14B8A6]/60 dark:border-teal-dm/60 bg-white dark:bg-gray-700 text-[#0D9488] dark:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20"
                                                     >
                                                       <HiOutlineExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
                                                       {link.label}
@@ -1711,9 +1713,9 @@ const OpportunityDetail = () => {
                         {opportunity.clins.map((clin) => (
                           <div
                             key={clin.id}
-                            className="bg-white rounded-lg border-2 border-gray-200 hover:border-[#14B8A6] hover:shadow-md transition-all duration-200 overflow-hidden"
+                            className="bg-white dark:bg-gray-800 rounded-lg border-2 border-gray-200 dark:border-gray-600 hover:border-[#14B8A6] dark:hover:border-teal-dm hover:shadow-md transition-all duration-200 overflow-hidden"
                           >
-                            <div className="relative bg-gradient-to-r from-[#14B8A6] to-[#0D9488] px-5 py-3">
+                            <div className="relative bg-gradient-to-r from-[#14B8A6] to-[#0D9488] dark:from-teal-dm dark:to-teal-600 px-5 py-3">
                               <div
                                 className="absolute inset-0 pointer-events-none opacity-100"
                                 aria-hidden
@@ -1743,7 +1745,7 @@ const OpportunityDetail = () => {
                             </div>
                             <div className="p-5 space-y-4">
                               {(clin.product_name || clin.product_description || clin.manufacturer_name || clin.part_number || clin.model_number || clin.quantity != null || clin.contract_type || (clin.additional_data && (clin.additional_data.drawing_number || clin.additional_data.delivery_timeline || clin.additional_data.delivery_address || clin.additional_data.special_delivery_instructions))) && (
-                                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                                   <div className="flex items-center space-x-2 mb-3">
                                     <HiOutlineSparkles className="w-4 h-4 text-[#14B8A6]" />
                                     <h4 className="text-sm font-semibold text-gray-900">Product Details</h4>
@@ -1763,25 +1765,25 @@ const OpportunityDetail = () => {
                                       {(clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline) && (
                                         <div>
                                           <div className="flex items-center space-x-2 mb-3"><HiOutlineClock className="w-4 h-4 text-gray-600" /><div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Delivery Timeline:</div></div>
-                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm italic ml-6">{clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}</div>
+                                          <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap bg-white dark:bg-gray-700 p-4 rounded-lg border border-gray-300 dark:border-gray-600 shadow-sm italic ml-6">{clin.additional_data?.delivery_timeline || clin.delivery_timeline || clin.timeline}</div>
                                         </div>
                                       )}
                                       {clin.additional_data?.delivery_address && (
                                         <div>
                                           <div className="flex items-center space-x-2 mb-3"><HiOutlineLocationMarker className="w-4 h-4 text-gray-600" /><div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Delivery Address:</div></div>
-                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm font-mono ml-6">{clin.additional_data.delivery_address}</div>
+                                          <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap bg-white dark:bg-gray-700 p-4 rounded-lg border border-gray-300 dark:border-gray-600 shadow-sm font-mono ml-6">{clin.additional_data.delivery_address}</div>
                                         </div>
                                       )}
                                       {clin.additional_data?.special_delivery_instructions && (
                                         <div>
                                           <div className="flex items-center space-x-2 mb-3"><HiOutlineExclamationCircle className="w-4 h-4 text-gray-600" /><div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Special Delivery Instructions:</div></div>
-                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm italic ml-6">{clin.additional_data.special_delivery_instructions}</div>
+                                          <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap bg-white dark:bg-gray-700 p-4 rounded-lg border border-gray-300 dark:border-gray-600 shadow-sm italic ml-6">{clin.additional_data.special_delivery_instructions}</div>
                                         </div>
                                       )}
                                       {clin.product_description && (
                                         <div>
                                           <div className="flex items-center space-x-2 mb-3"><HiOutlineTag className="w-4 h-4 text-gray-600" /><div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Supplies/Services:</div></div>
-                                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm italic ml-6">{clin.product_description}</div>
+                                          <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap bg-white dark:bg-gray-700 p-4 rounded-lg border border-gray-300 dark:border-gray-600 shadow-sm italic ml-6">{clin.product_description}</div>
                                         </div>
                                       )}
                                     </div>
@@ -1793,7 +1795,7 @@ const OpportunityDetail = () => {
                                   <div className="flex items-center space-x-2 mb-4"><HiOutlineDocumentText className="w-5 h-5 text-gray-600" /><h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Service Details</h4></div>
                                   <div className="space-y-5">
                                     {clin.service_description && <div><div className="text-xs text-gray-500 font-medium mb-2">Description:</div><div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm ml-4">{clin.service_description}</div></div>}
-                                    {clin.scope_of_work && <div><div className="flex items-center space-x-2 mb-3"><HiOutlineDocumentText className="w-4 h-4 text-gray-600" /><div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Scope of Work:</div></div><div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm font-bold italic ml-6">{clin.scope_of_work}</div></div>}
+                                    {clin.scope_of_work && <div><div className="flex items-center space-x-2 mb-3"><HiOutlineDocumentText className="w-4 h-4 text-gray-600" /><div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Scope of Work:</div></div><div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap bg-white dark:bg-gray-700 p-4 rounded-lg border border-gray-300 dark:border-gray-600 shadow-sm font-bold italic ml-6">{clin.scope_of_work}</div></div>}
                                     {clin.service_requirements && <div><div className="text-xs text-gray-500 font-medium mb-2">Requirements:</div><div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-lg border border-gray-300 shadow-sm ml-4">{clin.service_requirements}</div></div>}
                                   </div>
                                 </div>
@@ -1943,10 +1945,10 @@ const OpportunityDetail = () => {
               <div className="space-y-4">
                 {/* Documents - Attachments */}
                 {opportunity.documents && opportunity.documents.length > 0 && (
-                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <h2 className="text-base font-semibold text-gray-900 flex items-center">
-                        <HiOutlinePaperClip className="w-5 h-5 mr-2 text-gray-600" />
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm">
+                    <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-600">
+                      <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center">
+                        <HiOutlinePaperClip className="w-5 h-5 mr-2 text-gray-600 dark:text-gray-400" />
                         Attachments ({opportunity.documents.length})
                       </h2>
                     </div>
@@ -1954,16 +1956,15 @@ const OpportunityDetail = () => {
                       {opportunity.documents.map((doc) => (
                         <div
                           key={doc.id}
-                          className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border-2 border-gray-200 hover:bg-gray-100 hover:border-gray-300 transition-all duration-200 group focus-within:ring-2 focus-within:ring-[#14B8A6] focus-within:ring-offset-2"
+                          className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-700 rounded-lg border-2 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 hover:border-gray-300 dark:hover:border-gray-500 transition-all duration-200 group focus-within:ring-2 focus-within:ring-[#14B8A6] dark:focus-within:ring-teal-dm focus-within:ring-offset-2 dark:focus-within:ring-offset-gray-800"
                         >
                           <div className="flex items-center space-x-2.5 min-w-0 flex-1">
                             {getFileIcon(doc.file_type)}
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
-                              <div className="flex items-center space-x-2 text-xs text-gray-500 mt-0.5">
+                              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{doc.file_name}</p>
+                              <div className="flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                 <span>{formatFileSize(doc.file_size)}</span>
                                 <span>•</span>
-                                {/* Show file type - handle enum values */}
                                 <span className="capitalize">
                                   {String(doc.file_type).toLowerCase().replace('documenttype.', '').replace('_', ' ')}
                                 </span>
@@ -1975,14 +1976,14 @@ const OpportunityDetail = () => {
                           <div className="ml-3 flex items-center gap-1 flex-shrink-0">
                             <button
                               onClick={() => setDocumentToEdit(doc)}
-                              className="p-2 text-amber-600 bg-white border-2 border-amber-500 rounded-lg hover:bg-amber-50 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
-                              title="Edit Document"
+                              className="p-2 text-amber-600 dark:text-amber-400 bg-white dark:bg-gray-600 border-2 border-amber-500 dark:border-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 dark:focus:ring-amber-400 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                              title="Edit document (form fill and save as new are in the editor)"
                             >
                               <HiOutlinePencil className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleViewDocument(doc.id, doc.file_type)}
-                              className="p-2 text-[#14B8A6] bg-white border-2 border-[#14B8A6] rounded-lg hover:bg-teal-50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                              className="p-2 text-[#14B8A6] dark:text-teal-dm bg-white dark:bg-gray-600 border-2 border-[#14B8A6] dark:border-teal-dm rounded-lg hover:bg-teal-50 dark:hover:bg-teal-dm/20 transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                               title="View Document"
                             >
                               <HiOutlineDocumentText className="w-4 h-4" />
@@ -2004,15 +2005,15 @@ const OpportunityDetail = () => {
                       const res = await opportunitiesAPI.get(id);
                       setOpportunity(res.data);
                     } catch (_) {}
-                    setDocumentToEdit(null);
+                    // Keep modal open; only PDF preview reloads inside the editor
                   }}
                 />
 
                 {/* Email and calendar access */}
-                <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                  <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
-                    <h2 className="text-base font-semibold text-gray-900 flex items-center">
-                      <HiOutlineMail className="w-5 h-5 mr-2 text-gray-600" />
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm">
+                  <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center">
+                      <HiOutlineMail className="w-5 h-5 mr-2 text-gray-600 dark:text-gray-400" />
                       Email and calendar access
                     </h2>
                     {!emailConnectionLoading && emailConnection?.connected && (
@@ -2020,7 +2021,7 @@ const OpportunityDetail = () => {
                         type="button"
                         onClick={handleDisconnectEmail}
                         disabled={emailConnectionDisconnecting}
-                        className="text-sm px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50 inline-flex items-center gap-1"
+                        className="text-sm px-3 py-1.5 rounded border border-gray-300 dark:border-gray-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50 inline-flex items-center gap-1"
                       >
                         <HiOutlineLogout className="w-4 h-4" />
                         {emailConnectionDisconnecting ? 'Disconnecting…' : 'Disconnect'}
@@ -2029,28 +2030,28 @@ const OpportunityDetail = () => {
                   </div>
                   <div className="p-4 space-y-4">
                     {emailConnectionLoading ? (
-                      <p className="text-sm text-gray-500">Loading…</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
                     ) : emailConnection?.connected ? (
                       <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                          <HiOutlineCheckCircle className="w-5 h-5 flex-shrink-0" />
+                        <div className="flex items-center gap-2 text-sm text-green-700 dark:text-teal-dm bg-green-50 dark:bg-teal-dm/20 border border-green-200 dark:border-teal-dm/40 rounded-lg px-3 py-2">
+                          <HiOutlineCheckCircle className="w-5 h-5 flex-shrink-0 dark:text-teal-dm" />
                           <span className="font-medium">Connected</span>
                         </div>
-                        <div className="text-sm text-gray-700 space-y-1">
+                        <div className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-gray-500">Account:</span>
-                            <span className="font-medium">{emailConnection.sender_email || '—'}</span>
+                            <span className="text-gray-500 dark:text-gray-400">Account:</span>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">{emailConnection.sender_email || '—'}</span>
                             {emailConnection.provider && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700 capitalize">{emailConnection.provider}</span>
+                              <span className="text-xs px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 capitalize">{emailConnection.provider}</span>
                             )}
                           </div>
-                          <p className="text-xs text-gray-500 mt-1">You can send emails and add events using this account.</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">You can send emails and add events using this account.</p>
                         </div>
                         <div className="flex flex-wrap gap-2 pt-1">
                           <button
                             type="button"
                             onClick={() => window.location.href = authAPI.connectGoogleUrl()}
-                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 transition-colors inline-flex items-center gap-1.5"
+                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] dark:border-teal-dm text-[#0D9488] dark:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 transition-colors inline-flex items-center gap-1.5"
                           >
                             <SiGoogle className="w-4 h-4" />
                             {emailConnection?.provider === 'google' ? 'Reconnect Gmail' : 'Switch to Gmail'}
@@ -2058,7 +2059,7 @@ const OpportunityDetail = () => {
                           <button
                             type="button"
                             onClick={() => window.location.href = authAPI.connectMicrosoftUrl()}
-                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 transition-colors inline-flex items-center gap-1.5"
+                            className="text-sm px-3 py-1.5 rounded border border-[#14B8A6] dark:border-teal-dm text-[#0D9488] dark:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 transition-colors inline-flex items-center gap-1.5"
                           >
                             <FaMicrosoft className="w-4 h-4" aria-hidden />
                             {emailConnection?.provider === 'microsoft' ? 'Reconnect Outlook' : 'Switch to Outlook'}
@@ -2067,25 +2068,25 @@ const OpportunityDetail = () => {
                       </div>
                     ) : (
                       <>
-                        <p className="text-sm text-gray-700">
+                        <p className="text-sm text-gray-700 dark:text-gray-300">
                           {user?.auth_provider === 'email'
                             ? 'You signed in with email verification. Connect Gmail or Outlook to send quote emails from the app and add opportunity deadlines to your calendar.'
                             : 'Connect your Google or Microsoft account to send quote emails from the app and add opportunity deadlines to your calendar.'}
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           We request access only to send email and create calendar events. You can disconnect or change the connected account at any time.
                         </p>
                         <div className="flex flex-wrap gap-2">
                           <a
                             href={authAPI.connectGoogleUrl()}
-                            className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                            className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] dark:border-teal-dm text-[#0D9488] dark:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 font-medium transition-colors"
                           >
                             <SiGoogle className="w-5 h-5 flex-shrink-0" />
                             Connect Gmail
                           </a>
                           <a
                             href={authAPI.connectMicrosoftUrl()}
-                            className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                            className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] dark:border-teal-dm text-[#0D9488] dark:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 font-medium transition-colors"
                           >
                             <FaMicrosoft className="w-5 h-5 flex-shrink-0" aria-hidden />
                             Connect Outlook
@@ -2128,15 +2129,15 @@ const OpportunityDetail = () => {
                   const breakdownText = breakdown.length ? breakdown.join(' · ') : null;
 
                   return (
-                    <div className={`bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden ${isLoading ? 'animate-fade-pulse pointer-events-none' : ''}`}>
-                      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60">
-                        <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#14B8A6]/10 text-[#0D9488]">
-                            <HiOutlineMail className="w-4 h-4" />
+                    <div className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm overflow-hidden ${isLoading ? 'animate-fade-pulse pointer-events-none' : ''}`}>
+                      <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-600 bg-gray-50/60 dark:bg-gray-700/60">
+                        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#14B8A6]/10 dark:bg-teal-dm/20 text-[#0D9488] dark:text-teal-dm">
+                            <HiOutlineMail className="w-4 h-4 dark:text-teal-dm" />
                           </span>
                           Quote emails
                         </h2>
-                        <p className="text-xs text-gray-500 mt-1 ml-10">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-10">
                           {isLoading
                             ? 'Finding dealers and manufacturers… Results will appear when ready.'
                             : 'Create and send quote requests to manufacturers and dealers.'}
@@ -2144,28 +2145,28 @@ const OpportunityDetail = () => {
                       </div>
                       <div className="p-4 space-y-4">
                         {isLoading ? (
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
                             Recipients and actions will appear when research is ready.
                           </p>
                         ) : (
                           <>
-                            <p className="text-xs text-gray-600">
-                              <span className="font-semibold text-gray-900">{emailCount}</span> recipient{emailCount !== 1 ? 's' : ''} with contact email
-                              {breakdownText && <span className="text-gray-500"> ({breakdownText})</span>}
+                            <p className="text-xs text-gray-600 dark:text-gray-300">
+                              <span className="font-semibold text-gray-900 dark:text-gray-100">{emailCount}</span> recipient{emailCount !== 1 ? 's' : ''} with contact email
+                              {breakdownText && <span className="text-gray-500 dark:text-gray-400"> ({breakdownText})</span>}
                             </p>
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
                                 onClick={() => navigate(`/opportunities/${id}/quote-emails`)}
-                                className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-[#0D9488] text-white hover:bg-[#0f766e] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
+                                className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-[#0D9488] dark:bg-teal-dm text-white dark:text-gray-900 hover:bg-[#0f766e] dark:hover:bg-teal-600 transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                               >
-                                <HiOutlineMail className="w-4 h-4" />
+                                <HiOutlineMail className="w-4 h-4 dark:text-gray-900" />
                                 View quote emails
                               </button>
                               <button
                                 type="button"
                                 onClick={handleGenerateThenView}
-                                className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+                                className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-500 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                               >
                                 Generate drafts
                               </button>
@@ -2185,19 +2186,19 @@ const OpportunityDetail = () => {
         {/* Delete Confirmation Modal */}
         {showDeleteConfirm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-base font-semibold text-gray-900">Delete Opportunity</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-200 dark:border-gray-600">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-600">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Delete Opportunity</h3>
               </div>
               <div className="px-6 py-4">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-gray-600 dark:text-gray-300">
                   Are you sure you want to delete this opportunity? This action cannot be undone and will permanently delete all related documents, deadlines, and CLINs.
                 </p>
               </div>
-              <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-2">
+              <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-600 flex justify-end space-x-2">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-2 text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-600 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={deleteLoading}
                   title="Cancel"
                 >
