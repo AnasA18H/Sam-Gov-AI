@@ -1,0 +1,27 @@
+Display name
+:
+Sam GOV
+Application (client) ID
+:
+8a622460-dfad-4cbc-b347-7cd437dd40e9
+Object ID
+:
+b0af509a-2755-40f6-95b1-aebe88abe207
+Directory (tenant) ID
+:
+1c5115c8-1dfe-4fe0-96e5-68dec2b0592b
+Supported account types
+:
+Multiple organizations
+Client credentials
+:
+Add a certificate or secret
+Redirect URIs
+:
+1 web, 0 spa, 0 public client
+Application ID URI
+:
+Add an Application ID URI
+Managed application in local directory
+:
+Sam GOV
