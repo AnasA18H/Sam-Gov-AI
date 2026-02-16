@@ -27,6 +27,7 @@ xlrd==2.0.1
 striprtf==0.0.26
 markdown==3.5.1
 PyPDF2==3.0.1
+img2pdf==0.5.1
 
 # OCR Support (optional - for scanned PDFs and images)
 pytesseract==0.3.10

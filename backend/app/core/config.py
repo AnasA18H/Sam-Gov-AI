@@ -90,7 +90,8 @@ class Settings(BaseSettings):
     # Google Document AI – set paths/ids in .env
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""
     GOOGLE_PROJECT_ID: str = ""
-    GOOGLE_PROCESSOR_ID: str = ""
+    GOOGLE_PROCESSOR_ID: str = ""  # Document OCR processor (text extraction)
+    GOOGLE_FORM_PARSER_PROCESSOR_ID: str = ""  # Form Parser processor (form fields / KVPs) – optional
     GOOGLE_LOCATION: str = "us"
     GOOGLE_DOCAI_ENABLED: bool = True
     

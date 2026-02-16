@@ -6,14 +6,15 @@ Maintains backward compatibility with existing code.
 import re
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 from datetime import datetime
 import dateutil.parser
 from dateutil.parser import ParserError
 
 # NLP (optional - spaCy for advanced classification)
+_spacy_module: Optional[object] = None
 try:
-    import spacy
+    import spacy as _spacy_module
     SPACY_AVAILABLE = True
 except ImportError:
     SPACY_AVAILABLE = False
@@ -78,9 +79,9 @@ class DocumentAnalyzer:
         self.clin_extractor = CLINExtractor(self.text_extractor)
         
         # Initialize spaCy (optional)
-        if SPACY_AVAILABLE:
+        if SPACY_AVAILABLE and _spacy_module is not None:
             try:
-                self.nlp = spacy.load("en_core_web_sm")
+                self.nlp = cast(Any, _spacy_module).load("en_core_web_sm")
                 logger.info("spaCy model loaded successfully")
             except OSError:
                 logger.warning("spaCy model 'en_core_web_sm' not found. Using keyword-based classification only.")
@@ -107,9 +108,9 @@ class DocumentAnalyzer:
         """
         return self.text_extractor.extract_text(file_path)
     
-    def extract_clins(self, text: str, file_path: Optional[Path] = None) -> List[Dict]:
+    def extract_clins(self, text: str, file_path: Optional[Path] = None) -> Tuple[List[Dict], List[Dict]]:
         """
-        Extract CLINs using ONLY AI/LLM extraction.
+        Extract CLINs and deadlines using ONLY AI/LLM extraction.
         No table extraction, no regex fallback - AI only.
         
         Args:
@@ -117,20 +118,21 @@ class DocumentAnalyzer:
             file_path: Optional path to document file (not used, kept for compatibility)
             
         Returns:
-            List of CLIN dictionaries with extracted data
+            Tuple of (list of CLIN dicts, list of deadline dicts)
         """
-        return self.clin_extractor.extract_clins(text, file_path)
+        path_str: Optional[str] = str(file_path) if file_path is not None else None
+        return self.clin_extractor.extract_clins(text, path_str)
     
-    def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> List[Dict]:
+    def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> Tuple[List[Dict], List[Dict]]:
         """
-        Extract CLINs from multiple documents in a single LLM call.
+        Extract CLINs and deadlines from multiple documents in a single LLM call.
         Sends all documents together for batch processing.
         
         Args:
             documents: List of tuples (document_name, document_text)
             
         Returns:
-            List of CLIN dictionaries with extracted data
+            Tuple of (list of CLIN dicts, list of deadline dicts)
         """
         return self.clin_extractor.extract_clins_batch(documents)
     
