@@ -20,6 +20,7 @@ class DocumentSource(str, enum.Enum):
     """Document source enumeration"""
     SAM_GOV = "sam_gov"
     USER_UPLOAD = "user_upload"
+    FORM_FILLED = "form_filled"  # Filled PDF from form-fill (save as new)
 
 
 class Document(Base):
