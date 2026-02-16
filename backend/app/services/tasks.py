@@ -23,6 +23,32 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+@celery_app.task(name="log_document_update")
+def log_document_update(
+    action: str,
+    opportunity_id: int,
+    document_id: int,
+    user_id: Optional[int] = None,
+    save_as_new: bool = False,
+    new_document_id: Optional[int] = None,
+    extra: Optional[dict] = None,
+):
+    """
+    Audit log task: record form fill or document edit in Celery logs.
+    Called from API after successful fill-form or overwrite_document.
+    """
+    extra = extra or {}
+    msg = (
+        f"document_update action={action} opportunity_id={opportunity_id} document_id={document_id}"
+        f" user_id={user_id}"
+    )
+    if save_as_new:
+        msg += f" save_as_new=True new_document_id={new_document_id}"
+    if extra:
+        msg += " " + " ".join(f"{k}={v}" for k, v in extra.items())
+    logger.info(msg)
+
+
 def _normalize_due_time(due_time: Optional[str]) -> str:
     """Normalize due_time to 24-hour HH:MM for consistent dedup and storage. Returns '' if empty/unparseable."""
     if not due_time or not isinstance(due_time, str):

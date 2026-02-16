@@ -28,10 +28,15 @@ from ..schemas.opportunity import OpportunityCreate, OpportunityResponse, Opport
 from ..schemas.document import DocumentResponse
 from ..schemas.draft_quote_email import DraftQuoteEmailList, DraftQuoteEmailResponse
 from sqlalchemy.orm import joinedload
-from ..services.tasks import scrape_sam_gov_opportunity
+from ..services.tasks import scrape_sam_gov_opportunity, log_document_update
 from ..services.lookup_links import get_clin_lookup_links
 from ..services.calendar_sync import sync_deadlines_to_calendar, delete_calendar_events_for_deadlines
 from ..services.quote_email_drafts import generate_drafts_for_opportunity
+from ..services.form_filler_service import (
+    build_opportunity_form_data,
+    fill_pdf_form,
+    get_form_fields_for_pdf,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -766,17 +771,33 @@ async def delete_opportunity(
     return None
 
 
+def _parse_positive_int(value: str, name: str) -> int:
+    """Coerce path param to positive int; raise HTTP 400 with clear message if invalid."""
+    try:
+        n = int(float(value))
+        if n < 1:
+            raise ValueError(f"{name} must be a positive integer")
+        return n
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid {name}; must be a positive integer",
+        )
+
+
 @router.get("/{opportunity_id}/documents/{document_id}/view")
 async def view_document(
-    opportunity_id: int,
-    document_id: int,
+    opportunity_id: str,
+    document_id: str,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """View/download a document from an opportunity"""
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    did = _parse_positive_int(document_id, "document_id")
     # Verify opportunity belongs to user
     opportunity = db.query(Opportunity).filter(
-        Opportunity.id == opportunity_id,
+        Opportunity.id == oid,
         Opportunity.user_id == current_user.id
     ).first()
     
@@ -788,8 +809,8 @@ async def view_document(
     
     # Get document
     document = db.query(Document).filter(
-        Document.id == document_id,
-        Document.opportunity_id == opportunity_id
+        Document.id == did,
+        Document.opportunity_id == oid
     ).first()
     
     if not document:
@@ -804,35 +825,14 @@ async def view_document(
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url=str(file_url))
     
-    # For local files, serve the file (resolve path: try all known storage locations)
-    doc_file_path = str(getattr(document, "file_path", "") or "")
-    file_path = Path(doc_file_path)
-    doc_name = getattr(document, "file_name", None) or file_path.name
-    if not file_path.is_absolute():
-        candidates = [
-            settings.PROJECT_ROOT / file_path,
-            Path.cwd() / file_path,
-        ]
-        if hasattr(settings, "STORAGE_BASE_PATH"):
-            storage_base = Path(settings.STORAGE_BASE_PATH)
-            if not storage_base.is_absolute():
-                storage_base = settings.PROJECT_ROOT / storage_base
-            candidates.append(storage_base / str(opportunity_id) / doc_name)
-            candidates.append(storage_base / file_path)
-        relative_path = doc_file_path.lstrip("/").lstrip("\\")
-        candidates.append(settings.DATA_DIR / relative_path)
-        if hasattr(settings, "DOCUMENTS_DIR"):
-            candidates.append(settings.DOCUMENTS_DIR / str(opportunity_id) / doc_name)
-        for candidate in candidates:
-            if candidate.exists() and candidate.is_file():
-                file_path = candidate
-                break
-        else:
-            file_path = candidates[0]
+    # For local files, serve the file (same path resolution as overwrite_document)
+    doc_file_path_str = str(getattr(document, "file_path", "") or "")
+    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+    logger.info("view_document: opp_id=%s doc_id=%s db_path=%r resolved=%s exists=%s", oid, did, doc_file_path_str, file_path, file_path.exists() and file_path.is_file())
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document file not found at path: {doc_file_path}"
+            detail=f"Document file not found at path: {doc_file_path_str}"
         )
 
     # Determine media type (use plain str for type checker)
@@ -851,11 +851,228 @@ async def view_document(
         path=str(file_path),
         filename=str(doc_name),
         media_type=media_type,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
     )
 
 
+@router.get("/{opportunity_id}/form-data")
+async def get_opportunity_form_data(
+    opportunity_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Get flat key-value form data for this opportunity (for prefill in editor)."""
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == oid,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    deadlines = db.query(Deadline).filter(Deadline.opportunity_id == oid).order_by(Deadline.due_date).all()
+    data = build_opportunity_form_data(opportunity, deadlines=deadlines)
+    return data
+
+
+class FormFieldsResponse(BaseModel):
+    """Response for GET form-fields."""
+    fields: List[dict]
+    source: str  # docai_form_parser | acroform | ocr | none
+
+
+class FillFormBody(BaseModel):
+    """Body for POST fill-form."""
+    fields: Optional[dict] = None  # { "contractor_name": "Acme", ... }
+    use_opportunity_data: Optional[bool] = False  # if True, fill from opportunity + deadlines
+    save_as_new: Optional[bool] = False  # if True, create new document; else overwrite
+
+
+@router.get("/{opportunity_id}/documents/{document_id}/form-fields", response_model=FormFieldsResponse)
+async def get_document_form_fields(
+    opportunity_id: str,
+    document_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Get form field names and metadata for a PDF document (for editor or autofill)."""
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    did = _parse_positive_int(document_id, "document_id")
+    logger.info(
+        "form_fields_request opportunity_id=%s document_id=%s user_id=%s",
+        oid, did, current_user.id,
+    )
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == oid,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    document = db.query(Document).filter(
+        Document.id == did,
+        Document.opportunity_id == oid,
+    ).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if str(getattr(document, "file_type", "")).lower() not in ("pdf", "documenttype.pdf"):
+        return FormFieldsResponse(fields=[], source="none")
+    doc_file_path_str = str(getattr(document, "file_path", "") or "")
+    if not doc_file_path_str:
+        return FormFieldsResponse(fields=[], source="none")
+    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
+    try:
+        fields_dict, source = get_form_fields_for_pdf(str(file_path))
+        fields_list = []
+        for name, info in fields_dict.items():
+            fields_list.append({
+                "name": name,
+                "type": info.get("type", "text"),
+                "value": info.get("value"),
+                "mapping_key": info.get("mapping_key"),
+            })
+        logger.info(
+            "form_fields_success opportunity_id=%s document_id=%s field_count=%s source=%s",
+            oid, did, len(fields_list), source,
+        )
+        return FormFieldsResponse(fields=fields_list, source=source)
+    except Exception as e:
+        logger.exception("get_form_fields failed: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to extract form fields")
+
+
+@router.post("/{opportunity_id}/documents/{document_id}/fill-form")
+async def fill_document_form(
+    opportunity_id: str,
+    document_id: str,
+    body: FillFormBody = Body(...),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Fill PDF form with provided fields or opportunity data; overwrite document or save as new."""
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    did = _parse_positive_int(document_id, "document_id")
+    logger.info(
+        "fill_form_request opportunity_id=%s document_id=%s user_id=%s use_opportunity_data=%s save_as_new=%s",
+        oid, did, current_user.id, body.use_opportunity_data, body.save_as_new,
+    )
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == oid,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    document = db.query(Document).filter(
+        Document.id == did,
+        Document.opportunity_id == oid,
+    ).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if getattr(document, "file_url", None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot fill form on document stored externally (S3)",
+        )
+    doc_file_path_str = str(getattr(document, "file_path", "") or "")
+    if not doc_file_path_str:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document has no file path")
+    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
+    if str(getattr(document, "file_type", "")).lower() not in ("pdf", "documenttype.pdf"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF documents can be filled")
+
+    if body.use_opportunity_data:
+        deadlines = db.query(Deadline).filter(Deadline.opportunity_id == oid).order_by(Deadline.due_date).all()
+        data = build_opportunity_form_data(opportunity, deadlines=deadlines)
+    else:
+        data = body.fields or {}
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No field data provided")
+
+    import tempfile
+    result_path = None
+    if body.save_as_new:
+        out_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        out_path = out_file.name
+        out_file.close()
+    else:
+        out_path = str(file_path)
+
+    try:
+        result_path = fill_pdf_form(str(file_path), data, output_path=out_path)
+        if not result_path:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Form fill failed (no AcroForm or fillable regions)")
+        if body.save_as_new:
+            base_name = getattr(document, "original_file_name", None) or getattr(document, "file_name", None) or "document"
+            safe = re.sub(r"[^\w\-\.]", "_", base_name)
+            new_name = f"Filled_{safe}" if not safe.lower().startswith("filled_") else safe
+            new_path = file_path.parent / new_name
+            Path(result_path).rename(new_path)
+            result_path = None
+            rel_path = str(new_path.relative_to(settings.PROJECT_ROOT)) if settings.PROJECT_ROOT in new_path.parents else str(new_path)
+            new_doc = Document(
+                opportunity_id=oid,
+                file_name=new_name,
+                original_file_name=new_name,
+                file_path=rel_path,
+                file_size=new_path.stat().st_size,
+                file_type=DocumentType.PDF,
+                mime_type="application/pdf",
+                source=DocumentSource.FORM_FILLED,
+                storage_type="local",
+            )
+            db.add(new_doc)
+            db.commit()
+            db.refresh(new_doc)
+            logger.info(
+                "fill_form_success opportunity_id=%s document_id=%s save_as_new=True new_document_id=%s",
+                oid, did, new_doc.id,
+            )
+            try:
+                log_document_update.delay(  # type: ignore[union-attr]
+                    action="form_fill",
+                    opportunity_id=oid,
+                    document_id=did,
+                    user_id=current_user.id,
+                    save_as_new=True,
+                    new_document_id=new_doc.id,
+                )
+            except Exception:
+                pass
+            return DocumentResponse.model_validate(new_doc)
+        db.commit()
+        db.refresh(document)
+        logger.info(
+            "fill_form_success opportunity_id=%s document_id=%s save_as_new=False",
+            oid, did,
+        )
+        try:
+            log_document_update.delay(  # type: ignore[union-attr]
+                action="form_fill",
+                opportunity_id=oid,
+                document_id=did,
+                user_id=current_user.id,
+                save_as_new=False,
+            )
+        except Exception:
+            pass
+        return DocumentResponse.model_validate(document)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("fill_form failed: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Form fill failed")
+    finally:
+        if result_path and Path(result_path).exists():
+            try:
+                Path(result_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 def _resolve_document_file_path(document, doc_file_path_str: str, opportunity_id: int) -> Path:
-    """Resolve document file_path to absolute Path. Uses same candidate logic as view_document."""
+    """Resolve document file_path to absolute Path. Used by view_document and overwrite_document so they serve/write the same file."""
     file_path = Path(doc_file_path_str)
     if file_path.is_absolute():
         return file_path
@@ -882,22 +1099,29 @@ def _resolve_document_file_path(document, doc_file_path_str: str, opportunity_id
 
 @router.put("/{opportunity_id}/documents/{document_id}")
 async def overwrite_document(
-    opportunity_id: int,
-    document_id: int,
-    file: UploadFile = File(..., description="Replacement file (PDF or Word). Overwrites existing document."),
+    opportunity_id: str,
+    document_id: str,
+    file: Optional[UploadFile] = File(None, description="Replacement file (PDF or Word). Overwrites existing document."),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Overwrite an existing opportunity document with new file content (e.g. after in-app edit). Saves to same path in data."""
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    did = _parse_positive_int(document_id, "document_id")
+    if not file or not getattr(file, "filename", None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Replacement file is required. Upload a PDF or Word file.",
+        )
     opportunity = db.query(Opportunity).filter(
-        Opportunity.id == opportunity_id,
+        Opportunity.id == oid,
         Opportunity.user_id == current_user.id
     ).first()
     if not opportunity:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
     document = db.query(Document).filter(
-        Document.id == document_id,
-        Document.opportunity_id == opportunity_id
+        Document.id == did,
+        Document.opportunity_id == oid
     ).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
@@ -909,11 +1133,22 @@ async def overwrite_document(
     doc_file_path_str = str(getattr(document, "file_path", "") or "")
     if not doc_file_path_str:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document has no file path")
-    file_path = _resolve_document_file_path(document, doc_file_path_str, opportunity_id)
+    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+    logger.info("overwrite_document: opp_id=%s doc_id=%s db_path=%r resolved=%s exists=%s", oid, did, doc_file_path_str, file_path, file_path.exists())
+    # If file doesn't exist yet (e.g. path from scraping but never downloaded), create parent dirs and write
     if not file_path.exists():
+        try:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.error(f"Error creating parent dir for overwrite: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not create document directory",
+            ) from e
+    elif not file_path.is_file():
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document file not found at path: {doc_file_path_str}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Document path exists but is not a file: {doc_file_path_str}",
         )
     # Allow PDF or Word replacement; optionally keep same type
     filename = file.filename or ""
@@ -928,6 +1163,11 @@ async def overwrite_document(
     except Exception as e:
         logger.error(f"Error reading upload for overwrite: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to read uploaded file")
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty. Save the PDF again.",
+        )
     try:
         file_path.write_bytes(content)
     except Exception as e:
@@ -950,6 +1190,20 @@ async def overwrite_document(
     document.file_type = doc_type  # type: ignore[assignment]
     db.commit()
     db.refresh(document)
+    logger.info(
+        "document_edit_success opportunity_id=%s document_id=%s user_id=%s file=%s size=%s",
+        oid, did, current_user.id, filename, file_size,
+    )
+    try:
+        log_document_update.delay(  # type: ignore[union-attr]
+            action="document_edit",
+            opportunity_id=oid,
+            document_id=did,
+            user_id=current_user.id,
+            extra={"filename": filename, "file_size": file_size},
+        )
+    except Exception:
+        pass
     return DocumentResponse.model_validate(document)
 
 
