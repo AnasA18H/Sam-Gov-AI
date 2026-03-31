@@ -1,9 +1,14 @@
 """
 Celery background tasks
 """
+# SQLAlchemy ORM: instance attributes are typed as Column in stubs but are plain values at runtime.
+# Celery: .delay is attached at runtime. Suppress ORM/Celery false positives for this file.
+# pyright: reportAssignmentType=false, reportArgumentType=false, reportAttributeAccessIssue=false
+# pyright: reportOptionalSubscript=false, reportGeneralTypeIssues=false
+# pyright: reportOptionalMemberAccess=false
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from ..core.celery_app import celery_app
 from ..core.database import SessionLocal
 from ..core.config import settings
@@ -15,38 +20,13 @@ from .sam_gov_scraper import SAMGovScraper
 from .document_downloader import DocumentDownloader
 from .document_analyzer import DocumentAnalyzer
 from .tavily_dealers import run_tavily_for_opportunity
+from .word_to_pdf import convert_word_to_pdf
 from datetime import datetime
 from dateutil import parser as dateutil_parser
 from sqlalchemy import func
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-@celery_app.task(name="log_document_update")
-def log_document_update(
-    action: str,
-    opportunity_id: int,
-    document_id: int,
-    user_id: Optional[int] = None,
-    save_as_new: bool = False,
-    new_document_id: Optional[int] = None,
-    extra: Optional[dict] = None,
-):
-    """
-    Audit log task: record form fill or document edit in Celery logs.
-    Called from API after successful fill-form or overwrite_document.
-    """
-    extra = extra or {}
-    msg = (
-        f"document_update action={action} opportunity_id={opportunity_id} document_id={document_id}"
-        f" user_id={user_id}"
-    )
-    if save_as_new:
-        msg += f" save_as_new=True new_document_id={new_document_id}"
-    if extra:
-        msg += " " + " ".join(f"{k}={v}" for k, v in extra.items())
-    logger.info(msg)
 
 
 def _normalize_due_time(due_time: Optional[str]) -> str:
@@ -269,24 +249,52 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                 downloader = DocumentDownloader(page=scraper.page)
                 logger.info(f"DEBUG: DocumentDownloader initialized with path: {downloader.storage_base_path}")
                 
-                downloaded_files = downloader.download_attachments(attachments, opportunity.id, opportunity.sam_gov_url)
+                downloaded_files = downloader.download_attachments(
+                    attachments,
+                    opportunity.id,
+                    opportunity.sam_gov_url,
+                    process_individual_links=bool(result.get('has_links_in_links_section', True)),
+                )
                 logger.info(f"DEBUG: Downloaded files count: {len(downloaded_files) if downloaded_files else 0}")
                 
                 if downloaded_files:
                     logger.info(f"DEBUG: Downloaded files: {[f.get('name', 'unknown') for f in downloaded_files]}")
+                    # Auto-convert Word documents to PDF so the app can view/edit them like PDFs
+                    for file_info in downloaded_files:
+                        file_type_str = (file_info.get('type') or '').lower()
+                        name_lower = (file_info.get('name') or '').lower()
+                        if file_type_str in ('word', 'doc', 'docx') or name_lower.endswith(('.doc', '.docx')):
+                            abs_path = Path(settings.PROJECT_ROOT) / file_info.get('path', '').lstrip('/')
+                            if abs_path.is_file():
+                                pdf_path = convert_word_to_pdf(abs_path, delete_original=True)
+                                if pdf_path:
+                                    try:
+                                        rel = pdf_path.relative_to(settings.PROJECT_ROOT)
+                                        file_info['path'] = str(rel)
+                                        file_info['name'] = pdf_path.name
+                                        file_info['size'] = pdf_path.stat().st_size
+                                        file_info['type'] = 'pdf'
+                                    except ValueError:
+                                        file_info['path'] = str(pdf_path)
+                                        file_info['name'] = pdf_path.name
+                                        file_info['size'] = pdf_path.stat().st_size
+                                        file_info['type'] = 'pdf'
                 else:
                     logger.warning(f"DEBUG: No files were successfully downloaded!")
                 
                 # Store document records in database
                 for file_info in downloaded_files:
-                    # Map file type string to DocumentType enum
+                    # Map file type string to DocumentType enum (infer from filename when type is 'unknown')
                     file_type_str = file_info.get('type', 'unknown').lower()
-                    if file_type_str == 'pdf':
+                    name_lower = (file_info.get('name') or '').lower()
+                    if file_type_str == 'pdf' or (file_type_str == 'unknown' and (name_lower.endswith('.pdf'))):
                         doc_type = DocumentType.PDF
-                    elif file_type_str in ['word', 'doc', 'docx']:
+                    elif file_type_str in ['word', 'doc', 'docx'] or (file_type_str == 'unknown' and name_lower.endswith(('.doc', '.docx'))):
                         doc_type = DocumentType.WORD
-                    elif file_type_str in ['excel', 'xls', 'xlsx']:
+                    elif file_type_str in ['excel', 'xls', 'xlsx'] or (file_type_str == 'unknown' and name_lower.endswith(('.xls', '.xlsx'))):
                         doc_type = DocumentType.EXCEL
+                    elif file_type_str in ['text', 'txt'] or (file_type_str == 'unknown' and name_lower.endswith(('.txt', '.text'))):
+                        doc_type = DocumentType.TEXT
                     else:
                         doc_type = DocumentType.OTHER
                     
@@ -319,7 +327,7 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
             # Check if analysis is enabled (stored in opportunity metadata)
             enable_document_analysis = opportunity.enable_document_analysis.lower() == "true" if opportunity.enable_document_analysis else False
             enable_clin_extraction = opportunity.enable_clin_extraction.lower() == "true" if opportunity.enable_clin_extraction else False
-            analyze_documents.delay(opportunity_id, enable_document_analysis, enable_clin_extraction, sam_gov_page_text)
+            getattr(analyze_documents, "delay")(opportunity_id, enable_document_analysis, enable_clin_extraction, sam_gov_page_text)
             
             return {
                 "status": "success",
@@ -355,6 +363,7 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         sam_gov_page_text: Text content from SAM.gov page for LLM analysis
     """
     db = SessionLocal()
+    opportunity: Optional[Opportunity] = None
     try:
         opportunity = db.query(Opportunity).filter(Opportunity.id == opportunity_id).first()
         if not opportunity:
@@ -650,29 +659,26 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                 
                 # Update timeline
                 if clin_data.get('delivery_timeline'):
-                    if existing_clin.additional_data is None:
-                        existing_clin.additional_data = {}
-                    existing_clin.additional_data['delivery_timeline'] = clin_data['delivery_timeline']
+                    _cur = existing_clin.additional_data
+                    ad = dict(_cur) if isinstance(_cur, dict) else {}
+                    ad['delivery_timeline'] = clin_data['delivery_timeline']
+                    existing_clin.additional_data = ad
                     if not existing_clin.timeline or len(clin_data['delivery_timeline']) > len(existing_clin.timeline or ''):
                         existing_clin.timeline = _truncate_string(clin_data['delivery_timeline'], max_length=255)
                 
                 # Update additional_data for drawing_number, delivery_address, special_delivery_instructions
+                _cur = existing_clin.additional_data
+                ad = dict(_cur) if isinstance(_cur, dict) else {}
                 if nsn_val:
-                    if existing_clin.additional_data is None:
-                        existing_clin.additional_data = {}
-                    existing_clin.additional_data['nsn'] = nsn_val
+                    ad['nsn'] = nsn_val
                 if _real_str(clin_data.get('drawing_number')):
-                    if existing_clin.additional_data is None:
-                        existing_clin.additional_data = {}
-                    existing_clin.additional_data['drawing_number'] = _real_str(clin_data['drawing_number'])
+                    ad['drawing_number'] = _real_str(clin_data['drawing_number'])
                 if _real_str(clin_data.get('delivery_address')):
-                    if existing_clin.additional_data is None:
-                        existing_clin.additional_data = {}
-                    existing_clin.additional_data['delivery_address'] = _real_str(clin_data['delivery_address'])
+                    ad['delivery_address'] = _real_str(clin_data['delivery_address'])
                 if _real_str(clin_data.get('special_delivery_instructions')):
-                    if existing_clin.additional_data is None:
-                        existing_clin.additional_data = {}
-                    existing_clin.additional_data['special_delivery_instructions'] = _real_str(clin_data['special_delivery_instructions'])
+                    ad['special_delivery_instructions'] = _real_str(clin_data['special_delivery_instructions'])
+                if ad:
+                    existing_clin.additional_data = ad
         
         # 4. Deduplicate deadlines before storing
         deduplicated_deadlines = []
@@ -756,7 +762,7 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
                 db.add(deadline)
             else:
                 logger.debug(f"Deadline already exists in database: {date_key} {deadline_type} {due_time} {timezone}")
-        
+
         # Update status to completed AFTER analysis is done
         opportunity.status = "completed"
         
@@ -766,7 +772,7 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         # Next step: Tavily web search for manufacturer + dealers per CLIN (when CLIN extraction was enabled)
         if enable_clin_extraction and len(deduplicated_clins) > 0:
             try:
-                run_tavily_dealers_for_opportunity.delay(opportunity_id)
+                getattr(run_tavily_dealers_for_opportunity, "delay")(opportunity_id)
                 logger.info("Queued Tavily dealer search for opportunity %s (%s CLINs)", opportunity_id, len(deduplicated_clins))
             except Exception as tavily_queue_err:
                 logger.warning("Failed to queue Tavily task for opportunity %s: %s", opportunity_id, tavily_queue_err)
@@ -828,6 +834,190 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
             db.commit()
         return {"status": "error", "message": str(e)}
     finally:
+        # Discard any uncommitted work so close() doesn't emit ROLLBACK (session may
+        # have an implicit transaction open after commit(); data is already committed).
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        db.close()
+
+
+@celery_app.task(name="rerun_clins_only")
+def rerun_clins_only(opportunity_id: int):
+    """
+    Re-run only CLIN (and deadline) extraction from existing documents.
+    Does not change classification, does not queue Tavily. Preserves existing
+    manufacturer_research and dealer_research on CLINs when updating by clin_number.
+    """
+    import time
+    db = SessionLocal()
+    opportunity = None
+    try:
+        opportunity = db.query(Opportunity).filter(Opportunity.id == opportunity_id).first()
+        if not opportunity:
+            logger.error("rerun_clins_only: opportunity %s not found", opportunity_id)
+            return {"status": "error", "message": "Opportunity not found"}
+        documents = db.query(Document).filter(Document.opportunity_id == opportunity_id).all()
+        if not documents:
+            logger.warning("rerun_clins_only: no documents for opportunity %s", opportunity_id)
+            return {"status": "success", "message": "No documents to extract from", "clins_extracted": 0}
+        analyzer = DocumentAnalyzer()
+        document_texts = []
+        for doc_idx, doc in enumerate(documents, 1):
+            file_ext = Path(doc.file_name).suffix.lower()
+            is_qa_document = (
+                doc.file_type == DocumentType.OTHER
+                and file_ext in (".pdf",)
+                and ("q&a" in doc.file_name.lower() or "qa" in doc.file_name.lower() or "question" in doc.file_name.lower())
+            )
+            if is_qa_document:
+                continue
+            if doc_idx > 1:
+                time.sleep(2)
+            try:
+                doc_file_path = Path(doc.file_path)
+                if not doc_file_path.is_absolute():
+                    doc_file_path = Path(settings.PROJECT_ROOT) / doc.file_path
+                text = analyzer.extract_text(doc.file_path)
+                if text and text.strip():
+                    document_texts.append((doc.file_name, text))
+            except Exception as e:
+                logger.warning("rerun_clins_only: skip doc %s: %s", doc.file_name, e)
+        if not document_texts:
+            return {"status": "success", "message": "No text extracted from documents", "clins_extracted": 0}
+        batch_clins, batch_deadlines = analyzer.extract_clins_batch(document_texts)
+        deduplicated_clins = {}
+        for clin_data in batch_clins:
+            clin_number = clin_data.get("clin_number", "")
+            if not clin_number:
+                continue
+            if clin_number not in deduplicated_clins:
+                deduplicated_clins[clin_number] = clin_data
+            else:
+                existing = deduplicated_clins[clin_number]
+                for key in clin_data:
+                    if not existing.get(key) and clin_data.get(key):
+                        existing[key] = clin_data[key]
+                    elif key in ("product_description", "scope_of_work", "delivery_timeline"):
+                        if clin_data.get(key) and len(clin_data[key]) > len(existing.get(key, "")):
+                            existing[key] = clin_data[key]
+        # Replace deadlines: delete existing, then add from extraction
+        db.query(Deadline).filter(Deadline.opportunity_id == opportunity_id).delete()
+        seen_deadlines = set()
+        for deadline_data in batch_deadlines or []:
+            if not deadline_data.get("due_date"):
+                continue
+            due_date = deadline_data["due_date"]
+            if isinstance(due_date, str):
+                due_date = dateutil_parser.parse(due_date)
+            date_key = due_date.date() if hasattr(due_date, "date") else due_date
+            deadline_type = deadline_data.get("deadline_type", "submission")
+            due_time = _normalize_due_time(deadline_data.get("due_time")) or (deadline_data.get("due_time") or "").strip() or ""
+            timezone = (deadline_data.get("timezone") or "").strip()
+            unique_key = (date_key, deadline_type, due_time, timezone)
+            if unique_key in seen_deadlines:
+                continue
+            seen_deadlines.add(unique_key)
+            deadline = Deadline(
+                opportunity_id=opportunity.id,
+                due_date=due_date,
+                due_time=due_time or deadline_data.get("due_time"),
+                timezone=deadline_data.get("timezone"),
+                deadline_type=deadline_data.get("deadline_type"),
+                description=deadline_data.get("description"),
+                is_primary=deadline_data.get("is_primary", False),
+            )
+            db.add(deadline)
+        # Merge CLINs: update existing by clin_number (preserve manufacturer_research, dealer_research), add new
+        for clin_data in deduplicated_clins.values():
+            nsn_val = _real_str(clin_data.get("base_item_number") or clin_data.get("nsn"))
+            additional_data = {}
+            if _real_str(clin_data.get("drawing_number")):
+                additional_data["drawing_number"] = _real_str(clin_data["drawing_number"])
+            if _real_str(clin_data.get("delivery_address")):
+                additional_data["delivery_address"] = _real_str(clin_data["delivery_address"])
+            if _real_str(clin_data.get("special_delivery_instructions")):
+                additional_data["special_delivery_instructions"] = _real_str(clin_data["special_delivery_instructions"])
+            if _real_str(clin_data.get("delivery_timeline")):
+                additional_data["delivery_timeline"] = _real_str(clin_data["delivery_timeline"])
+            if nsn_val:
+                additional_data["nsn"] = nsn_val
+            existing_clin = db.query(CLIN).filter(
+                CLIN.opportunity_id == opportunity_id,
+                CLIN.clin_number == clin_data["clin_number"],
+            ).first()
+            if existing_clin:
+                existing_clin.clin_name = _real_str(clin_data.get("clin_name")) or existing_clin.clin_name
+                existing_clin.base_item_number = nsn_val or existing_clin.base_item_number
+                product_name = _real_str(clin_data.get("product_name"))
+                if not product_name and clin_data.get("product_description"):
+                    product_name = _display_name_from_description(clin_data["product_description"])
+                existing_clin.product_name = product_name or existing_clin.product_name
+                if clin_data.get("product_description"):
+                    existing_clin.product_description = clin_data["product_description"]
+                if _real_str(clin_data.get("manufacturer_name")):
+                    existing_clin.manufacturer_name = _real_str(clin_data["manufacturer_name"])
+                existing_clin.part_number = _real_str(clin_data.get("part_number")) or existing_clin.part_number
+                existing_clin.model_number = _real_str(clin_data.get("model_number")) or existing_clin.model_number
+                existing_clin.quantity = clin_data.get("quantity") if clin_data.get("quantity") is not None else existing_clin.quantity
+                existing_clin.unit_of_measure = clin_data.get("unit_of_measure") or existing_clin.unit_of_measure
+                existing_clin.contract_type = clin_data.get("contract_type") or existing_clin.contract_type
+                existing_clin.extended_price = clin_data.get("extended_price") if clin_data.get("extended_price") is not None else existing_clin.extended_price
+                existing_clin.service_description = clin_data.get("service_description") or existing_clin.service_description
+                existing_clin.scope_of_work = clin_data.get("scope_of_work") or existing_clin.scope_of_work
+                existing_clin.timeline = _truncate_string(clin_data.get("delivery_timeline"), 255) or existing_clin.timeline
+                existing_clin.service_requirements = clin_data.get("service_requirements") or existing_clin.service_requirements
+                _cur = existing_clin.additional_data
+                ad_merged = dict(_cur) if isinstance(_cur, dict) else {}
+                ad_merged.update(additional_data)
+                existing_clin.additional_data = ad_merged if ad_merged else existing_clin.additional_data
+            else:
+                product_name = _real_str(clin_data.get("product_name"))
+                if not product_name and clin_data.get("product_description"):
+                    product_name = _display_name_from_description(clin_data["product_description"])
+                clin = CLIN(
+                    opportunity_id=opportunity.id,
+                    clin_number=clin_data["clin_number"],
+                    clin_name=_real_str(clin_data.get("clin_name")),
+                    base_item_number=nsn_val,
+                    product_name=product_name,
+                    product_description=clin_data.get("product_description"),
+                    manufacturer_name=_real_str(clin_data.get("manufacturer_name")),
+                    part_number=_real_str(clin_data.get("part_number")),
+                    model_number=_real_str(clin_data.get("model_number")),
+                    quantity=clin_data.get("quantity"),
+                    unit_of_measure=clin_data.get("unit_of_measure"),
+                    contract_type=clin_data.get("contract_type"),
+                    extended_price=clin_data.get("extended_price"),
+                    service_description=clin_data.get("service_description"),
+                    scope_of_work=clin_data.get("scope_of_work"),
+                    timeline=_truncate_string(clin_data.get("delivery_timeline"), 255),
+                    service_requirements=clin_data.get("service_requirements"),
+                    additional_data=additional_data if additional_data else None,
+                )
+                db.add(clin)
+        db.commit()
+        logger.info("rerun_clins_only: opportunity %s updated %s CLINs, %s deadlines", opportunity_id, len(deduplicated_clins), len(seen_deadlines))
+        return {
+            "status": "success",
+            "opportunity_id": opportunity_id,
+            "clins_extracted": len(deduplicated_clins),
+            "deadlines_extracted": len(seen_deadlines),
+        }
+    except Exception as e:
+        logger.error("rerun_clins_only failed for opportunity %s: %s", opportunity_id, e, exc_info=True)
+        if opportunity:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        return {"status": "error", "message": str(e)}
+    finally:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         db.close()
 
 
@@ -854,6 +1044,8 @@ def run_tavily_dealers_for_opportunity(opportunity_id: int):
                 "manufacturer_name": c.manufacturer_name,
                 "part_number": c.part_number,
                 "model_number": getattr(c, "model_number", None),
+                "manufacturer_research": c.manufacturer_research,
+                "dealer_research": c.dealer_research,
             }
             for c in clins
         ]
@@ -869,6 +1061,12 @@ def run_tavily_dealers_for_opportunity(opportunity_id: int):
                 continue
             mfr = u.get("manufacturer_research")
             dealers = u.get("dealer_research")
+            if mfr is not None and not isinstance(mfr, list):
+                mfr = [mfr] if isinstance(mfr, dict) else []
+            if dealers is not None and not isinstance(dealers, list):
+                dealers = [dealers] if isinstance(dealers, dict) else []
+            mfr = mfr if isinstance(mfr, list) else []
+            dealers = dealers if isinstance(dealers, list) else []
             try:
                 n = db.query(CLIN).filter(
                     CLIN.id == clin_id,

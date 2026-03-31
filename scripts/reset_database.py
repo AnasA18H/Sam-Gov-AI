@@ -67,18 +67,30 @@ def main():
             return 1
 
     if recreate:
-        print("\n--- Recreate schema (downgrade base + upgrade head) ---")
-        print("This will DROP all tables and recreate them. All data will be lost.")
+        print("\n--- Recreate schema (drop public schema + upgrade head) ---")
+        print("This will DROP the public schema (all tables, types, data) and recreate from migrations.")
         if not force:
             reply = input("Type 'yes' to continue: ")
             if reply.strip().lower() != "yes":
                 print("Aborted.")
                 return 0
-        for cmd in [["alembic", "downgrade", "base"], ["alembic", "upgrade", "head"]]:
-            r = subprocess.run([sys.executable, "-m"] + cmd, cwd=project_root, shell=False)
-            if r.returncode != 0:
-                print("Command failed:", cmd)
-                return r.returncode
+        # Drop and recreate public schema so ENUMs and all objects are removed (downgrade leaves ENUMs)
+        from backend.app.core.database import engine
+        from sqlalchemy import text
+        from urllib.parse import unquote, urlparse
+        parsed = urlparse(url)
+        db_user = unquote(parsed.username) if parsed.username else "postgres"
+        with engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+            conn.execute(text(f"GRANT ALL ON SCHEMA public TO {db_user}"))
+            conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+            conn.commit()
+        print("Schema dropped and recreated.")
+        r = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=project_root, shell=False)
+        if r.returncode != 0:
+            print("Alembic upgrade failed.")
+            return r.returncode
         print("Schema recreated successfully.")
         return 0
 

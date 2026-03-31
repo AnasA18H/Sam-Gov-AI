@@ -10,6 +10,7 @@ from .deadline import Deadline
 from .user_email_connection import UserEmailConnection
 from .oauth_state import OAuthState
 from .draft_quote_email import DraftQuoteEmail
+from .contractor_profile import ContractorProfile
 
 __all__ = [
     "User",
@@ -22,4 +23,5 @@ __all__ = [
     "UserEmailConnection",
     "OAuthState",
     "DraftQuoteEmail",
+    "ContractorProfile",
 ]

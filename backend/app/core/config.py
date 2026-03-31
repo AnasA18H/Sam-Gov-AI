@@ -76,7 +76,9 @@ class Settings(BaseSettings):
     ANTHROPIC_MODEL: str = "claude-3-sonnet-20240229"
     # Groq / LLM fallback – set in .env
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.1-70b-versatile"
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"  # was llama-3.1-70b-versatile (decommissioned)
+    # Autofill LLM call timeout (seconds). Override in .env if primary (Claude) keeps timing out (e.g. AUTOFILL_LLM_TIMEOUT_SEC=90).
+    AUTOFILL_LLM_TIMEOUT_SEC: int = 70
     # Gemini – set in .env
     GEMINI_API_KEY: str = ""
     # Tavily (dealer/manufacturer search) – set in .env
@@ -87,14 +89,20 @@ class Settings(BaseSettings):
     TAVILY_MAX_QUERIES_PER_CLIN: int = 8
     TAVILY_INCLUDE_DOMAINS: str = ""
     TAVILY_TIME_RANGE: str = ""
+    TAVILY_REUSE_BY_PRODUCT: bool = True  # one Tavily run per unique (manufacturer, product)
+    TAVILY_PARALLEL_MAX_WORKERS: int = 4  # 1 = sequential
+    # After per-site Tavily+fetch, one batched LLM pass over merged snippets (split if over limit)
+    TAVILY_AGGREGATE_AI_MAX_CHARS: int = 45000
+    # Skip Tavily search for a CLIN group when, after cross-CLIN email copy, fewer than this fraction
+    # of website rows still lack email (e.g. 0.30 = skip if <30% missing). Set to 0 to always run Tavily.
+    TAVILY_SKIP_IF_MISSING_RATE_BELOW: float = 0.30
     # Google Document AI – set paths/ids in .env
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""
     GOOGLE_PROJECT_ID: str = ""
-    GOOGLE_PROCESSOR_ID: str = ""  # Document OCR processor (text extraction)
-    GOOGLE_FORM_PARSER_PROCESSOR_ID: str = ""  # Form Parser processor (form fields / KVPs) – optional
+    GOOGLE_PROCESSOR_ID: str = ""
     GOOGLE_LOCATION: str = "us"
     GOOGLE_DOCAI_ENABLED: bool = True
-    
+
     # Project paths
     PROJECT_ROOT: Path = Path(__file__).parent.parent.parent.parent  # Go up 4 levels from backend/app/core/config.py
     DATA_DIR: Path = PROJECT_ROOT / "data"
@@ -111,6 +119,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        extra = "ignore"  # Ignore extra env vars (e.g. from rolled-back features)
 
 
 # Create settings instance

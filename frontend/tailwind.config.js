@@ -8,6 +8,14 @@ export default {
   theme: {
     extend: {
       colors: {
+        /** Dark theme: page background = dark grey; login/signup form panel = black */
+        matte: '#171717',
+        'dark-form': '#0a0a0a',
+        'dark-surface': '#141414',
+        'dark-elevated': '#1c1c1c',
+        'dark-hover': '#262626',
+        'dark-border': '#2e2e2e',
+        'dark-muted': '#737373',
         primary: {
           50: '#f0f9ff',
           100: '#e0f2fe',

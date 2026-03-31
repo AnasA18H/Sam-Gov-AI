@@ -101,13 +101,11 @@ This document describes the end-to-end flow of the entire system: authentication
 
 3. **Dealers/manufacturers loading:** If status is `completed`, there are CLINs, but no CLIN has manufacturer_research or dealer_research yet, frontend shows “Finding dealers and manufacturers…” and polls the same GET every 5 s (max 2 min) until at least one CLIN has research, then shows results.
 
-4. **UI sections:** Title (teal card with optional texture), contact block, deadlines (with “Add to Calendar” if email connected), description, CLINs table (expandable rows with product details, manufacturer/dealer blocks, “Find manufacturers & dealers” lookup links). Sidebar: Attachments (Edit, View, Fill from opportunity for PDFs), email/calendar connection (Connect Gmail/Outlook, Disconnect), delivery requirements if present.
+4. **UI sections:** Title (teal card with optional texture), contact block, deadlines (with “Add to Calendar” if email connected), description, CLINs table (expandable rows with product details, manufacturer/dealer blocks, “Find manufacturers & dealers” lookup links). Sidebar: documents (view/download), email/calendar connection (Connect Gmail/Outlook, Disconnect), delivery requirements if present.
 
-5. **Document view:** View opens `GET .../documents/:doc_id/view` (stream file). **Document edit:** Edit opens DocumentEditorModal; PDF edited client-side with pdf-lib, saved via `PUT .../documents/:doc_id`. **Fill from opportunity:** PDF only; `POST .../documents/:doc_id/fill-form` with `use_opportunity_data: true`; backend uses GenericPDFFormFiller (Form Parser → AcroForm → OCR; fill via AcroForm or image overlay), overwrites file.
+5. **Add to Calendar:** Button visible when user has a connected email (Gmail/Outlook). On click, frontend calls `POST /api/v1/opportunities/:id/sync-calendar`. Backend loads user’s **UserEmailConnection**, loads opportunity deadlines, and for each deadline without a stored `calendar_event_id` creates an event in Google Calendar or Microsoft Outlook via **calendar_sync** service, then saves `calendar_event_id` and `calendar_provider` on the **Deadline** row. Response returns how many events were created. Frontend refetches opportunity so “In calendar” badges appear.
 
-6. **Add to Calendar:** Button visible when user has a connected email (Gmail/Outlook). On click, frontend calls `POST /api/v1/opportunities/:id/sync-calendar`. Backend loads user’s **UserEmailConnection**, loads opportunity deadlines, and for each deadline without a stored `calendar_event_id` creates an event in Google Calendar or Microsoft Outlook via **calendar_sync** service, then saves `calendar_event_id` and `calendar_provider` on the **Deadline** row. Response returns how many events were created. Frontend refetches opportunity so “In calendar” badges appear.
-
-7. **Generate quote emails:** If any CLIN has dealer or manufacturer contact emails, a “Generate Quote Emails” button appears in the CLINs section. It navigates to `/opportunities/:id/quote-emails`.
+6. **Generate quote emails:** If any CLIN has dealer or manufacturer contact emails, a “Generate Quote Emails” button appears in the CLINs section. It navigates to `/opportunities/:id/quote-emails`.
 
 ### 4.3 Quote emails preview (`/opportunities/:id/quote-emails`)
 
@@ -183,9 +181,6 @@ So on delete: **calendar events** are removed from the user’s calendar, **all 
         --> Celery: extract text, extract CLINs+deadlines (LLM), classify, save CLINs/deadlines, queue run_tavily_dealers_for_opportunity
         --> Celery: Tavily search per CLIN, save manufacturer_research + dealer_research
     --> Opportunity Detail: GET opportunity, poll if processing, show deadlines/CLINs/documents
-        --> View document: GET .../documents/:doc_id/view (stream file)
-        --> Edit document: DocumentEditorModal (pdf-lib client-side) --> Save: PUT .../documents/:doc_id (overwrite)
-        --> Fill from opportunity (PDF): POST .../documents/:doc_id/fill-form (use_opportunity_data) --> backend Form Parser/AcroForm/OCR + fill --> overwrite file
         --> Add to Calendar: POST sync-calendar --> create events in Google/Outlook, persist event ids on deadlines
         --> Generate Quote Emails --> Quote Emails Preview: review/edit/approve/discard --> Send approved (POST send-email per email)
     --> Delete opportunity: DELETE /opportunities/:id
@@ -193,19 +188,3 @@ So on delete: **calendar events** are removed from the user’s calendar, **all 
 ```
 
 This is the full flow of the entire system in detail.
-
----
-
-## 9. Double-check: Code Paths Verified
-
-| Flow | Entry point | Backend / service | DB / file |
-|------|-------------|------------------|-----------|
-| Create opportunity | `POST /opportunities` (api/opportunities.py) | Creates Opportunity, uploads to UPLOADS_DIR, queues `scrape_sam_gov_opportunity` | Opportunity + Document(s) if files |
-| Scrape | Celery `scrape_sam_gov_opportunity` (tasks.py) | SAMGovScraper.scrape_opportunity, DocumentDownloader.download_attachments | Opportunity metadata, Deadline(s), Document(s) under storage |
-| Analyze | Celery `analyze_documents` (tasks.py) | DocumentAnalyzer.extract_text, extract_clins_batch, classify_solicitation_type | CLIN(s), Deadline(s), opportunity.solicitation_type, status=completed |
-| View document | `GET .../documents/:id/view` (opportunities.py) | _resolve_document_file_path, FileResponse | Read file from disk |
-| Overwrite document (edit save) | `PUT .../documents/:id` (opportunities.py) | _resolve_document_file_path, write_bytes | Same file path updated |
-| Form fields | `GET .../documents/:id/form-fields` (opportunities.py) | form_filler_service.get_form_fields_for_pdf → GenericPDFFormFiller.extract_form_fields | Read-only; returns fields + source |
-| Fill form | `POST .../documents/:id/fill-form` (opportunities.py) | build_opportunity_form_data, fill_pdf_form → GenericPDFFormFiller.fill_form | Overwrite file or new Document (save_as_new) |
-| Form filler extraction | generic_pdf_form_filler.extract_form_fields | 1) _extract_form_fields_with_docai (Form Parser) 2) PyPDF2 get_fields 3) _extract_fields_with_ocr | — |
-| Form filler write | generic_pdf_form_filler.fill_form | _fill_acroform (PyPDF2) or _fill_with_images (Pillow + img2pdf) | Writes to output_path |

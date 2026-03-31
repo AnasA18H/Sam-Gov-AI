@@ -9,9 +9,12 @@ from .database import get_db
 from .security import decode_token
 from .config import settings
 from ..models.user import User
-from ..schemas.auth import TokenData
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(
+    tokenUrl=f"{settings.API_V1_PREFIX}/auth/login",
+    auto_error=False,
+)
 
 
 async def get_current_user(
@@ -43,7 +46,7 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
     
-    if not user.is_active:
+    if not bool(user.is_active):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
@@ -56,7 +59,7 @@ async def get_current_active_user(
     current_user: User = Depends(get_current_user)
 ) -> User:
     """Get current active user (additional check for active status)"""
-    if not current_user.is_active:
+    if not bool(current_user.is_active):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
@@ -65,7 +68,7 @@ async def get_current_active_user(
 
 
 async def get_current_user_optional(
-    token: Optional[str] = Depends(oauth2_scheme),
+    token: Optional[str] = Depends(oauth2_scheme_optional),
     db: Session = Depends(get_db),
 ) -> Optional[User]:
     """Return current user if valid token present, else None. Use for redirect flows that pass token in query."""
@@ -74,11 +77,14 @@ async def get_current_user_optional(
     payload = decode_token(token)
     if not payload:
         return None
+    user_id_str = payload.get("sub")
+    if user_id_str is None:
+        return None
     try:
-        user_id = int(payload.get("sub"))
+        user_id = int(user_id_str)
     except (ValueError, TypeError):
         return None
     user = db.query(User).filter(User.id == user_id).first()
-    if not user or not user.is_active:
+    if not user or not bool(user.is_active):
         return None
     return user

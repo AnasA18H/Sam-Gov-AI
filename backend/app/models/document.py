@@ -13,6 +13,7 @@ class DocumentType(str, enum.Enum):
     PDF = "pdf"
     WORD = "word"
     EXCEL = "excel"
+    TEXT = "text"
     OTHER = "other"
 
 
@@ -20,7 +21,6 @@ class DocumentSource(str, enum.Enum):
     """Document source enumeration"""
     SAM_GOV = "sam_gov"
     USER_UPLOAD = "user_upload"
-    FORM_FILLED = "form_filled"  # Filled PDF from form-fill (save as new)
 
 
 class Document(Base):
@@ -45,7 +45,10 @@ class Document(Base):
     
     # Storage
     storage_type = Column(String(50), default="local", nullable=False)  # local or s3
-    
+
+    # When this document is a PDF created from a Word doc for editing, points to that Word document
+    converted_from_document_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)
+
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

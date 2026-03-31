@@ -2,6 +2,7 @@
 Opportunities API endpoints
 """
 import re
+import time
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -19,6 +20,7 @@ from ..core.dependencies import get_current_active_user
 from ..core.config import settings
 from ..models.user import User
 from ..models.opportunity import Opportunity
+from ..models.contractor_profile import ContractorProfile
 from ..models.document import Document, DocumentType, DocumentSource
 from ..models.clin import CLIN
 from ..models.deadline import Deadline
@@ -28,17 +30,42 @@ from ..schemas.opportunity import OpportunityCreate, OpportunityResponse, Opport
 from ..schemas.document import DocumentResponse
 from ..schemas.draft_quote_email import DraftQuoteEmailList, DraftQuoteEmailResponse
 from sqlalchemy.orm import joinedload
-from ..services.tasks import scrape_sam_gov_opportunity, log_document_update
+from ..services.word_to_pdf import convert_word_to_pdf
+from ..services.tasks import (
+    scrape_sam_gov_opportunity,
+    analyze_documents,
+    run_tavily_dealers_for_opportunity,
+    rerun_clins_only,
+)
 from ..services.lookup_links import get_clin_lookup_links
 from ..services.calendar_sync import sync_deadlines_to_calendar, delete_calendar_events_for_deadlines
 from ..services.quote_email_drafts import generate_drafts_for_opportunity
-from ..services.form_filler_service import (
-    build_opportunity_form_data,
-    fill_pdf_form,
-    get_form_fields_for_pdf,
-)
+from ..services.form_autofill import get_autofill_values
+from ..services.pdf_form_filler import introspect_pdf_fields
+from ..services.clin_extractor import CLINExtractor
 
 logger = logging.getLogger(__name__)
+
+# Reuse for autofill LLM (lazy init); primary and fallback (e.g. Claude then Groq)
+_autofill_extractor = None
+
+def _get_autofill_llms():
+    """Return (primary_llm, fallback_llm) for form autofill; try primary first, then fallback if it fails."""
+    global _autofill_extractor
+    if _autofill_extractor is None:
+        _autofill_extractor = CLINExtractor()
+    ext = _autofill_extractor
+    primary = ext.llm or ext.fallback_llm
+    fallback = ext.fallback_llm if ext.llm else None
+    return (primary, fallback)
+
+
+class AutofillPreviewRequest(BaseModel):
+    """Request body for autofill preview: list of PDF form field names and optional types/values."""
+    field_names: List[str]
+    field_types: Optional[dict] = None  # field_name -> "checkbox" | "text"
+    field_values: Optional[dict] = None  # field_name -> current value (from introspect); gov fields filled only if empty
+    field_tooltips: Optional[dict] = None  # field_name -> tooltip (helps LLM when mapping)
 
 router = APIRouter(prefix="/opportunities", tags=["opportunities"])
 
@@ -165,6 +192,8 @@ async def create_opportunity(
                         doc_type = DocumentType.WORD
                     elif file_ext in ['.xls', '.xlsx']:
                         doc_type = DocumentType.EXCEL
+                    elif file_ext in ['.txt', '.text']:
+                        doc_type = DocumentType.TEXT
                     else:
                         doc_type = DocumentType.OTHER
                     
@@ -176,18 +205,29 @@ async def create_opportunity(
                     with open(file_path, "wb") as buffer:
                         shutil.copyfileobj(file.file, buffer)
                     
+                    mime_type = None
+                    # Auto-convert Word to PDF for viewing/editing in the PDF editor
+                    if file_ext in ('.doc', '.docx'):
+                        pdf_path = convert_word_to_pdf(file_path.resolve(), delete_original=True)
+                        if pdf_path:
+                            file_path = pdf_path
+                            safe_filename = pdf_path.name
+                            doc_type = DocumentType.PDF
+                            mime_type = "application/pdf"
+                    
                     file_size = file_path.stat().st_size
-                    mime_type, _ = mimetypes.guess_type(file.filename)
+                    if mime_type is None:
+                        mime_type, _ = mimetypes.guess_type(file.filename)
                     
                     # Create document record
                     doc = Document(
                         opportunity_id=new_opportunity.id,
                         file_name=safe_filename,
                         original_file_name=file.filename,
-                        file_path=str(file_path.relative_to(settings.PROJECT_ROOT)),
+                        file_path=str(file_path.resolve().relative_to(settings.PROJECT_ROOT.resolve())),
                         file_size=file_size,
                         file_type=doc_type,
-                        mime_type=mime_type,
+                        mime_type=mime_type or "application/octet-stream",
                         source=DocumentSource.USER_UPLOAD,
                         storage_type="local"
                     )
@@ -215,14 +255,16 @@ async def list_opportunities(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """List all opportunities for current user"""
-    opportunities = db.query(Opportunity).filter(
-        Opportunity.user_id == current_user.id
-    ).offset(skip).limit(limit).all()
-    
-    total = db.query(Opportunity).filter(
-        Opportunity.user_id == current_user.id
-    ).count()
+    """List all opportunities for current user (newest first)."""
+    opportunities = (
+        db.query(Opportunity)
+        .filter(Opportunity.user_id == current_user.id)
+        .order_by(Opportunity.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    total = db.query(Opportunity).filter(Opportunity.user_id == current_user.id).count()
     
     return {
         "opportunities": opportunities,
@@ -252,7 +294,8 @@ def _normalize_clin_for_response(clin):
         except Exception:
             dr = []
     if dr is not None and not isinstance(dr, list):
-        dr = []
+        # Normalize single-object legacy format to list (like manufacturer_research)
+        dr = [dr] if isinstance(dr, dict) else []
     return {
         "manufacturer_research": mfr,
         "dealer_research": dr or [],
@@ -318,6 +361,60 @@ async def get_opportunity(
         base_codes["delivery_requirements"] = dr
         resp.classification_codes = base_codes
     return resp
+
+
+# ----- Re-run options (partial re-run without affecting other parts) -----
+
+
+@router.post("/{opportunity_id}/rerun/attachments", status_code=status.HTTP_202_ACCEPTED)
+async def rerun_attachments(
+    opportunity_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Re-run document processing only: re-extract text and re-classify. Does not re-extract CLINs or manufacturer/dealer research."""
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    getattr(analyze_documents, "delay")(opportunity_id, True, False, "")
+    return {"message": "Re-run attachments (document processing) started. Refresh the page for updates."}
+
+
+@router.post("/{opportunity_id}/rerun/clins", status_code=status.HTTP_202_ACCEPTED)
+async def rerun_clins(
+    opportunity_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Re-run CLIN (and deadline) extraction only from existing documents. Does not change classification or manufacturer/dealer research."""
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    getattr(rerun_clins_only, "delay")(opportunity_id)
+    return {"message": "Re-run CLINs started. Refresh the page for updates."}
+
+
+@router.post("/{opportunity_id}/rerun/manufacturer-dealer", status_code=status.HTTP_202_ACCEPTED)
+async def rerun_manufacturer_dealer(
+    opportunity_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Re-run manufacturer and dealer research (Tavily) only. Does not change documents or CLIN extraction."""
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == opportunity_id,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    getattr(run_tavily_dealers_for_opportunity, "delay")(opportunity_id)
+    return {"message": "Re-run manufacturer & dealer research started. Refresh the page for updates."}
 
 
 @router.post("/{opportunity_id}/sync-calendar")
@@ -855,56 +952,342 @@ async def view_document(
     )
 
 
-@router.get("/{opportunity_id}/form-data")
-async def get_opportunity_form_data(
+@router.get("/{opportunity_id}/documents/{document_id}/editable-pdf-document")
+async def get_editable_pdf_document(
     opportunity_id: str,
+    document_id: str,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get flat key-value form data for this opportunity (for prefill in editor)."""
+    """For a Word document, return the PDF document that was created from it for editing (if any). 404 if none."""
     oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    did = _parse_positive_int(document_id, "document_id")
     opportunity = db.query(Opportunity).filter(
         Opportunity.id == oid,
         Opportunity.user_id == current_user.id,
     ).first()
     if not opportunity:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
-    deadlines = db.query(Deadline).filter(Deadline.opportunity_id == oid).order_by(Deadline.due_date).all()
-    data = build_opportunity_form_data(opportunity, deadlines=deadlines)
-    return data
+    document = db.query(Document).filter(
+        Document.id == did,
+        Document.opportunity_id == oid,
+    ).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    doc_ftype = getattr(document, "file_type", None)
+    if doc_ftype != "word":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only Word documents have an editable PDF counterpart.",
+        )
+    # PDF created from this Word doc has converted_from_document_id = this doc's id
+    converted_from_id = getattr(document, "id", None)
+    pdf_doc = (
+        db.query(Document)
+        .filter(
+            Document.opportunity_id == oid,
+            Document.file_type == DocumentType.PDF,
+            Document.converted_from_document_id == converted_from_id,
+        )
+        .first()
+    )
+    if not pdf_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No PDF created from this Word document yet. Use Convert to PDF or open Edit to create one.",
+        )
+    return DocumentResponse.model_validate(pdf_doc)
 
 
-class FormFieldsResponse(BaseModel):
-    """Response for GET form-fields."""
-    fields: List[dict]
-    source: str  # docai_form_parser | acroform | ocr | none
+@router.post("/{opportunity_id}/documents/{document_id}/create-pdf-from-word")
+async def create_pdf_from_word(
+    opportunity_id: str,
+    document_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Convert the Word document to PDF: add as new attachment (keeping the .docx), or overwrite existing converted PDF. Returns the PDF document."""
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    did = _parse_positive_int(document_id, "document_id")
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == oid,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    document = db.query(Document).filter(
+        Document.id == did,
+        Document.opportunity_id == oid,
+    ).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    doc_ftype = getattr(document, "file_type", None)
+    if doc_ftype != "word":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document is not a Word file.",
+        )
+    doc_file_path_str = str(getattr(document, "file_path", "") or "")
+    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Word file not found on disk.",
+        )
+    pdf_path = convert_word_to_pdf(file_path.resolve(), delete_original=False)
+    if not pdf_path:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Word to PDF conversion is unavailable. Install LibreOffice on the server (e.g. apt install libreoffice-writer).",
+        )
+    # Check for existing PDF created from this Word doc
+    existing_pdf = (
+        db.query(Document)
+        .filter(
+            Document.opportunity_id == oid,
+            Document.file_type == DocumentType.PDF,
+            Document.converted_from_document_id == did,
+        )
+        .first()
+    )
+    upload_dir = settings.UPLOADS_DIR / str(oid)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    if existing_pdf:
+        # Overwrite existing converted PDF file with new conversion
+        existing_path_str = str(getattr(existing_pdf, "file_path", "") or "")
+        existing_path = _resolve_document_file_path(existing_pdf, existing_path_str, oid)
+        try:
+            existing_path.write_bytes(pdf_path.read_bytes())
+        except Exception as e:
+            logger.error("create_pdf_from_word: failed to overwrite existing PDF: %s", e, exc_info=True)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update PDF file.")
+        existing_pdf.file_size = existing_path.stat().st_size  # type: ignore[assignment]
+        existing_pdf.mime_type = "application/pdf"  # type: ignore[assignment]
+        db.commit()
+        db.refresh(existing_pdf)
+        logger.info("create_pdf_from_word: re-converted Word doc_id=%s, updated PDF doc_id=%s", did, existing_pdf.id)
+        return DocumentResponse.model_validate(existing_pdf)
+    # Add as new document (keep the .docx)
+    stem = file_path.stem
+    pdf_name = f"{stem}.pdf"
+    safe_name = pdf_name.replace("/", "_").replace("\\", "_")
+    dest_path = upload_dir / safe_name
+    dest_path.write_bytes(pdf_path.read_bytes())
+    rel_path = str(dest_path.resolve().relative_to(settings.PROJECT_ROOT.resolve()))
+    new_doc = Document(
+        opportunity_id=oid,
+        file_name=safe_name,
+        original_file_name=pdf_name,
+        file_path=rel_path,
+        file_size=dest_path.stat().st_size,
+        file_type=DocumentType.PDF,
+        mime_type="application/pdf",
+        source=DocumentSource.USER_UPLOAD,
+        storage_type="local",
+        converted_from_document_id=did,
+    )
+    db.add(new_doc)
+    db.commit()
+    db.refresh(new_doc)
+    logger.info("create_pdf_from_word: created PDF doc_id=%s from Word doc_id=%s", new_doc.id, did)
+    return DocumentResponse.model_validate(new_doc)
 
 
-class FillFormBody(BaseModel):
-    """Body for POST fill-form."""
-    fields: Optional[dict] = None  # { "contractor_name": "Acme", ... }
-    use_opportunity_data: Optional[bool] = False  # if True, fill from opportunity + deadlines
-    save_as_new: Optional[bool] = False  # if True, create new document; else overwrite
+@router.get("/{opportunity_id}/documents/{document_id}/pdf-for-editing")
+async def document_pdf_for_editing(
+    opportunity_id: str,
+    document_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Return the document as PDF for the in-app editor. For Word: serves the stored converted PDF if one exists (no on-the-fly conversion)."""
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    did = _parse_positive_int(document_id, "document_id")
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == oid,
+        Opportunity.user_id == current_user.id,
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    document = db.query(Document).filter(
+        Document.id == did,
+        Document.opportunity_id == oid,
+    ).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    doc_file_path_str = str(getattr(document, "file_path", "") or "")
+    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document file not found at path: {doc_file_path_str}",
+        )
+    doc_ftype = getattr(document, "file_type", None)
+    if doc_ftype == "pdf":
+        return FileResponse(
+            path=str(file_path),
+            media_type="application/pdf",
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+        )
+    if doc_ftype == "word":
+        # Serve the stored PDF created from this Word doc (no re-convert)
+        pdf_doc = (
+            db.query(Document)
+            .filter(
+                Document.opportunity_id == oid,
+                Document.file_type == DocumentType.PDF,
+                Document.converted_from_document_id == did,
+            )
+            .first()
+        )
+        if not pdf_doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No PDF created from this Word document yet. Create one via Convert to PDF or open Edit.",
+            )
+        pdf_path_str = str(getattr(pdf_doc, "file_path", "") or "")
+        pdf_path = _resolve_document_file_path(pdf_doc, pdf_path_str, oid)
+        if not pdf_path.exists() or not pdf_path.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Converted PDF file not found. Use Convert to PDF to create it again.",
+            )
+        return FileResponse(
+            path=str(pdf_path),
+            media_type="application/pdf",
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+        )
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="This document type cannot be edited in the PDF editor.",
+    )
 
 
-@router.get("/{opportunity_id}/documents/{document_id}/form-fields", response_model=FormFieldsResponse)
+# #region agent log
+def _autofill_debug_log(message: str, data: dict, hypothesis_id: Optional[str] = None):
+    try:
+        _debug_path = Path(__file__).resolve().parents[2] / ".cursor" / "debug.log"
+        payload = {"timestamp": int(time.time() * 1000), "location": "opportunities.autofill_preview", "message": message, "data": data}
+        if hypothesis_id:
+            payload["hypothesisId"] = hypothesis_id
+        _debug_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(_debug_path, "a", encoding="utf-8") as _f:
+            _f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+# #endregion
+
+
+@router.post("/{opportunity_id}/documents/{document_id}/autofill-preview")
+async def autofill_preview(
+    opportunity_id: str,
+    document_id: str,
+    body: AutofillPreviewRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Return suggested form field values only for reference fields (contractor + government). Other fields are omitted so they are not modified."""
+    # #region agent log
+    t0 = time.perf_counter()
+    _autofill_debug_log("autofill_preview entry", {"opportunity_id": opportunity_id, "document_id": document_id}, "A")
+    logger.info("autofill_preview: request start")
+    # #endregion
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    _parse_positive_int(document_id, "document_id")  # validate; document may be used later for LLM context
+    opportunity = (
+        db.query(Opportunity)
+        .options(joinedload(Opportunity.deadlines), joinedload(Opportunity.clins))
+        .filter(Opportunity.id == oid, Opportunity.user_id == current_user.id)
+        .first()
+    )
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    document = db.query(Document).filter(
+        Document.id == int(document_id),
+        Document.opportunity_id == oid,
+    ).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    field_names = body.field_names or []
+    field_types = body.field_types or {}
+    profile = db.query(ContractorProfile).filter(ContractorProfile.user_id == current_user.id).first()
+    primary_llm, fallback_llm = _get_autofill_llms()
+    logger.info("autofill_preview: primary_llm=%s fallback_llm=%s (primary=Claude if configured)", primary_llm is not None, fallback_llm is not None)
+    # #region agent log
+    t1 = time.perf_counter()
+    _autofill_debug_log("autofill_preview after DB+LLM init", {"elapsed_ms": round((t1 - t0) * 1000), "field_count": len(field_names)}, "A")
+    logger.info("autofill_preview: after DB+LLM init elapsed=%.0fms fields=%s", (t1 - t0) * 1000, len(field_names))
+    # #endregion
+
+    # No form fields: return profile-only suggestions (no OCR). Frontend shows "Suggested from your profile" from this or from its own profile fetch.
+    if not field_names:
+        from datetime import date
+        today = date.today().strftime("%m/%d/%Y")
+        if not profile:
+            values = {k: "-" for k in ("Phone", "Email", "Company Name", "Company Address", "UEI", "CAGE", "TIN", "Contract Officer Name", "Signature")}
+            values["Date"] = today
+            return {"fields": values}
+        values = {
+            "Phone": (profile.phone or "-").strip() or "-",
+            "Email": (profile.email or "-").strip() or "-",
+            "Company Name": (profile.company_name or "-").strip() or "-",
+            "Company Address": (profile.company_address or "-").strip() or "-",
+            "UEI": (profile.uei or "-").strip() or "-",
+            "CAGE": (profile.cage or "-").strip() or "-",
+            "TIN": (profile.tin or "-").strip() or "-",
+            "Contract Officer Name": (profile.contract_officer_name or "-").strip() or "-",
+            "Signature": (profile.digital_signature or "-").strip() or "-",
+            "Date": today,
+        }
+        return {"fields": values}
+
+    logger.info(
+        "autofill_preview: opp_id=%s doc_id=%s fields=%s profile=%s llm=%s",
+        oid,
+        document_id,
+        len(field_names),
+        profile is not None,
+        primary_llm is not None,
+    )
+    values = get_autofill_values(
+        opportunity,
+        field_names,
+        field_types,
+        llm=primary_llm,
+        fallback_llm=fallback_llm,
+        current_user=current_user,
+        profile=profile,
+        pdf_field_values=body.field_values,
+        pdf_field_tooltips=body.field_tooltips,
+    )
+    # #region agent log
+    t2 = time.perf_counter()
+    _autofill_debug_log("autofill_preview after get_autofill_values", {"elapsed_ms": round((t2 - t1) * 1000), "total_ms": round((t2 - t0) * 1000)}, "A")
+    logger.info("autofill_preview: get_autofill_values took %.0fms total so far %.0fms", (t2 - t1) * 1000, (t2 - t0) * 1000)
+    # #endregion
+    # Return only fields we are allowed to fill (reference: contractor + government). Frontend updates
+    # only these; fields not in response are left unchanged (do not overwrite with "-").
+    return {"fields": values}
+
+
+@router.get("/{opportunity_id}/documents/{document_id}/form-fields")
 async def get_document_form_fields(
     opportunity_id: str,
     document_id: str,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Get form field names and metadata for a PDF document (for editor or autofill)."""
+    """
+    Step 1 — Inspect PDF form fields. Returns AcroForm field metadata (name, type, value, tooltip, options)
+    so the client can map correctly. Non-PDF or missing file returns empty list.
+    """
     oid = _parse_positive_int(opportunity_id, "opportunity_id")
     did = _parse_positive_int(document_id, "document_id")
-    logger.info(
-        "form_fields_request opportunity_id=%s document_id=%s user_id=%s",
-        oid, did, current_user.id,
+    opportunity = (
+        db.query(Opportunity)
+        .filter(Opportunity.id == oid, Opportunity.user_id == current_user.id)
+        .first()
     )
-    opportunity = db.query(Opportunity).filter(
-        Opportunity.id == oid,
-        Opportunity.user_id == current_user.id,
-    ).first()
     if not opportunity:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
     document = db.query(Document).filter(
@@ -913,162 +1296,16 @@ async def get_document_form_fields(
     ).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    if str(getattr(document, "file_type", "")).lower() not in ("pdf", "documenttype.pdf"):
-        return FormFieldsResponse(fields=[], source="none")
     doc_file_path_str = str(getattr(document, "file_path", "") or "")
     if not doc_file_path_str:
-        return FormFieldsResponse(fields=[], source="none")
+        return {"fields": []}
     file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
     if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
-    try:
-        fields_dict, source = get_form_fields_for_pdf(str(file_path))
-        fields_list = []
-        for name, info in fields_dict.items():
-            fields_list.append({
-                "name": name,
-                "type": info.get("type", "text"),
-                "value": info.get("value"),
-                "mapping_key": info.get("mapping_key"),
-            })
-        logger.info(
-            "form_fields_success opportunity_id=%s document_id=%s field_count=%s source=%s",
-            oid, did, len(fields_list), source,
-        )
-        return FormFieldsResponse(fields=fields_list, source=source)
-    except Exception as e:
-        logger.exception("get_form_fields failed: %s", e)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to extract form fields")
-
-
-@router.post("/{opportunity_id}/documents/{document_id}/fill-form")
-async def fill_document_form(
-    opportunity_id: str,
-    document_id: str,
-    body: FillFormBody = Body(...),
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
-):
-    """Fill PDF form with provided fields or opportunity data; overwrite document or save as new."""
-    oid = _parse_positive_int(opportunity_id, "opportunity_id")
-    did = _parse_positive_int(document_id, "document_id")
-    logger.info(
-        "fill_form_request opportunity_id=%s document_id=%s user_id=%s use_opportunity_data=%s save_as_new=%s",
-        oid, did, current_user.id, body.use_opportunity_data, body.save_as_new,
-    )
-    opportunity = db.query(Opportunity).filter(
-        Opportunity.id == oid,
-        Opportunity.user_id == current_user.id,
-    ).first()
-    if not opportunity:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
-    document = db.query(Document).filter(
-        Document.id == did,
-        Document.opportunity_id == oid,
-    ).first()
-    if not document:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    if getattr(document, "file_url", None):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot fill form on document stored externally (S3)",
-        )
-    doc_file_path_str = str(getattr(document, "file_path", "") or "")
-    if not doc_file_path_str:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document has no file path")
-    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
-    if str(getattr(document, "file_type", "")).lower() not in ("pdf", "documenttype.pdf"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF documents can be filled")
-
-    if body.use_opportunity_data:
-        deadlines = db.query(Deadline).filter(Deadline.opportunity_id == oid).order_by(Deadline.due_date).all()
-        data = build_opportunity_form_data(opportunity, deadlines=deadlines)
-    else:
-        data = body.fields or {}
-    if not data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No field data provided")
-
-    import tempfile
-    result_path = None
-    if body.save_as_new:
-        out_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        out_path = out_file.name
-        out_file.close()
-    else:
-        out_path = str(file_path)
-
-    try:
-        result_path = fill_pdf_form(str(file_path), data, output_path=out_path)
-        if not result_path:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Form fill failed (no AcroForm or fillable regions)")
-        if body.save_as_new:
-            base_name = getattr(document, "original_file_name", None) or getattr(document, "file_name", None) or "document"
-            safe = re.sub(r"[^\w\-\.]", "_", base_name)
-            new_name = f"Filled_{safe}" if not safe.lower().startswith("filled_") else safe
-            new_path = file_path.parent / new_name
-            Path(result_path).rename(new_path)
-            result_path = None
-            rel_path = str(new_path.relative_to(settings.PROJECT_ROOT)) if settings.PROJECT_ROOT in new_path.parents else str(new_path)
-            new_doc = Document(
-                opportunity_id=oid,
-                file_name=new_name,
-                original_file_name=new_name,
-                file_path=rel_path,
-                file_size=new_path.stat().st_size,
-                file_type=DocumentType.PDF,
-                mime_type="application/pdf",
-                source=DocumentSource.FORM_FILLED,
-                storage_type="local",
-            )
-            db.add(new_doc)
-            db.commit()
-            db.refresh(new_doc)
-            logger.info(
-                "fill_form_success opportunity_id=%s document_id=%s save_as_new=True new_document_id=%s",
-                oid, did, new_doc.id,
-            )
-            try:
-                log_document_update.delay(  # type: ignore[union-attr]
-                    action="form_fill",
-                    opportunity_id=oid,
-                    document_id=did,
-                    user_id=current_user.id,
-                    save_as_new=True,
-                    new_document_id=new_doc.id,
-                )
-            except Exception:
-                pass
-            return DocumentResponse.model_validate(new_doc)
-        db.commit()
-        db.refresh(document)
-        logger.info(
-            "fill_form_success opportunity_id=%s document_id=%s save_as_new=False",
-            oid, did,
-        )
-        try:
-            log_document_update.delay(  # type: ignore[union-attr]
-                action="form_fill",
-                opportunity_id=oid,
-                document_id=did,
-                user_id=current_user.id,
-                save_as_new=False,
-            )
-        except Exception:
-            pass
-        return DocumentResponse.model_validate(document)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("fill_form failed: %s", e)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Form fill failed")
-    finally:
-        if result_path and Path(result_path).exists():
-            try:
-                Path(result_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+        return {"fields": []}
+    if file_path.suffix.lower() != ".pdf":
+        return {"fields": []}
+    meta = introspect_pdf_fields(file_path)
+    return {"fields": meta}
 
 
 def _resolve_document_file_path(document, doc_file_path_str: str, opportunity_id: int) -> Path:
@@ -1091,10 +1328,129 @@ def _resolve_document_file_path(document, doc_file_path_str: str, opportunity_id
     candidates.append(settings.DATA_DIR / relative_path)
     if hasattr(settings, "DOCUMENTS_DIR"):
         candidates.append(settings.DOCUMENTS_DIR / str(opportunity_id) / doc_name)
+    if hasattr(settings, "UPLOADS_DIR"):
+        candidates.append(settings.UPLOADS_DIR / str(opportunity_id) / doc_name)
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
             return candidate
     return candidates[0]
+
+
+def _unique_document_filename(db: Session, opportunity_id: int, requested_name: str) -> str:
+    """Return a filename that does not collide with existing document file_name for this opportunity."""
+    base = Path(requested_name)
+    stem = base.stem
+    suffix = base.suffix.lower()
+    existing = {d.file_name for d in db.query(Document).filter(Document.opportunity_id == opportunity_id).all()}
+    name = base.name
+    if name not in existing:
+        return name
+    for n in range(1, 1000):
+        candidate = f"{stem} (copy){suffix}" if n == 1 else f"{stem} (copy {n}){suffix}"
+        if candidate not in existing:
+            return candidate
+    return f"{stem}_{os.urandom(4).hex()}{suffix}"
+
+
+@router.post("/{opportunity_id}/documents", response_model=DocumentResponse)
+async def add_document(
+    opportunity_id: str,
+    file: Optional[UploadFile] = File(None, description="New document file (PDF or Word). Saved as new document."),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Add a new document to an opportunity (e.g. Save as new from editor). Does not overwrite any existing document."""
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    if not file or not getattr(file, "filename", None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is required. Upload a PDF or Word file.",
+        )
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == oid,
+        Opportunity.user_id == current_user.id
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    filename = file.filename or "document"
+    ext = Path(filename).suffix.lower()
+    if ext not in (".pdf", ".doc", ".docx"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be PDF or Word (.pdf, .doc, .docx)",
+        )
+    upload_dir = settings.UPLOADS_DIR / str(oid)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    safe_filename = filename.replace("/", "_").replace("\\", "_")
+    safe_filename = _unique_document_filename(db, oid, safe_filename)
+    file_path = upload_dir / safe_filename
+    try:
+        content = await file.read()
+    except Exception as e:
+        logger.error("Error reading upload for add_document: %s", e, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to read uploaded file")
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
+    try:
+        file_path.write_bytes(content)
+        logger.info("add_document: wrote %s bytes to %s (abs path: %s)", len(content), safe_filename, file_path.resolve())
+    except Exception as e:
+        logger.error("Error writing new document: %s", e, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save file")
+    if not file_path.exists() or not file_path.is_file():
+        logger.error("add_document: file not found on disk after write: %s", file_path)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="File was not saved to disk")
+    actual_size = file_path.stat().st_size
+    if actual_size != len(content):
+        logger.error("add_document: size mismatch after write: expected %s got %s", len(content), actual_size)
+        try:
+            file_path.unlink()
+        except Exception:
+            pass
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="File save verification failed")
+    # Auto-convert Word to PDF so the document can be viewed/edited in the PDF editor
+    if ext in (".doc", ".docx"):
+        pdf_path = convert_word_to_pdf(file_path.resolve(), delete_original=True)
+        if pdf_path:
+            file_path = pdf_path
+            safe_filename = pdf_path.name
+            file_size = pdf_path.stat().st_size
+            doc_type = DocumentType.PDF
+            mime_type = "application/pdf"
+        else:
+            file_size = len(content)
+            doc_type = DocumentType.WORD
+            mime_type = mimetypes.guess_type(filename)[0] or "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    else:
+        file_size = len(content)
+        mime_type, _ = mimetypes.guess_type(filename)
+        if ext == ".pdf":
+            doc_type = DocumentType.PDF
+            if not mime_type:
+                mime_type = "application/pdf"
+        elif ext in (".txt", ".text"):
+            doc_type = DocumentType.TEXT
+            if not mime_type:
+                mime_type = "text/plain"
+        else:
+            doc_type = DocumentType.OTHER
+    rel_path = str(file_path.resolve().relative_to(settings.PROJECT_ROOT.resolve()))
+    doc = Document(
+        opportunity_id=oid,
+        file_name=safe_filename,
+        original_file_name=filename,
+        file_path=rel_path,
+        file_size=file_size,
+        file_type=doc_type,
+        mime_type=mime_type or "application/octet-stream",
+        source=DocumentSource.USER_UPLOAD,
+        storage_type="local",
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+    logger.info("add_document: opp_id=%s doc_id=%s file=%s", oid, doc.id, safe_filename)
+    return DocumentResponse.model_validate(doc)
 
 
 @router.put("/{opportunity_id}/documents/{document_id}")
@@ -1134,7 +1490,10 @@ async def overwrite_document(
     if not doc_file_path_str:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document has no file path")
     file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
-    logger.info("overwrite_document: opp_id=%s doc_id=%s db_path=%r resolved=%s exists=%s", oid, did, doc_file_path_str, file_path, file_path.exists())
+    logger.info(
+        "overwrite_document: opp_id=%s doc_id=%s db_path=%r resolved=%s exists=%s",
+        oid, did, doc_file_path_str, file_path, file_path.exists(),
+    )
     # If file doesn't exist yet (e.g. path from scraping but never downloaded), create parent dirs and write
     if not file_path.exists():
         try:
@@ -1161,50 +1520,116 @@ async def overwrite_document(
     try:
         content = await file.read()
     except Exception as e:
-        logger.error(f"Error reading upload for overwrite: {e}", exc_info=True)
+        logger.error("overwrite_document: Error reading upload: %s", e, exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to read uploaded file")
+    logger.info("overwrite_document: Read content len=%s bytes, writing to %s", len(content), file_path)
     if not content:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty. Save the PDF again.",
         )
     try:
-        file_path.write_bytes(content)
+        if ext in (".doc", ".docx"):
+            # Write Word to a temp file, convert to PDF, then save PDF as the document file
+            temp_word = file_path.parent / (file_path.stem + "_replace.docx")
+            temp_word.write_bytes(content)
+            pdf_path = convert_word_to_pdf(temp_word.resolve(), delete_original=True)
+            if pdf_path:
+                final_pdf = file_path.parent / (file_path.stem + ".pdf")
+                final_pdf.write_bytes(pdf_path.read_bytes())
+                if pdf_path != final_pdf:
+                    try:
+                        pdf_path.unlink()
+                    except OSError:
+                        pass
+                if file_path.exists() and file_path != final_pdf:
+                    try:
+                        file_path.unlink()
+                    except OSError:
+                        pass
+                file_path = final_pdf
+                document.file_path = str(final_pdf.resolve().relative_to(settings.PROJECT_ROOT.resolve()))  # type: ignore[assignment]
+                document.file_name = final_pdf.name  # type: ignore[assignment]
+                document.file_size = final_pdf.stat().st_size  # type: ignore[assignment]
+                document.file_type = DocumentType.PDF  # type: ignore[assignment]
+                document.mime_type = "application/pdf"  # type: ignore[assignment]
+                file_size = final_pdf.stat().st_size
+            else:
+                file_path.write_bytes(content)
+                document.file_size = len(content)  # type: ignore[assignment]
+                document.file_type = DocumentType.WORD  # type: ignore[assignment]
+                document.mime_type = mimetypes.guess_type(filename)[0] or "application/vnd.openxmlformats-officedocument.wordprocessingml.document"  # type: ignore[assignment]
+                file_size = len(content)
+        else:
+            # PDF upload: write to .pdf path so we don't leave PDF bytes in a .docx file
+            if ext == ".pdf" and file_path.suffix.lower() != ".pdf":
+                target_path = file_path.parent / (file_path.stem + ".pdf")
+                target_path.write_bytes(content)
+                if file_path.exists():
+                    try:
+                        file_path.unlink()
+                    except OSError:
+                        pass
+                file_path = target_path
+                document.file_path = str(target_path.resolve().relative_to(settings.PROJECT_ROOT.resolve()))  # type: ignore[assignment]
+                document.file_name = target_path.name  # type: ignore[assignment]
+            else:
+                file_path.write_bytes(content)
+            logger.info("overwrite_document: Wrote %s bytes to %s", len(content), file_path)
+            file_size = file_path.stat().st_size
+            mime_type, _ = mimetypes.guess_type(filename)
+            if ext == ".pdf":
+                doc_type = DocumentType.PDF
+                if not mime_type:
+                    mime_type = "application/pdf"
+            else:
+                doc_type = getattr(document, "file_type", DocumentType.OTHER)
+            document.file_size = file_size  # type: ignore[assignment]
+            document.mime_type = mime_type or "application/octet-stream"  # type: ignore[assignment]
+            document.file_type = doc_type  # type: ignore[assignment]
     except Exception as e:
-        logger.error(f"Error writing document overwrite: {e}", exc_info=True)
+        logger.error("overwrite_document: Error writing file: %s path=%s", e, file_path, exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save file")
-    file_size = len(content)
-    mime_type, _ = mimetypes.guess_type(filename)
-    if ext == ".pdf":
-        doc_type = DocumentType.PDF
-        if not mime_type:
-            mime_type = "application/pdf"
-    elif ext in (".doc", ".docx"):
-        doc_type = DocumentType.WORD
-        if not mime_type:
-            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    else:
-        doc_type = getattr(document, "file_type", DocumentType.OTHER)
-    document.file_size = file_size  # type: ignore[assignment]
-    document.mime_type = mime_type or "application/octet-stream"  # type: ignore[assignment]
-    document.file_type = doc_type  # type: ignore[assignment]
     db.commit()
     db.refresh(document)
-    logger.info(
-        "document_edit_success opportunity_id=%s document_id=%s user_id=%s file=%s size=%s",
-        oid, did, current_user.id, filename, file_size,
-    )
-    try:
-        log_document_update.delay(  # type: ignore[union-attr]
-            action="document_edit",
-            opportunity_id=oid,
-            document_id=did,
-            user_id=current_user.id,
-            extra={"filename": filename, "file_size": file_size},
-        )
-    except Exception:
-        pass
+    logger.info("overwrite_document: Success opp_id=%s doc_id=%s file_size=%s", oid, did, file_size)
     return DocumentResponse.model_validate(document)
+
+
+@router.delete("/{opportunity_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    opportunity_id: str,
+    document_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a document from the opportunity and remove its file from disk if stored locally."""
+    oid = _parse_positive_int(opportunity_id, "opportunity_id")
+    did = _parse_positive_int(document_id, "document_id")
+    opportunity = db.query(Opportunity).filter(
+        Opportunity.id == oid,
+        Opportunity.user_id == current_user.id
+    ).first()
+    if not opportunity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    document = db.query(Document).filter(
+        Document.id == did,
+        Document.opportunity_id == oid
+    ).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    doc_file_path_str = str(getattr(document, "file_path", "") or "")
+    if doc_file_path_str and not getattr(document, "file_url", None):
+        file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+        if file_path.exists() and file_path.is_file():
+            try:
+                file_path.unlink()
+                logger.info("delete_document: removed file %s", file_path)
+            except Exception as e:
+                logger.warning("delete_document: could not remove file %s: %s", file_path, e)
+    db.delete(document)
+    db.commit()
+    return None
 
 
 @router.get("/{opportunity_id}/clins/{clin_id}/lookup-links")

@@ -183,43 +183,40 @@ const Dashboard = () => {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen bg-gray-50 dark:bg-matte">
         {/* Navigation */}
-        <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+        <nav className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between h-14">
-              <div className="flex items-center space-x-2">
+            <div className="flex justify-between items-center h-16">
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="flex items-center gap-2.5 rounded-xl py-1.5 pr-2 hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors"
+              >
                 <div className="flex flex-col space-y-0.5">
-                  <div className="h-0.5 w-6 bg-green-500 rounded"></div>
-                  <div className="h-0.5 w-6 bg-yellow-400 rounded"></div>
-                  <div className="h-0.5 w-6 bg-blue-500 rounded"></div>
+                  <div className="h-0.5 w-6 bg-green-500 rounded" />
+                  <div className="h-0.5 w-6 bg-yellow-400 rounded" />
+                  <div className="h-0.5 w-6 bg-blue-500 rounded" />
                 </div>
-                <h1 className="text-lg font-semibold text-[#2D1B3D] dark:text-gray-100">Sam Gov AI</h1>
-              </div>
-              <div className="flex items-center space-x-2 sm:space-x-3">
+                <span className="text-xl font-semibold text-[#2D1B3D] dark:text-white tracking-tight">Sam Gov AI</span>
+              </button>
+              <div className="flex items-center gap-2 sm:gap-4">
                 <ThemeToggle />
                 {!emailConnectionLoading && (
                   <>
                     {emailConnection?.connected ? (
-                      <span className="hidden sm:flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 px-2 py-1 rounded bg-gray-100 dark:bg-gray-700">
-                        <HiOutlineCheckCircle className="w-4 h-4 text-green-600" />
+                      <span className="hidden sm:inline-flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300 px-4 py-2 rounded-xl bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border">
+                        <HiOutlineCheckCircle className="w-4 h-4 text-green-600 dark:text-teal-dm shrink-0" />
                         <span className="capitalize">{emailConnection.provider || 'Email'}</span>
                       </span>
                     ) : (
-                      <div className="hidden sm:flex items-center gap-1.5">
-                        <a
-                          href={authAPI.connectGoogleUrl()}
-                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
-                        >
-                          <SiGoogle className="w-4 h-4" />
-                          Connect Gmail
+                      <div className="hidden sm:flex items-center gap-2">
+                        <a href={authAPI.connectGoogleUrl()} className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl border border-[#14B8A6]/50 dark:border-teal-dm/50 text-[#0D9488] dark:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/10 transition-colors min-w-[5.5rem] justify-center">
+                          <SiGoogle className="w-4 h-4 shrink-0" />
+                          Gmail
                         </a>
-                        <a
-                          href={authAPI.connectMicrosoftUrl()}
-                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
-                        >
-                          <FaMicrosoft className="w-4 h-4" aria-hidden />
-                          Connect Outlook
+                        <a href={authAPI.connectMicrosoftUrl()} className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl border border-[#14B8A6]/50 dark:border-teal-dm/50 text-[#0D9488] dark:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/10 transition-colors min-w-[5.5rem] justify-center">
+                          <FaMicrosoft className="w-4 h-4 shrink-0" aria-hidden />
+                          Outlook
                         </a>
                       </div>
                     )}
@@ -227,83 +224,70 @@ const Dashboard = () => {
                 )}
                 <button
                   onClick={goToAnalyze}
-                  className="p-2 text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2"
-                  title="New Analysis"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white dark:text-gray-900 bg-[#14B8A6] dark:bg-teal-dm rounded-xl hover:bg-[#0D9488] dark:hover:bg-teal-600 transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-black shadow-sm"
+                  title="New Analysis — add opportunity by notice ID or URL"
+                  aria-label="New Analysis"
                 >
                   <HiOutlinePlus className="w-5 h-5" />
+                  <span className="hidden sm:inline">New</span>
                 </button>
-                
-                {/* User Menu Banner */}
+
                 <div className="relative">
                   <button
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="flex items-center space-x-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                    className="flex items-center gap-3 pl-1 pr-2.5 py-1.5 rounded-xl hover:bg-gray-100 dark:hover:bg-dark-hover transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6]/30 dark:focus:ring-teal-dm/30 focus:ring-offset-2 dark:focus:ring-offset-black"
+                    aria-expanded={userMenuOpen}
+                    aria-haspopup="true"
+                    title="Account menu"
+                    aria-label="Account menu"
                   >
-                    <div className="flex items-center justify-center w-8 h-8 bg-[#14B8A6] dark:bg-teal-dm text-white dark:text-gray-900 rounded-full text-xs font-semibold">
-                      {user?.full_name ? user.full_name.charAt(0).toUpperCase() : user?.email?.charAt(0).toUpperCase() || 'U'}
+                    <div className="flex items-center justify-center w-9 h-9 rounded-full bg-[#14B8A6] dark:bg-teal-dm text-white dark:text-black text-sm font-semibold shrink-0">
+                      {user?.full_name ? user.full_name.trim().charAt(0).toUpperCase() : user?.email?.trim().charAt(0).toUpperCase() || 'U'}
                     </div>
-                    <div className="hidden sm:block text-left">
-                      <div className="text-xs font-medium text-gray-900 dark:text-gray-100">
+                    <div className="hidden md:block text-left min-w-0">
+                      <div className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[160px]">
                         {user?.full_name || 'User'}
                       </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[160px]">
                         {user?.email}
                       </div>
                     </div>
                     {userMenuOpen ? (
-                      <HiOutlineChevronUp className="w-4 h-4 text-gray-600 hidden sm:block" />
+                      <HiOutlineChevronUp className="w-4 h-4 text-gray-500 dark:text-gray-400 shrink-0" />
                     ) : (
-                      <HiOutlineChevronDown className="w-4 h-4 text-gray-600 hidden sm:block" />
+                      <HiOutlineChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400 shrink-0" />
                     )}
                   </button>
 
-                  {/* Dropdown Menu */}
                   {userMenuOpen && (
                     <>
-                      <div 
-                        className="fixed inset-0 z-10" 
-                        onClick={() => setUserMenuOpen(false)}
-                      ></div>
-                      <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 py-1 z-20">
-                        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-600 sm:hidden">
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} aria-hidden="true" />
+                      <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-dark-elevated rounded-xl shadow-xl border border-gray-200 dark:border-dark-border py-2 z-20">
+                        <div className="px-4 py-3 border-b border-gray-100 dark:border-dark-border">
+                          <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">
                             {user?.full_name || 'User'}
                           </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
                             {user?.email}
                           </div>
                         </div>
-                        <button
-                          onClick={() => {
-                            setUserMenuOpen(false);
-                            navigate('/profile');
-                          }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
-                        >
-                          <HiOutlineUser className="w-4 h-4" />
-                          <span>Profile</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setUserMenuOpen(false);
-                            navigate('/settings');
-                          }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
-                        >
-                          <HiOutlineCog className="w-4 h-4" />
-                          <span>Settings</span>
-                        </button>
-                        <div className="border-t border-gray-200 my-1"></div>
-                        <button
-                          onClick={() => {
-                            setUserMenuOpen(false);
-                            handleLogout();
-                          }}
-                          className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors focus:outline-none focus:bg-red-50 dark:focus:bg-red-900/20"
-                        >
-                          <HiOutlineLogout className="w-4 h-4" />
-                          <span>Logout</span>
-                        </button>
+                        <div className="py-1">
+                          <button onClick={() => { setUserMenuOpen(false); navigate('/profile'); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-dark-hover transition-colors text-left">
+                            <HiOutlineUser className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                            <span>Profile</span>
+                          </button>
+                          <button onClick={() => { setUserMenuOpen(false); navigate('/settings'); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-dark-hover transition-colors text-left">
+                            <HiOutlineCog className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                            <span>Settings</span>
+                          </button>
+                        </div>
+                        <div className="border-t border-gray-100 dark:border-dark-border my-1" />
+                        <div className="py-1">
+                          <button onClick={() => { setUserMenuOpen(false); handleLogout(); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-left">
+                            <HiOutlineLogout className="w-5 h-5" />
+                            <span>Logout</span>
+                          </button>
+                        </div>
                       </div>
                     </>
                   )}
@@ -316,7 +300,7 @@ const Dashboard = () => {
         {/* Main Content */}
         <div className="relative">
           {/* Floating Left Side Utilities Panel */}
-          <div className={`fixed left-6 top-6 bottom-6 z-40 bg-white dark:bg-gray-800 border-2 border-[#14B8A6] dark:border-teal-dm rounded-xl shadow-lg transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
+          <div className={`fixed left-6 top-6 bottom-6 z-40 bg-white dark:bg-dark-elevated border-2 border-[#14B8A6] dark:border-teal-dm rounded-xl shadow-lg transition-all duration-300 ease-in-out overflow-hidden flex flex-col ${
             sidebarOpen ? 'w-80' : 'w-20'
           }`}>
             {/* Toggle Button / Header */}
@@ -325,9 +309,9 @@ const Dashboard = () => {
               onClick={() => setSidebarOpen(!sidebarOpen)}
             >
               <div className="flex items-center space-x-2 px-3 min-w-0">
-                <HiOutlineCog className="w-5 h-5 text-white dark:text-gray-900 flex-shrink-0" />
+                <HiOutlineCog className="w-5 h-5 text-white dark:text-black flex-shrink-0" />
                 {sidebarOpen && (
-                  <h3 className="text-sm font-semibold text-white dark:text-gray-900 transition-opacity duration-300 whitespace-nowrap">Utilities</h3>
+                  <h3 className="text-sm font-semibold text-white dark:text-black transition-opacity duration-300 whitespace-nowrap">Utilities</h3>
                 )}
               </div>
               <button
@@ -335,8 +319,9 @@ const Dashboard = () => {
                   e.stopPropagation();
                   setSidebarOpen(!sidebarOpen);
                 }}
-                className="p-2 text-white dark:text-gray-900 hover:bg-[#0D9488] dark:hover:bg-teal-400 rounded-md transition-colors flex-shrink-0 mr-1"
-                title={sidebarOpen ? 'Collapse' : 'Expand'}
+                className="p-2 text-white dark:text-black hover:bg-[#0D9488] dark:hover:bg-teal-400 rounded-md transition-colors flex-shrink-0 mr-1"
+                title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+                aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
               >
                 {sidebarOpen ? (
                   <HiOutlineChevronLeft className="w-5 h-5 transition-transform duration-300" />
@@ -351,39 +336,44 @@ const Dashboard = () => {
               <div className="flex-1 flex flex-col items-center justify-start py-4 space-y-2 overflow-y-auto">
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
-                  title="Statistics"
+                  className="p-2.5 text-gray-600 dark:text-gray-300 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
+                  title="Open Statistics"
+                  aria-label="Open Statistics panel"
                 >
                   <HiOutlineChartBar className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
-                  title="Search"
+                  className="p-2.5 text-gray-600 dark:text-gray-300 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
+                  title="Open Search"
+                  aria-label="Open Search panel"
                 >
                   <HiOutlineSearch className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
-                  title="Filters"
+                  className="p-2.5 text-gray-600 dark:text-gray-300 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 w-10 h-10 flex items-center justify-center"
+                  title="Open Filters"
+                  aria-label="Open Filters panel"
                 >
                   <HiOutlineFilter className="w-5 h-5" />
                 </button>
-                <div className="h-px w-8 bg-gray-200 dark:bg-gray-600 my-1"></div>
+                <div className="h-px w-8 bg-gray-200 dark:bg-dark-hover my-1"></div>
                 <button
                   onClick={handleRefresh}
                   disabled={loading}
-                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
-                  title="Refresh"
+                  className="p-2.5 text-gray-600 dark:text-gray-300 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
+                  title="Refresh opportunities list"
+                  aria-label="Refresh opportunities list"
                 >
                   <HiOutlineRefresh className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
                 <button
                   onClick={handleExport}
                   disabled={opportunities.length === 0}
-                  className="p-2.5 text-gray-600 dark:text-gray-400 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
-                  title="Export"
+                  className="p-2.5 text-gray-600 dark:text-gray-300 hover:text-[#14B8A6] dark:hover:text-teal-dm hover:bg-[#14B8A6]/10 dark:hover:bg-teal-dm/20 rounded-lg transition-all duration-200 disabled:opacity-50 w-10 h-10 flex items-center justify-center"
+                  title="Export opportunities to JSON"
+                  aria-label="Export opportunities to JSON"
                 >
                   <HiOutlineDownload className="w-5 h-5" />
                 </button>
@@ -394,19 +384,19 @@ const Dashboard = () => {
             <div className={`flex-1 overflow-hidden transition-all duration-300 ease-in-out ${
               sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none absolute inset-0'
             }`}>
-              <div className="px-4 py-5 space-y-6 h-full overflow-y-auto custom-scrollbar">
+              <div className="px-4 py-5 space-y-6 h-full overflow-y-auto scrollbar-hidden">
                   {/* Statistics */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3 flex items-center">
                       <HiOutlineChartBar className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Statistics
                     </h4>
-                    <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 p-4 space-y-3">
+                    <div className="bg-gray-50 dark:bg-dark-hover/50 rounded-lg border border-gray-200 dark:border-dark-border p-4 space-y-3">
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total</span>
-                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{stats.total}</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-white">{stats.total}</span>
                       </div>
-                      <div className="h-px bg-gray-200 dark:bg-gray-600"></div>
+                      <div className="h-px bg-gray-200 dark:bg-dark-hover"></div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Completed</span>
                         <span className="text-sm font-bold text-[#14B8A6] dark:text-teal-dm">{stats.completed}</span>
@@ -414,19 +404,19 @@ const Dashboard = () => {
                       <div className="h-px bg-gray-200"></div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Processing</span>
-                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{stats.processing}</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-white">{stats.processing}</span>
                       </div>
                       <div className="h-px bg-gray-200"></div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Failed</span>
-                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{stats.failed}</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-white">{stats.failed}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Search */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3 flex items-center">
                       <HiOutlineSearch className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Search
                     </h4>
@@ -437,13 +427,14 @@ const Dashboard = () => {
                         placeholder="Search opportunities..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-10 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 transition-all"
+                        className="w-full pl-10 pr-10 py-2.5 border border-gray-300 dark:border-dark-border rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white dark:bg-dark-hover text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-all"
                       />
                       {searchQuery && (
                         <button
                           onClick={() => setSearchQuery('')}
                           className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 rounded p-0.5 transition-colors"
                           title="Clear search"
+                          aria-label="Clear search"
                         >
                           <HiOutlineX className="w-4 h-4" />
                         </button>
@@ -453,7 +444,7 @@ const Dashboard = () => {
 
                   {/* Filters */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3 flex items-center">
                       <HiOutlineFilter className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Filters
                     </h4>
@@ -463,7 +454,7 @@ const Dashboard = () => {
                         <select
                           value={statusFilter}
                           onChange={(e) => setStatusFilter(e.target.value)}
-                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 transition-all cursor-pointer"
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-dark-border rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white dark:bg-dark-hover text-gray-900 dark:text-white transition-all cursor-pointer"
                         >
                           <option value="all">All Status</option>
                           <option value="completed">Completed</option>
@@ -477,7 +468,7 @@ const Dashboard = () => {
                         <select
                           value={sortBy}
                           onChange={(e) => setSortBy(e.target.value)}
-                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 transition-all cursor-pointer"
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-dark-border rounded-lg focus:ring-2 focus:ring-[#14B8A6] focus:border-[#14B8A6] outline-none text-sm bg-white dark:bg-dark-hover text-gray-900 dark:text-white transition-all cursor-pointer"
                         >
                           <option value="newest">Newest First</option>
                           <option value="oldest">Oldest First</option>
@@ -489,7 +480,7 @@ const Dashboard = () => {
 
                   {/* Email & calendar */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3 flex items-center">
                       <HiOutlineMail className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Email & calendar
                     </h4>
@@ -530,7 +521,7 @@ const Dashboard = () => {
                       <button
                         onClick={handleRefresh}
                         disabled={loading}
-                        className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                        className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-dark-hover rounded-lg hover:bg-gray-100 dark:hover:bg-dark-border border border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-gray-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:ring-offset-2 dark:focus:ring-offset-black"
                       >
                         <HiOutlineRefresh className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                         Refresh
@@ -548,19 +539,19 @@ const Dashboard = () => {
 
                   {/* Help */}
                   <div>
-                    <h4 className="text-xs font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center">
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3 flex items-center">
                       <HiOutlineInformationCircle className="w-4 h-4 mr-2 text-[#14B8A6] dark:text-teal-dm" />
                       Help
                     </h4>
-                    <div className="space-y-2.5 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
+                    <div className="space-y-2.5 text-sm app-note rounded-lg p-3">
                       <p className="text-xs leading-relaxed">
-                        <span className="font-medium text-gray-700">Search:</span> Find opportunities by title, notice ID, or description.
+                        <span className="font-medium">Search:</span> Find opportunities by title, notice ID, or description.
                       </p>
                       <p className="text-xs leading-relaxed">
-                        <span className="font-medium text-gray-700">Filter:</span> View opportunities by status or sort order.
+                        <span className="font-medium">Filter:</span> View opportunities by status or sort order.
                       </p>
                       <p className="text-xs leading-relaxed">
-                        <span className="font-medium text-gray-700">Click:</span> Any opportunity to view detailed information and CLINs.
+                        <span className="font-medium">Click:</span> Any opportunity to view detailed information and CLINs.
                       </p>
                     </div>
                   </div>
@@ -573,9 +564,12 @@ const Dashboard = () => {
             <div className="px-4 py-4 sm:px-0">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Dashboard</h2>
-                  <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Dashboard</h2>
+                  <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-300">
                     Welcome back, {user?.full_name || user?.email}
+                  </p>
+                  <p className="mt-1 text-[11px] font-medium app-note inline-block">
+                    Your opportunities from SAM.gov appear here. Use the + button to add one; open the left panel to search and filter.
                   </p>
                 </div>
                 {(searchQuery || statusFilter !== 'all') && (
@@ -597,9 +591,10 @@ const Dashboard = () => {
               </div>
 
             {/* Opportunities List */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-              <div className="px-4 py-3 border-b border-gray-200">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Your Opportunities</h3>
+            <div className="bg-white dark:bg-dark-elevated rounded-lg border border-gray-200 dark:border-dark-border shadow-sm">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-dark-border">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Your Opportunities</h3>
+                <p className="text-xs app-note mt-0.5 inline-block">Click a card to open details, CLINs, and documents.</p>
               </div>
               
               <div className="divide-y divide-gray-200">
@@ -613,7 +608,8 @@ const Dashboard = () => {
                         <button
                           onClick={goToAnalyze}
                           className="inline-flex items-center justify-center p-2 text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors"
-                          title="Start Your First Analysis"
+                          title="Start your first analysis"
+                          aria-label="Start your first analysis"
                         >
                           <HiOutlinePlus className="w-5 h-5" />
                         </button>
@@ -637,7 +633,7 @@ const Dashboard = () => {
                   filteredAndSortedOpportunities.map((opp) => (
                     <div
                       key={opp.id}
-                      className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
+                      className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-dark-hover/50 transition-colors group"
                     >
                       <div className="flex items-center justify-between">
                         <div
@@ -645,7 +641,7 @@ const Dashboard = () => {
                           onClick={() => navigate(`/opportunities/${opp.id}`)}
                         >
                           <div className="flex items-center space-x-2">
-                            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                            <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">
                               {opp.title || 'Untitled Opportunity'}
                             </h4>
                             <span className={`px-2 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${
@@ -674,6 +670,7 @@ const Dashboard = () => {
                             disabled={deletingId === opp.id}
                             className="p-1.5 text-gray-400 hover:text-red-600 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             title="Delete opportunity"
+                            aria-label="Delete opportunity"
                           >
                             {deletingId === opp.id ? (
                               <span className="text-xs text-gray-400">Deleting...</span>
@@ -695,44 +692,45 @@ const Dashboard = () => {
 
         {/* Confirm before analysis when email/calendar not connected */}
         {showAnalyzeConfirm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-200 dark:border-gray-700">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Email & calendar not connected</h3>
+          <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white dark:bg-dark-elevated rounded-xl shadow-xl dark:shadow-none dark:ring-1 dark:ring-gray-600 max-w-md w-full border-2 border-[#14B8A6]/40 dark:border-teal-dm/40 overflow-hidden">
+              <div className="px-6 py-4 border-b border-[#14B8A6]/30 dark:border-teal-dm/30 bg-[#14B8A6]/10 dark:bg-teal-dm/10">
+                <h3 className="text-base font-bold text-gray-900 dark:text-white">Email & calendar not connected</h3>
+                <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Connect to send quote emails and sync deadlines</p>
               </div>
               <div className="px-6 py-4">
-                <p className="text-sm text-gray-600 mb-3">
+                <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed mb-3">
                   Connect Gmail or Outlook to send quote emails from the app and add opportunity deadlines to your calendar. You can also connect later from any opportunity page.
                 </p>
-                <p className="text-sm text-gray-700 font-medium">Do you want to connect now or run analysis without connecting?</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">Do you want to connect now or run analysis without connecting?</p>
               </div>
-              <div className="px-6 py-4 border-t border-gray-200 space-y-2">
+              <div className="px-6 py-4 border-t border-gray-200 dark:border-dark-border space-y-4 bg-gray-50/50 dark:bg-matte/30">
                 <div className="flex flex-wrap gap-2">
                   <a
                     href={authAPI.connectGoogleUrl()}
-                    className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                    className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-xl border-2 border-[#14B8A6] dark:border-teal-dm text-[#0D9488] dark:text-teal-dm bg-[#14B8A6]/10 dark:bg-teal-dm/10 hover:bg-[#14B8A6]/20 dark:hover:bg-teal-dm/20 transition-colors"
                   >
                     <SiGoogle className="w-5 h-5" />
                     Connect Gmail
                   </a>
                   <a
                     href={authAPI.connectMicrosoftUrl()}
-                    className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg border-2 border-[#14B8A6] text-[#0D9488] hover:bg-[#14B8A6]/10 font-medium transition-colors"
+                    className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-xl border-2 border-[#14B8A6] dark:border-teal-dm text-[#0D9488] dark:text-teal-dm bg-[#14B8A6]/10 dark:bg-teal-dm/10 hover:bg-[#14B8A6]/20 dark:hover:bg-teal-dm/20 transition-colors"
                   >
                     <FaMicrosoft className="w-5 h-5" aria-hidden />
                     Connect Outlook
                   </a>
                 </div>
-                <div className="flex justify-end gap-2 pt-2">
+                <div className="flex justify-end gap-2 pt-1">
                   <button
                     onClick={() => setShowAnalyzeConfirm(false)}
-                    className="px-3 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                    className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-dark-hover rounded-xl hover:bg-gray-200 dark:hover:bg-dark-border transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleAnalyzeConfirmContinue}
-                    className="px-3 py-2 text-sm font-medium text-white bg-[#14B8A6] rounded-lg hover:bg-[#0D9488] transition-colors"
+                    className="px-4 py-2.5 text-sm font-medium text-white dark:text-gray-900 bg-[#14B8A6] dark:bg-teal-dm rounded-xl hover:bg-[#0D9488] dark:hover:bg-teal-600 transition-colors"
                   >
                     Continue without connecting
                   </button>
@@ -744,28 +742,28 @@ const Dashboard = () => {
 
         {/* Delete Confirmation Modal */}
         {showDeleteConfirm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-200 dark:border-gray-700">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Delete Opportunity</h3>
+          <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white dark:bg-dark-elevated rounded-xl shadow-xl dark:shadow-none dark:ring-1 dark:ring-gray-600 max-w-md w-full border border-gray-200 dark:border-dark-border">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-dark-border">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white">Delete Opportunity</h3>
               </div>
               <div className="px-6 py-4">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
                   Are you sure you want to delete this opportunity? This action cannot be undone and will permanently delete all related documents, deadlines, and CLINs.
                 </p>
               </div>
-              <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-2">
+              <div className="px-6 py-4 border-t border-gray-200 dark:border-dark-border flex justify-end gap-2 bg-gray-50/50 dark:bg-matte/30 rounded-b-xl">
                 <button
                   onClick={handleDeleteCancel}
-                  className="p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-dark-hover rounded-lg hover:bg-gray-200 dark:hover:bg-dark-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={deletingId !== null}
                   title="Cancel"
                 >
-                  <HiOutlineArrowLeft className="w-5 h-5" />
+                  Cancel
                 </button>
                 <button
                   onClick={handleDeleteConfirm}
-                  className="p-2 text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2.5 text-sm font-medium text-white bg-red-600 dark:bg-red-600 rounded-lg hover:bg-red-700 dark:hover:bg-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   disabled={deletingId !== null}
                   title={deletingId !== null ? 'Deleting...' : 'Delete'}
                 >
@@ -777,6 +775,7 @@ const Dashboard = () => {
                   ) : (
                     <HiOutlineTrash className="w-5 h-5" />
                   )}
+                  Delete
                 </button>
               </div>
             </div>

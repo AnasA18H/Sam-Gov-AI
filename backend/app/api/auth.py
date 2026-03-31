@@ -18,14 +18,16 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from ..core.database import get_db
-from ..core.security import verify_password, get_password_hash, create_access_token, create_refresh_token
+from ..core.security import verify_password, get_password_hash, create_access_token, create_refresh_token, decode_token
 from ..core.config import settings
 from ..core.dependencies import get_current_active_user
 from ..models.user import User, AuthProvider
 from ..models.session import Session as SessionModel
 from ..models.user_email_connection import UserEmailConnection
 from ..models.oauth_state import OAuthState
+from ..models.contractor_profile import ContractorProfile
 from ..schemas.auth import UserRegister, UserLogin, Token, UserResponse
+from ..schemas.contractor_profile import ContractorProfileUpdate, ContractorProfileResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -238,6 +240,43 @@ async def login(
     }
 
 
+class RefreshBody(BaseModel):
+    refresh_token: str
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh_tokens(
+    body: RefreshBody,
+    db: Session = Depends(get_db),
+):
+    """Exchange a valid refresh token for a new access token. Call this when the access token expires (e.g. 401) to stay logged in."""
+    payload = decode_token(body.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+    sub = payload.get("sub")
+    if sub is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    try:
+        user_id = int(sub)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not bool(user.is_active):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    access_token = create_access_token(
+        data={"sub": user.id, "email": user.email},
+        expires_delta=timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return {
+        "access_token": access_token,
+        "refresh_token": body.refresh_token,
+        "token_type": "bearer",
+    }
+
+
 class VerifyEmailBody(BaseModel):
     email: EmailStr
     code: str
@@ -353,6 +392,48 @@ async def logout(
     db.commit()
     
     return {"message": "Successfully logged out"}
+
+
+# --- Contractor profile (for form fill: company, UEI, CAGE, TIN, signer, etc.) ---
+
+
+@router.get("/profile", response_model=ContractorProfileResponse)
+async def get_profile(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Get current user's contractor profile for form filling. Creates empty profile if none exists."""
+    profile = db.query(ContractorProfile).filter(ContractorProfile.user_id == current_user.id).first()
+    if not profile:
+        profile = ContractorProfile(user_id=current_user.id)
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+    return profile
+
+
+@router.put("/profile", response_model=ContractorProfileResponse)
+async def update_profile(
+    body: ContractorProfileUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Create or update contractor profile (company name, address, UEI, CAGE, TIN, contract officer name, digital signature, email)."""
+    profile = db.query(ContractorProfile).filter(ContractorProfile.user_id == current_user.id).first()
+    if not profile:
+        profile = ContractorProfile(user_id=current_user.id)
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+    import json
+    update = body.model_dump(exclude_unset=True)
+    if "custom_stamps" in update and update["custom_stamps"] is not None:
+        update["custom_stamps"] = json.dumps(update["custom_stamps"])
+    for key, value in update.items():
+        setattr(profile, key, value)
+    db.commit()
+    db.refresh(profile)
+    return profile
 
 
 # --- Sign in with Google / Microsoft (login or register) ---

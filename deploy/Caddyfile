@@ -1,0 +1,32 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+  encode gzip zstd
+
+  # Forward real IPs to upstream
+  header_up X-Forwarded-For {remote_host}
+  header_up X-Forwarded-Proto {scheme}
+  header_up X-Forwarded-Host {host}
+
+  # Backend (FastAPI)
+  handle_path /api/* {
+    reverse_proxy backend:8000
+  }
+  handle_path /docs* {
+    reverse_proxy backend:8000
+  }
+  handle_path /redoc* {
+    reverse_proxy backend:8000
+  }
+  handle_path /openapi.json {
+    reverse_proxy backend:8000
+  }
+  handle_path /health {
+    reverse_proxy backend:8000
+  }
+
+  # Everything else: frontend (static SPA)
+  reverse_proxy frontend:80
+}

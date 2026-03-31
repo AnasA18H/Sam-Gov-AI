@@ -9,12 +9,17 @@ import {
   HiOutlineLockClosed,
   HiOutlineMail,
   HiOutlineArrowRight,
+  HiOutlineEye,
+  HiOutlineEyeOff,
 } from 'react-icons/hi';
 import ThemeToggle from '../components/ThemeToggle';
+import { useTheme } from '../contexts/ThemeContext';
 
 const Login = () => {
+  const { isDark } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showVerify, setShowVerify] = useState(false);
@@ -83,11 +88,11 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen w-full flex bg-[#18242b] dark:bg-gray-900">
+    <div className="min-h-screen w-full flex bg-[#18242b] dark:bg-matte">
       {/* Container with green border - full screen */}
-      <div className="w-full h-screen min-h-screen flex border-[7px] border-[#18242b] dark:border-gray-800 rounded-[25px] overflow-hidden bg-white dark:bg-gray-800 shadow-2xl">
+      <div className="w-full h-screen min-h-screen flex border-[7px] border-[#18242b] dark:border-dark-border rounded-[25px] overflow-hidden bg-white dark:bg-dark-elevated shadow-2xl">
         {/* Left Section - Login Form */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white dark:bg-gray-800 relative">
+        <div className="w-full lg:w-2/5 flex items-center justify-center p-8 bg-white dark:bg-black relative">
         <div className="absolute top-4 right-4">
           <ThemeToggle />
         </div>
@@ -99,16 +104,19 @@ const Login = () => {
               <div className="h-1 w-8 bg-yellow-400 rounded"></div>
               <div className="h-1 w-8 bg-blue-500 rounded"></div>
             </div>
-            <h1 className="text-2xl font-semibold text-[#2D1B3D] dark:text-gray-100">Sam Gov AI</h1>
+            <h1 className="text-2xl font-semibold text-[#2D1B3D] dark:text-white">Sam Gov AI</h1>
           </div>
 
           {/* Welcome Section */}
           <div>
-            <h2 className="text-3xl font-bold text-[#2D1B3D] dark:text-gray-100 mb-2">
+            <h2 className="text-3xl font-bold text-[#2D1B3D] dark:text-white mb-2">
               Welcome Back!
             </h2>
-            <p className="text-gray-600 dark:text-gray-400 text-sm">
+            <p className="text-gray-600 dark:text-gray-200 text-sm">
               Please Log in to your account.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+              Use email/password below or sign in with Google or Outlook.
             </p>
           </div>
 
@@ -122,11 +130,11 @@ const Login = () => {
 
             {showVerify ? (
               <>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Enter the 6-digit code we sent to <strong className="text-gray-900 dark:text-gray-100">{unverifiedEmail}</strong>.
+                <p className="text-sm text-gray-600 dark:text-gray-200">
+                  Enter the 6-digit code we sent to <strong className="text-gray-900 dark:text-white">{unverifiedEmail}</strong>.
                 </p>
                 <div>
-                  <label htmlFor="code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <label htmlFor="code" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
                     Verification code
                   </label>
                   <input
@@ -136,7 +144,7 @@ const Login = () => {
                     inputMode="numeric"
                     maxLength={6}
                     placeholder="000000"
-                    className="block w-full px-4 py-2.5 border-2 border-gray-300 dark:border-gray-500 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-teal-dm dark:!bg-gray-600 bg-white text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-400"
+                    className="block w-full px-4 py-2.5 border-2 border-gray-400 dark:border-gray-500 rounded-xl text-sm focus:outline-none focus:border-gray-500 dark:focus:border-gray-400 bg-white dark:bg-dark-hover text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   />
@@ -145,7 +153,7 @@ const Login = () => {
                   <button
                     type="submit"
                     disabled={loading || code.length !== 6}
-                    className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl text-sm font-medium text-white dark:text-gray-900 bg-[#14B8A6] dark:bg-teal-dm hover:bg-[#0D9488] dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm disabled:opacity-50 transition-colors"
+                    className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl text-sm font-medium text-white dark:text-black bg-[#14B8A6] dark:bg-teal-dm hover:bg-[#0D9488] dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-black focus:ring-teal-500 dark:focus:ring-teal-dm disabled:opacity-50 transition-colors"
                   >
                     {loading ? (
                       <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -168,7 +176,7 @@ const Login = () => {
                 <button
                   type="button"
                   onClick={() => { setShowVerify(false); setError(''); setCode(''); }}
-                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  className="text-sm text-gray-500 dark:text-gray-200 hover:text-gray-700 dark:hover:text-gray-200"
                 >
                   ← Back to password login
                 </button>
@@ -177,7 +185,7 @@ const Login = () => {
               <>
             {/* Email Field */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
                 Email Address
               </label>
               <div className="relative">
@@ -188,10 +196,9 @@ const Login = () => {
                   id="email"
                   name="email"
                   type="email"
-                  autoComplete="email"
                   required
-                  className="block w-full pl-10 pr-3 py-2.5 border-2 border-gray-300 dark:border-gray-500 rounded-xl text-sm placeholder-gray-400 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:border-[#14B8A6] dark:focus:border-teal-dm transition-colors bg-white dark:!bg-gray-600 text-gray-900 dark:text-gray-100"
-                  placeholder="tuhelrana@gmail.com"
+                  className="block w-full pl-10 pr-3 py-2.5 border-2 border-gray-400 dark:border-gray-500 rounded-xl text-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-gray-500 dark:focus:border-gray-400 transition-colors bg-white dark:bg-dark-hover text-gray-900 dark:text-white"
+                  placeholder="Email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
@@ -200,7 +207,7 @@ const Login = () => {
 
             {/* Password Field */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
                 Password
               </label>
               <div className="relative">
@@ -210,31 +217,39 @@ const Login = () => {
                 <input
                   id="password"
                   name="password"
-                  type="password"
-                  autoComplete="current-password"
+                  type={showPassword ? 'text' : 'password'}
                   required
-                  className="block w-full pl-10 pr-3 py-2.5 border-2 border-gray-300 dark:border-gray-500 rounded-xl text-sm placeholder-gray-400 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-teal-dm focus:border-teal-500 dark:focus:border-teal-dm transition-colors bg-white dark:!bg-gray-600 text-gray-900 dark:text-gray-100"
-                  placeholder="•••••"
+                  className="block w-full pl-10 pr-11 py-2.5 border-2 border-gray-400 dark:border-gray-500 rounded-xl text-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-gray-500 dark:focus:border-gray-400 transition-colors bg-white dark:bg-dark-hover text-gray-900 dark:text-white"
+                  placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((p) => !p)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 focus:outline-none"
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <HiOutlineEyeOff className="h-5 w-5" /> : <HiOutlineEye className="h-5 w-5" />}
+                </button>
               </div>
             </div>
 
             {/* Continue with Google / Microsoft */}
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300 dark:border-gray-600" />
+                <div className="w-full border-t border-gray-300 dark:border-dark-border" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">Or continue with</span>
+                <span className="px-2 bg-white dark:bg-black text-gray-500 dark:text-gray-200">Or continue with</span>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => { window.location.href = authAPI.signinGoogleUrl(); }}
-                className="inline-flex items-center justify-center px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-600 hover:bg-gray-50 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm transition-colors"
+                className="inline-flex items-center justify-center px-4 py-2.5 border-2 border-gray-300 dark:border-dark-border rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-dark-hover hover:bg-gray-50 dark:hover:bg-dark-border focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-black focus:ring-teal-500 dark:focus:ring-teal-dm transition-colors"
               >
                 <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -247,7 +262,7 @@ const Login = () => {
               <button
                 type="button"
                 onClick={() => { window.location.href = authAPI.signinMicrosoftUrl(); }}
-                className="inline-flex items-center justify-center px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-600 hover:bg-gray-50 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm transition-colors"
+                className="inline-flex items-center justify-center px-4 py-2.5 border-2 border-gray-300 dark:border-dark-border rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-dark-hover hover:bg-gray-50 dark:hover:bg-dark-border focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-black focus:ring-teal-500 dark:focus:ring-teal-dm transition-colors"
               >
                 <svg className="w-5 h-5 mr-2" viewBox="0 0 23 23">
                   <path fill="#f35325" d="M1 1h10v10H1z"/>
@@ -259,30 +274,12 @@ const Login = () => {
               </button>
             </div>
 
-            {/* Remember Me & Forgot Password */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  className="h-4 w-4 text-teal-600 dark:text-teal-dm focus:ring-teal-500 dark:focus:ring-teal-dm border-gray-300 dark:border-gray-500 rounded-md bg-white dark:bg-gray-600"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-600 dark:text-gray-400">
-                  Remember me
-                </label>
-              </div>
-              <Link to="#" className="text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
-                Forgot password?
-              </Link>
-            </div>
-
             {/* Submit Button */}
             <div className="flex space-x-3">
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl text-sm font-medium text-white dark:text-gray-900 bg-[#14B8A6] dark:bg-teal-dm hover:bg-[#0D9488] dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-transparent rounded-xl text-sm font-medium text-white dark:text-black bg-[#14B8A6] dark:bg-teal-dm hover:bg-[#0D9488] dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-black focus:ring-teal-500 dark:focus:ring-teal-dm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title={loading ? 'Signing in...' : 'Sign in'}
               >
                 {loading ? (
@@ -296,7 +293,7 @@ const Login = () => {
               </button>
               <Link
                 to="/signup"
-                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border-2 border-[#14B8A6] dark:border-teal-dm rounded-xl text-sm font-medium text-[#14B8A6] dark:text-teal-dm bg-white dark:bg-gray-600 hover:bg-teal-50 dark:hover:bg-teal-dm/20 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 focus:ring-teal-500 dark:focus:ring-teal-dm transition-colors"
+                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border-2 border-[#14B8A6] dark:border-teal-dm rounded-xl text-sm font-medium text-[#14B8A6] dark:text-teal-dm bg-white dark:bg-dark-hover hover:bg-teal-50 dark:hover:bg-teal-dm/20 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-black focus:ring-teal-500 dark:focus:ring-teal-dm transition-colors"
               >
                 Create account
               </Link>
@@ -306,23 +303,30 @@ const Login = () => {
           </form>
 
           {/* Footer */}
-          <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+          <p className="text-xs text-gray-500 dark:text-gray-200 text-center">
             By sign up you agree to our term and that you have read our data policy
           </p>
         </div>
       </div>
 
-      {/* Right Section - Image */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden rounded-l-3xl">
-        <img
-          src="/assets/Login.jpg"
-          alt="Login illustration"
-          className="w-full h-full object-cover"
-        />
-        {/* Shadow beneath image - left side */}
-        <div className="absolute inset-0 shadow-[inset_-30px_0_60px_rgba(0,0,0,0.6)] pointer-events-none z-10"></div>
-        {/* Optional overlay for better text readability if needed */}
-        <div className="absolute inset-0 bg-gradient-to-br from-teal-900/20 to-purple-900/20"></div>
+      {/* Right Section - Image (background avoids white glare during crossfade; theme switch in sync with 0.4s) */}
+      <div className="hidden lg:flex lg:w-3/5 overflow-hidden relative bg-gray-100 dark:bg-matte">
+        {/* Light set: opacity transitions in sync with theme (0.4s) */}
+        <div
+          className={`absolute inset-0 transition-opacity duration-[400ms] ease-in-out ${isDark ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+          aria-hidden={isDark}
+        >
+          <img src="/assets/LoginLight.png" alt="Login illustration" className="absolute inset-0 w-full h-full object-cover pointer-events-none login-fade-img-a" />
+          <img src="/assets/LoginLightGreen.png" alt="" className="absolute inset-0 w-full h-full object-cover pointer-events-none login-fade-img-b" />
+        </div>
+        {/* Dark set: opacity transitions in sync with theme (0.4s) */}
+        <div
+          className={`absolute inset-0 transition-opacity duration-[400ms] ease-in-out ${!isDark ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+          aria-hidden={!isDark}
+        >
+          <img src="/assets/LoginDark.png" alt="" className="absolute inset-0 w-full h-full object-cover pointer-events-none login-fade-img-a" />
+          <img src="/assets/LoginDarkGreen.png" alt="" className="absolute inset-0 w-full h-full object-cover pointer-events-none login-fade-img-b" />
+        </div>
       </div>
       </div>
     </div>

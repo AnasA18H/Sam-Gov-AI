@@ -5,7 +5,7 @@ Uses stored OAuth tokens (UserEmailConnection).
 import base64
 import logging
 from email.mime.text import MIMEText
-from typing import Optional
+from typing import Optional, cast
 
 from ..core.config import settings
 from ..models.user_email_connection import UserEmailConnection
@@ -31,7 +31,7 @@ def _get_valid_access_token_gmail(conn: UserEmailConnection) -> Optional[str]:
     )
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
-    return creds.token
+    return cast(Optional[str], creds.token)
 
 
 def _send_via_gmail(conn: UserEmailConnection, to: str, subject: str, body: str) -> bool:
@@ -101,8 +101,9 @@ def _send_via_microsoft(conn: UserEmailConnection, to: str, subject: str, body: 
 
 def send_email_as_user(conn: UserEmailConnection, to: str, subject: str, body: str) -> bool:
     """Send email using the user's connected account (Gmail or Microsoft)."""
-    if conn.provider == "google":
+    provider = str(conn.provider) if conn.provider is not None else ""
+    if provider == "google":
         return _send_via_gmail(conn, to, subject, body)
-    if conn.provider == "microsoft":
+    if provider == "microsoft":
         return _send_via_microsoft(conn, to, subject, body)
     return False

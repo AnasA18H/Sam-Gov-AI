@@ -11,8 +11,12 @@ celery_app = Celery(
     "samgov_ai",
     broker=settings.REDIS_CELERY_URL,
     backend=settings.REDIS_CELERY_URL,
-    include=["backend.app.services.tasks"]
+    include=["backend.app.services.tasks"],
 )
+
+# Ensure task module is imported so all tasks (e.g. rerun_clins_only) are registered
+import importlib
+importlib.import_module("backend.app.services.tasks")
 
 # Celery configuration
 celery_app.conf.update(
@@ -34,7 +38,8 @@ def _configure_log_flushing(**kwargs):
     """Make all root logger handlers flush after each emit so logs appear immediately in log files."""
     root = logging.getLogger()
     for h in root.handlers:
-        if hasattr(h, "stream") and h.stream is not None:
+        stream = getattr(h, "stream", None)
+        if stream is not None:
             orig_emit = h.emit
             def flush_emit(record, _h=h, _orig=orig_emit):
                 _orig(record)

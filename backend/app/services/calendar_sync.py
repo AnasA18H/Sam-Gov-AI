@@ -4,7 +4,7 @@ Creates calendar events for extracted solicitation due dates. Persists event ids
 """
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, cast
 
 from ..core.config import settings
 from ..models.user_email_connection import UserEmailConnection
@@ -24,12 +24,13 @@ def _get_google_calendar_credentials(conn: UserEmailConnection):
     if not getattr(settings, "GOOGLE_CLIENT_ID", None) or not getattr(settings, "GOOGLE_CLIENT_SECRET", None):
         logger.warning("Google OAuth client_id/client_secret not configured; cannot sync to Google Calendar")
         return None
-    if not conn.refresh_token:
+    refresh_token = cast(Optional[str], conn.refresh_token)
+    if not refresh_token:
         logger.warning("User email connection has no refresh_token; cannot refresh Google Calendar token")
         return None
     creds = Credentials(
-        token=conn.access_token or None,
-        refresh_token=conn.refresh_token,
+        token=cast(Optional[str], conn.access_token) or None,
+        refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=settings.GOOGLE_CLIENT_ID,
         client_secret=settings.GOOGLE_CLIENT_SECRET,
@@ -47,7 +48,7 @@ def _get_google_calendar_credentials(conn: UserEmailConnection):
 def _get_google_calendar_token(conn: UserEmailConnection) -> Optional[str]:
     """Refresh and return access token for Google (calendar scope)."""
     creds = _get_google_calendar_credentials(conn)
-    return creds.token if creds else None
+    return cast(Optional[str], creds.token) if creds else None
 
 
 def _create_google_calendar_event(
@@ -144,26 +145,36 @@ def create_calendar_event_for_deadline(
     delivery_timeline: optional free-text string (e.g. from CLINs) included in the event description.
     """
     title = opportunity_title or "Opportunity"
-    summary = f"{deadline.deadline_type or 'Deadline'}: {title}"
-    desc_parts = [deadline.description] if deadline.description else []
-    if deadline.due_time:
-        desc_parts.append(f"Time: {deadline.due_time}")
-    if deadline.timezone:
-        desc_parts.append(f"Timezone: {deadline.timezone}")
-    if deadline.location:
-        desc_parts.append(f"Location: {deadline.location}")
+    deadline_type = cast(Optional[str], deadline.deadline_type)
+    summary = f"{deadline_type or 'Deadline'}: {title}"
+    desc_parts: List[str] = []
+    desc = cast(Optional[str], deadline.description)
+    if desc:
+        desc_parts.append(desc)
+    due_time = cast(Optional[str], deadline.due_time)
+    if due_time:
+        desc_parts.append(f"Time: {due_time}")
+    tz = cast(Optional[str], deadline.timezone)
+    if tz:
+        desc_parts.append(f"Timezone: {tz}")
+    loc = cast(Optional[str], deadline.location)
+    if loc:
+        desc_parts.append(f"Location: {loc}")
     if delivery_timeline and isinstance(delivery_timeline, str) and delivery_timeline.strip():
         desc_parts.append(f"Delivery: {delivery_timeline.strip()}")
     description = "\n".join(filter(None, desc_parts)) or None
 
-    due_date = deadline.due_date
+    due_date = cast(Optional[datetime], deadline.due_date)
+    if due_date is None:
+        return (None, None)
     if due_date.tzinfo is None:
         due_date = due_date.replace(tzinfo=timezone.utc)
 
-    if conn.provider == "google":
+    provider = str(conn.provider) if conn.provider is not None else ""
+    if provider == "google":
         event_id = _create_google_calendar_event(conn, due_date, summary, description)
         return (event_id, "google" if event_id else None)
-    if conn.provider == "microsoft":
+    if provider == "microsoft":
         event_id = _create_microsoft_calendar_event(conn, due_date, summary, description)
         return (event_id, "microsoft" if event_id else None)
     return (None, None)
@@ -183,14 +194,15 @@ def sync_deadlines_to_calendar(
     """
     created = 0
     for d in deadlines:
-        if d.calendar_event_id:
+        existing_id = cast(Optional[str], d.calendar_event_id)
+        if existing_id:
             continue
         event_id, provider = create_calendar_event_for_deadline(
             conn, d, opportunity_title, delivery_timeline=delivery_timeline
         )
         if event_id and provider:
-            d.calendar_event_id = event_id
-            d.calendar_provider = provider
+            setattr(d, "calendar_event_id", event_id)
+            setattr(d, "calendar_provider", provider)
             created += 1
             logger.info("Created calendar event %s for deadline %s (%s)", event_id, d.id, provider)
     return created
@@ -241,14 +253,16 @@ def delete_calendar_events_for_deadlines(
     """
     deleted = 0
     for d in deadlines:
-        if not d.calendar_event_id or not d.calendar_provider:
+        ev_id = cast(Optional[str], d.calendar_event_id)
+        prov = cast(Optional[str], d.calendar_provider)
+        if not ev_id or not prov:
             continue
-        if d.calendar_provider == "google":
-            if _delete_google_calendar_event(conn, d.calendar_event_id):
+        if prov == "google":
+            if _delete_google_calendar_event(conn, ev_id):
                 deleted += 1
-                logger.info("Deleted Google Calendar event %s for deadline %s", d.calendar_event_id, d.id)
-        elif d.calendar_provider == "microsoft":
-            if _delete_microsoft_calendar_event(conn, d.calendar_event_id):
+                logger.info("Deleted Google Calendar event %s for deadline %s", ev_id, d.id)
+        elif prov == "microsoft":
+            if _delete_microsoft_calendar_event(conn, ev_id):
                 deleted += 1
-                logger.info("Deleted Microsoft Calendar event %s for deadline %s", d.calendar_event_id, d.id)
+                logger.info("Deleted Microsoft Calendar event %s for deadline %s", ev_id, d.id)
     return deleted

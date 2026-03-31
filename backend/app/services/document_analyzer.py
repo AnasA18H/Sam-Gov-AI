@@ -6,19 +6,32 @@ Maintains backward compatibility with existing code.
 import re
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import dateutil.parser
 from dateutil.parser import ParserError
 
 # NLP (optional - spaCy for advanced classification)
-_spacy_module: Optional[object] = None
 try:
     import spacy as _spacy_module
     SPACY_AVAILABLE = True
 except ImportError:
+    _spacy_module = None  # type: ignore[assignment]
     SPACY_AVAILABLE = False
     logging.warning("spaCy not available. Using keyword-based classification only.")
+
+try:
+    from langchain_anthropic import ChatAnthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ChatAnthropic = None  # type: ignore[misc, assignment]
+    ANTHROPIC_AVAILABLE = False
+try:
+    from langchain_groq import ChatGroq
+    GROQ_AVAILABLE = True
+except ImportError:
+    ChatGroq = None  # type: ignore[misc, assignment]
+    GROQ_AVAILABLE = False
 
 from ..core.config import settings
 from ..models.opportunity import SolicitationType
@@ -77,11 +90,41 @@ class DocumentAnalyzer:
         self.nlp = None
         self.text_extractor = TextExtractor()
         self.clin_extractor = CLINExtractor(self.text_extractor)
-        
+        self._classification_llm = None
+        self._classification_llm_fallback = None
+
+        # LLM for solicitation type classification (product/service/both/unknown)
+        if ANTHROPIC_AVAILABLE and ChatAnthropic is not None and getattr(settings, "ANTHROPIC_API_KEY", None):
+            try:
+                from pydantic import SecretStr
+                self._classification_llm = ChatAnthropic(
+                    model_name=getattr(settings, "ANTHROPIC_MODEL", "claude-3-sonnet-20240229"),
+                    temperature=0,
+                    api_key=SecretStr(settings.ANTHROPIC_API_KEY),
+                    timeout=60,
+                    max_tokens=64,
+                )
+                logger.info("DocumentAnalyzer: Claude LLM initialized for solicitation classification")
+            except Exception as e:
+                logger.warning("DocumentAnalyzer: Claude init for classification failed: %s", e)
+        if (self._classification_llm is None) and GROQ_AVAILABLE and ChatGroq is not None and getattr(settings, "GROQ_API_KEY", None):
+            try:
+                from pydantic import SecretStr
+                self._classification_llm_fallback = ChatGroq(
+                    model=getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile"),
+                    temperature=0,
+                    api_key=SecretStr(settings.GROQ_API_KEY),
+                    timeout=60,
+                    max_tokens=64,
+                )
+                logger.info("DocumentAnalyzer: Groq LLM initialized for solicitation classification")
+            except Exception as e:
+                logger.warning("DocumentAnalyzer: Groq init for classification failed: %s", e)
+
         # Initialize spaCy (optional)
         if SPACY_AVAILABLE and _spacy_module is not None:
             try:
-                self.nlp = cast(Any, _spacy_module).load("en_core_web_sm")
+                self.nlp = _spacy_module.load("en_core_web_sm")
                 logger.info("spaCy model loaded successfully")
             except OSError:
                 logger.warning("spaCy model 'en_core_web_sm' not found. Using keyword-based classification only.")
@@ -108,9 +151,9 @@ class DocumentAnalyzer:
         """
         return self.text_extractor.extract_text(file_path)
     
-    def extract_clins(self, text: str, file_path: Optional[Path] = None) -> Tuple[List[Dict], List[Dict]]:
+    def extract_clins(self, text: str, file_path: Optional[Path] = None) -> List[Dict]:
         """
-        Extract CLINs and deadlines using ONLY AI/LLM extraction.
+        Extract CLINs using ONLY AI/LLM extraction.
         No table extraction, no regex fallback - AI only.
         
         Args:
@@ -118,10 +161,11 @@ class DocumentAnalyzer:
             file_path: Optional path to document file (not used, kept for compatibility)
             
         Returns:
-            Tuple of (list of CLIN dicts, list of deadline dicts)
+            List of CLIN dictionaries with extracted data
         """
-        path_str: Optional[str] = str(file_path) if file_path is not None else None
-        return self.clin_extractor.extract_clins(text, path_str)
+        file_path_str: Optional[str] = str(file_path) if file_path is not None else None
+        clins, _ = self.clin_extractor.extract_clins(text, file_path_str)
+        return clins
     
     def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> Tuple[List[Dict], List[Dict]]:
         """
@@ -136,30 +180,80 @@ class DocumentAnalyzer:
         """
         return self.clin_extractor.extract_clins_batch(documents)
     
+    def _classify_solicitation_type_llm(
+        self, text: str, title: Optional[str] = None, description: Optional[str] = None
+    ) -> Optional[Tuple[SolicitationType, float]]:
+        """
+        Use LLM to classify solicitation as product, service, both, or unknown.
+        Returns (SolicitationType, confidence) or None if LLM unavailable or fails.
+        """
+        llm = self._classification_llm or self._classification_llm_fallback
+        if not llm:
+            return None
+        combined = " ".join([title or "", description or "", (text or "")[:4000]]).strip()
+        if not combined or len(combined) < 50:
+            return None
+        prompt = """You are classifying a government solicitation/opportunity. Based only on the content below, decide whether it is primarily about:
+- product: supplies, equipment, parts, materials, tangible items to be delivered
+- service: labor, maintenance, support, training, consulting, or other performed work
+- both: clear mix of product and service line items
+- unknown: cannot determine from the text
+
+Reply with exactly one word: product, service, both, or unknown. No explanation.
+
+Content:
+"""
+        prompt += combined[:3500] + "\n\nYour one-word classification:"
+        try:
+            response = llm.invoke(prompt)
+            raw = (getattr(response, "content", None) or str(response) or "").strip().lower()
+            if not raw:
+                return None
+            # Check first line for one of the four labels (LLM may say "product" or "Classification: product")
+            first_line = raw.split("\n")[0].strip()
+            if "both" in first_line:
+                return SolicitationType.BOTH, 0.92
+            if "unknown" in first_line:
+                return SolicitationType.UNKNOWN, 0.7
+            if "product" in first_line and "service" not in first_line:
+                return SolicitationType.PRODUCT, 0.92
+            if "service" in first_line and "product" not in first_line:
+                return SolicitationType.SERVICE, 0.92
+            first_word = (first_line.split()[0] or "").strip(".,;:")
+            for label, st in [
+                ("product", SolicitationType.PRODUCT),
+                ("service", SolicitationType.SERVICE),
+                ("both", SolicitationType.BOTH),
+                ("unknown", SolicitationType.UNKNOWN),
+            ]:
+                if first_word == label or first_word.startswith(label):
+                    return (st, 0.92 if st != SolicitationType.UNKNOWN else 0.7)
+            return None
+        except Exception as e:
+            logger.warning("LLM solicitation classification failed: %s", e)
+            return None
+
     def classify_solicitation_type(self, text: str, title: Optional[str] = None, description: Optional[str] = None) -> Tuple[SolicitationType, float]:
         """
-        Classify solicitation type as product, service, or both
-        
-        Args:
-            text: Extracted text from documents
-            title: Opportunity title (optional)
-            description: Opportunity description (optional)
-            
-        Returns:
-            Tuple of (SolicitationType, confidence_score)
+        Classify solicitation type as product, service, both, or unknown.
+        Uses LLM first (so non-product opportunities are not mislabeled as product); falls back to keyword/spaCy.
         """
-        combined_text = " ".join([title or "", description or "", text]).lower()
-        
+        # Prefer LLM so classification reflects actual content (e.g. service-only stays service)
+        llm_result = self._classify_solicitation_type_llm(text, title=title, description=description)
+        if llm_result is not None:
+            classification, confidence = llm_result
+            logger.info("Classification (LLM): %s, confidence: %.2f", classification.value, confidence)
+            return classification, confidence
+
+        # Fallback: keyword and optional spaCy
+        combined_text = " ".join([title or "", description or "", text or ""]).lower()
         product_matches = sum(1 for keyword in self.PRODUCT_KEYWORDS if keyword in combined_text)
         service_matches = sum(1 for keyword in self.SERVICE_KEYWORDS if keyword in combined_text)
-        
         total_matches = product_matches + service_matches
         if total_matches == 0:
             return SolicitationType.UNKNOWN, 0.0
-        
         product_ratio = product_matches / total_matches
         service_ratio = service_matches / total_matches
-        
         if product_ratio > 0.6:
             classification = SolicitationType.PRODUCT
             confidence = product_ratio
@@ -169,16 +263,13 @@ class DocumentAnalyzer:
         else:
             classification = SolicitationType.BOTH
             confidence = 1.0 - abs(product_ratio - service_ratio)
-        
         if self.nlp and len(combined_text) > 100:
             try:
                 doc = self.nlp(combined_text[:5000])
                 nouns = [token.text.lower() for token in doc if token.pos_ == "NOUN"]
                 verbs = [token.text.lower() for token in doc if token.pos_ == "VERB"]
-                
                 product_nouns = sum(1 for noun in nouns if any(kw in noun for kw in self.PRODUCT_KEYWORDS))
                 service_verbs = sum(1 for verb in verbs if any(kw in verb for kw in self.SERVICE_KEYWORDS))
-                
                 if product_nouns > 0 or service_verbs > 0:
                     if product_nouns > service_verbs * 2:
                         classification = SolicitationType.PRODUCT
@@ -190,9 +281,8 @@ class DocumentAnalyzer:
                         classification = SolicitationType.BOTH
                         confidence = 0.85
             except Exception as e:
-                logger.warning(f"spaCy classification failed: {str(e)}")
-        
-        logger.info(f"Classification: {classification.value}, confidence: {confidence:.2f}")
+                logger.warning("spaCy classification failed: %s", e)
+        logger.info("Classification (fallback): %s, confidence: %.2f", classification.value, confidence)
         return classification, confidence
     
     def extract_deadlines(self, text: str) -> List[Dict]:
@@ -275,4 +365,13 @@ class DocumentAnalyzer:
         
         logger.info(f"Extracted {len(deadlines)} deadlines from document")
         return deadlines
-    
+
+    def extract_rfp_summary(self, combined_text: str) -> Optional[Dict]:
+        """
+        Extract RFP/solicitation summary (SF 1449 A–M style) for form filling and review.
+        Uses the same documents/SAM text as CLIN extraction. Returns a dict with cover_page,
+        delivery_schedule, statement_of_work, section_l_instructions_to_offerors, section_m_evaluation, etc.
+        """
+        if not combined_text or not combined_text.strip():
+            return None
+        return self.clin_extractor.extract_rfp_summary_llm(combined_text)

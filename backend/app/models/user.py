@@ -42,6 +42,7 @@ class User(Base):
     # Relationships
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     opportunities = relationship("Opportunity", back_populates="user", cascade="all, delete-orphan")
+    contractor_profile = relationship("ContractorProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, auth_provider={self.auth_provider}, role={self.role})>"

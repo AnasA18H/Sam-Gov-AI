@@ -12,7 +12,7 @@
 
 *Automating US Government contract solicitation analysis from SAM.gov*
 
-[Features](#features) · [Quick Start](#quick-start) · [API](#api-documentation) · [Deployment](#deployment)
+[Features](#features) • [Quick Start](#quick-start) • [API](#api-documentation) • [Deployment](#deployment)
 
 </div>
 
@@ -42,7 +42,7 @@
 
 ## Features
 
-### Phase 1 (Complete)
+### Phase 1 - Complete ✓
 
 <details>
 <summary><strong>User Authentication & Security</strong></summary>
@@ -127,14 +127,14 @@
 
 </details>
 
-### Phase 2 (planned)
+### Phase 2 - Planned
 
 - Research automation (manufacturer websites, sales contacts, pricing)
 - Email integration (Gmail, Outlook) with automated quote inquiries
 - Calendar integration (Google Calendar, iCal, Outlook) with automatic deadline events
 - Quote generation and review system
 
-### Phase 3 (planned)
+### Phase 3 - Planned
 
 - PDF form automation (SF1449 autofill)
 - Advanced reporting dashboard
@@ -243,14 +243,14 @@ playwright install chromium
 ### Step 3: Database Setup
 
 ```bash
-# Full setup on a new system (creates PostgreSQL user + database, runs migrations, verifies)
-python scripts/initialize_database.py --create-db
+# Automated setup (recommended)
+./scripts/setup_database.sh
 
-# If database/user already exist: ensure .env has DATABASE_URL, then run migrations + verify
-python scripts/initialize_database.py
+# Or manual setup:
+# 1. Install PostgreSQL
+# 2. Create database and user
+# 3. Update .env with DATABASE_URL
 ```
-
-Requires PostgreSQL installed and running. With `--create-db`, the script creates the database and user, writes `DATABASE_URL` to `.env`, runs all Alembic migrations, and verifies the connection and tables.
 
 ### Step 4: Environment Configuration
 
@@ -282,16 +282,17 @@ GROQ_MODEL=llama-3.1-70b-versatile
 GOOGLE_SERVICE_ACCOUNT_JSON=extras/your-service-account.json
 GOOGLE_PROJECT_ID=your-project-id
 GOOGLE_PROCESSOR_ID=your-processor-id
-GOOGLE_FORM_PARSER_PROCESSOR_ID=your-form-parser-processor-id
 GOOGLE_LOCATION=us
 GOOGLE_DOCAI_ENABLED=True
 ```
 
 ### Step 5: Run Migrations
 
-Migrations are run automatically by `scripts/initialize_database.py`. To run only migrations:
-
 ```bash
+# Automated (recommended)
+./scripts/run_migrations.sh
+
+# Or manually
 alembic upgrade head
 ```
 
@@ -314,11 +315,13 @@ cd ..
 ./start.sh
 ```
 
-The script will:
-- Check prerequisites (Python, Node, PostgreSQL, Redis)
-- Verify Python packages and data directories
-- Verify database connection and run migrations (or Alembic directly)
-- Start backend, frontend, and Celery worker
+The script automatically:
+- ✓ Checks prerequisites
+- ✓ Verifies Python packages are installed
+- ✓ Ensures data directories exist
+- ✓ Verifies database connection
+- ✓ Runs migrations (with fallback to direct alembic)
+- ✓ Starts all required services (backend, frontend, Celery worker)
 
 ### Manual Start
 
@@ -391,7 +394,7 @@ sam-project/
 │   ├── documents/            # Downloaded documents
 │   ├── uploads/              # User uploads
 │   └── debug_extracts/       # Debug extraction files
-├── scripts/                  # DB: initialize_database, reset_database, db_utils; send_email
+├── scripts/                  # Setup and DB scripts (db_utils, reset_database, run_migrations, etc.)
 ├── logs/                     # Application logs
 ├── start.sh                  # Start script
 └── stop.sh                   # Stop script
@@ -485,8 +488,6 @@ alembic downgrade -1
 
 | Script | Purpose |
 |--------|---------|
-| `python scripts/initialize_database.py --create-db` | Full setup: create DB/user, run migrations, verify |
-| `python scripts/initialize_database.py` | Run migrations and verify (DB must exist) |
 | `scripts/db_utils.py display` | Show database content summary |
 | `scripts/db_utils.py stats` | Row counts per table |
 | `scripts/db_utils.py clear` | Clear all data (prompts for confirmation) |
@@ -539,39 +540,39 @@ docker build -f Dockerfile.frontend -t samgov-frontend .
 
 ## Project Status
 
-### Phase 1: Foundation and core scraping (complete)
+### Phase 1: Foundation & Core Scraping ✓ **COMPLETE**
 
 | Feature | Status |
 |---------|--------|
-| User Authentication | Complete |
-| SAM.gov Scraping | Complete |
-| Smart Document Downloads (with disclaimer handling) | Complete |
-| Contact Info Extraction | Complete |
-| Multi-format Text Extraction (PDF, Word, Excel, PPT, Images) | Complete |
-| Google Document AI Integration | Complete |
-| OCR Support (pytesseract with preprocessing) | Complete |
-| Document Analysis (configurable) | Complete |
-| CLIN Extraction (Claude + Groq fallback) | Complete |
-| Deadline Extraction | Complete |
-| File Upload | Complete |
-| Frontend UI with Analysis Toggles | Complete |
+| User Authentication | ✓ |
+| SAM.gov Scraping | ✓ |
+| Smart Document Downloads (with disclaimer handling) | ✓ |
+| Contact Info Extraction | ✓ |
+| Multi-format Text Extraction (PDF, Word, Excel, PPT, Images) | ✓ |
+| Google Document AI Integration | ✓ |
+| OCR Support (pytesseract with preprocessing) | ✓ |
+| Document Analysis (configurable) | ✓ |
+| CLIN Extraction (Claude + Groq fallback) | ✓ |
+| Deadline Extraction | ✓ |
+| File Upload | ✓ |
+| Frontend UI with Analysis Toggles | ✓ |
 
-Phase 1 MVP requirements are complete.
+**Phase 1 is 100% complete** - All MVP requirements met!
 
-### Recent enhancements
+### Recent Enhancements
 
-- **Unified CLIN and deadline extraction**: All documents and SAM.gov page text combined in a single LLM request
-- **Delivery requirements**: Delivery addresses, special instructions, and timelines extracted within CLIN data
-- **Two-pass extraction**: Automatic second pass fills missing fields when 20% or more are null
-- **Robust JSON parsing**: Error recovery for malformed or truncated LLM responses with multiple fallback strategies
-- **SAM.gov page integration**: Raw page text included in analysis when no attachments are available
-- **Configurable analysis**: Document analysis and CLIN extraction can be enabled or disabled in the UI (disabled by default)
-- **Smart text extraction**: Google Document AI for scanned PDFs; routing between text-based and scanned PDFs
-- **OCR**: pytesseract with image preprocessing (denoising, contrast, deskewing)
-- **LLM fallback**: Claude 3 Haiku primary, Groq Llama 3.1 fallback for CLIN extraction
-- **Disclaimer handling**: Detection and handling of disclaimer or agreement pages during download
-- **Recursive navigation**: Depth tracking (max 4 levels) for multi-page document downloads
-- **Download timeouts**: 90s timeouts and improved wait behavior for slow sites
+- ✅ **Unified CLIN & Deadline Extraction**: All documents + SAM.gov page text combined in single LLM request
+- ✅ **Delivery Requirements Integration**: Delivery addresses, special instructions, and timelines extracted within CLIN data
+- ✅ **Two-Pass Extraction**: Automatic second pass fills missing fields when 20%+ are null
+- ✅ **Robust JSON Parsing**: Advanced error recovery for malformed/truncated LLM responses with multiple fallback strategies
+- ✅ **SAM.gov Page Integration**: Raw page text included in analysis, even when no attachments available
+- ✅ **Configurable Analysis**: Document analysis and CLIN extraction can be enabled/disabled via UI (disabled by default for testing)
+- ✅ **Smart Text Extraction**: Google Document AI for scanned PDFs, intelligent routing between text-based and scanned PDFs
+- ✅ **Improved OCR**: pytesseract with advanced image preprocessing (denoising, contrast enhancement, deskewing)
+- ✅ **LLM Fallback**: Claude 3 Haiku as primary, Groq Llama 3.1 as fallback for CLIN extraction
+- ✅ **Disclaimer Handling**: Automatic detection and handling of disclaimer/agreement pages during document download
+- ✅ **Recursive Navigation**: Smart depth tracking (max 4 levels) for multi-page document downloads
+- ✅ **Enhanced Download Timeouts**: Increased timeouts (90s) and improved wait times for slow sites
 
 ### Phase 2: Research & Automation
 
@@ -654,6 +655,8 @@ Proprietary - All rights reserved
 
 <div align="center">
 
-[Back to top](#samgov-ai)
+**Built for Government Contractors**
+
+[Back to Top](#samgov-ai)
 
 </div>

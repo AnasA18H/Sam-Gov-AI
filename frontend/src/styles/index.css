@@ -3,8 +3,30 @@
 @tailwind utilities;
 
 @layer base {
+  html,
   body {
-    @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-200;
+    /* Hide main page scrollbar everywhere; scroll still works */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    display: none;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 dark:bg-matte dark:text-white;
+  }
+
+  /* Fading transition when switching between light and dark theme */
+  html.theme-transition,
+  html.theme-transition body,
+  html.theme-transition body *,
+  html.theme-transition body *::before,
+  html.theme-transition body *::after {
+    transition-property: background-color, color, border-color, box-shadow, fill, stroke, opacity;
+    transition-duration: 0.4s;
+    transition-timing-function: ease-in-out;
   }
 }
 
@@ -12,8 +34,8 @@
 .dark input:-webkit-autofill,
 .dark input:-webkit-autofill:hover,
 .dark input:-webkit-autofill:focus {
-  -webkit-box-shadow: 0 0 0 30px #4b5563 inset !important;
-  box-shadow: 0 0 0 30px #4b5563 inset !important;
+  -webkit-box-shadow: 0 0 0 30px #262626 inset !important;
+  box-shadow: 0 0 0 30px #262626 inset !important;
   -webkit-text-fill-color: #f3f4f6 !important;
   caret-color: #f3f4f6;
 }
@@ -24,15 +46,15 @@
   }
   
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 transition-colors;
+    @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 dark:bg-dark-hover dark:text-white dark:hover:bg-dark-border transition-colors;
   }
   
   .input-field {
-    @apply w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100;
+    @apply w-full px-4 py-2 border border-gray-300 dark:border-dark-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none bg-white dark:bg-dark-hover text-gray-900 dark:text-white;
   }
   
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-gray-200 dark:border-gray-700;
+    @apply bg-white dark:bg-dark-elevated rounded-lg shadow-md p-6 border border-gray-200 dark:border-dark-border;
   }
 }
 
@@ -82,6 +104,52 @@
   animation: fadePulse 2s ease-in-out infinite;
 }
 
+/* Indeterminate progress bar for autofill */
+@keyframes autofillProgress {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(200%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.animate-autofill-progress {
+  animation: autofillProgress 1.4s ease-in-out infinite;
+}
+
+/* Document editor: smooth tab/panel transitions (no flash, good latency) */
+.editor-tab-panel {
+  transition: opacity 320ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.editor-panel-width {
+  transition: width 300ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.editor-tab-button {
+  transition: background-color 220ms cubic-bezier(0.32, 0.72, 0, 1), color 220ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Login/Signup: simple fade transition between two images (no slide). Light: LoginLight ↔ LoginLightGreen; Dark: LoginDark ↔ LoginDarkGreen */
+@keyframes loginFadeA {
+  0% { opacity: 1; }
+  50% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes loginFadeB {
+  0% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.login-fade-img-a {
+  animation: loginFadeA 8s ease-in-out infinite;
+}
+.login-fade-img-b {
+  animation: loginFadeB 8s ease-in-out infinite;
+}
+
 /* Heartbeat animation for CLINs loading */
 @keyframes heartbeat {
   0% {
@@ -99,6 +167,61 @@
   70% {
     transform: scale(1);
   }
+}
+
+/* Signup/register form: small green bar only (short height, no track, no arrows) */
+.signup-form-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #14B8A6 transparent;
+}
+.dark .signup-form-scroll {
+  scrollbar-color: #2dd4bf transparent;
+}
+.signup-form-scroll::-webkit-scrollbar {
+  width: 2px;
+}
+.signup-form-scroll::-webkit-scrollbar-button:single-button {
+  display: none !important;
+  height: 0 !important;
+  width: 0 !important;
+  overflow: hidden;
+}
+.signup-form-scroll::-webkit-scrollbar-button {
+  display: none !important;
+  height: 0 !important;
+  width: 0 !important;
+  overflow: hidden;
+}
+.signup-form-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin-top: 80px;
+  margin-bottom: 80px;
+}
+.dark .signup-form-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.signup-form-scroll::-webkit-scrollbar-thumb {
+  background: #14B8A6;
+  border-radius: 2px;
+  min-height: 24px;
+}
+.signup-form-scroll::-webkit-scrollbar-thumb:hover {
+  background: #0D9488;
+}
+.dark .signup-form-scroll::-webkit-scrollbar-thumb {
+  background: #2dd4bf;
+}
+.dark .signup-form-scroll::-webkit-scrollbar-thumb:hover {
+  background: #5EEAD4;
+}
+
+/* Hide scrollbar on any element (scroll still works) */
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
 }
 
 /* Custom scrollbar for utilities panel */
@@ -136,9 +259,72 @@
   .link-hover-focus {
     @apply transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 rounded;
   }
+
+  /* Instructional / helper notes: theme-matching muted text */
+  .app-note {
+    @apply text-gray-600 dark:text-gray-400;
+  }
   
   /* Card hover effects */
   .card-hover {
     @apply transition-all duration-200 hover:shadow-md;
   }
+}
+
+/* All range sliders (tuners): no outline, only blue/grey track — no light grey outline */
+input[type="range"] {
+  outline: none;
+}
+input[type="range"]:focus {
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  outline: none;
+  box-shadow: none;
+}
+input[type="range"]::-webkit-slider-thumb:focus {
+  outline: none;
+  box-shadow: none;
+}
+input[type="range"]::-moz-range-thumb {
+  outline: none;
+  box-shadow: none;
+}
+input[type="range"]::-moz-range-thumb:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Signature pen width slider: larger track and thumb (double size), no outline */
+.signature-pen-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: #14B8A6;
+  cursor: pointer;
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+.dark .signature-pen-slider::-webkit-slider-thumb {
+  background: #2dd4bf;
+  box-shadow: none;
+  outline: none;
+}
+.signature-pen-slider::-moz-range-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: #14B8A6;
+  cursor: pointer;
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+.dark .signature-pen-slider::-moz-range-thumb {
+  background: #2dd4bf;
+  box-shadow: none;
+  outline: none;
 }

@@ -50,6 +50,9 @@ class Opportunity(Base):
     enable_document_analysis = Column(String(10), default="false", nullable=False)  # "true" or "false" as string
     enable_clin_extraction = Column(String(10), default="false", nullable=False)  # "true" or "false" as string
     
+    # Extracted RFP/solicitation summary (SF 1449 A–M style) for form filling and review
+    extracted_rfp_info = Column(JSON, nullable=True)
+    
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

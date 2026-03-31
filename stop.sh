@@ -18,11 +18,14 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# PID files (must match start.sh)
+# PID files and ports (must match start.sh)
 BACKEND_PID_FILE="${SCRIPT_DIR}/.backend.pid"
 FRONTEND_PID_FILE="${SCRIPT_DIR}/.frontend.pid"
 CELERY_PID_FILE="${SCRIPT_DIR}/.celery.pid"
 DB_VIEWER_PID_FILE="${SCRIPT_DIR}/.dbviewer.pid"
+BACKEND_PORT=8000
+FRONTEND_PORT=5173
+DB_VIEWER_PORT="${DB_VIEWER_PORT:-5050}"
 
 print_header() {
     echo ""
@@ -42,72 +45,73 @@ print_info() {
 
 print_header "Stopping Application Services"
 
-# 1) Stop Docker Compose stack if it was used
+# 1) Stop all Docker services that may be using our ports (compose stack + any container on 8000/5173/5050)
 if command -v docker &>/dev/null; then
     print_info "Checking for Docker Compose stack..."
     if (docker compose ps -q 2>/dev/null | grep -q .) || (docker-compose ps -q 2>/dev/null | grep -q .); then
         print_info "Stopping Docker Compose stack..."
         (docker compose down 2>/dev/null || docker-compose down 2>/dev/null) && print_success "Docker stack stopped" || true
     fi
+    # Stop any Docker container publishing our dev ports (8000, 5173, 5050)
+    for port in "$BACKEND_PORT" "$FRONTEND_PORT" "$DB_VIEWER_PORT"; do
+        ids=$(docker ps -q 2>/dev/null | while read cid; do
+            docker port "$cid" 2>/dev/null | grep -qE "0\.0\.0\.0:$port|:::$port" && echo "$cid"
+        done || true)
+        if [ -n "$ids" ]; then
+            print_info "Stopping Docker container(s) using port $port..."
+            echo "$ids" | xargs docker stop 2>/dev/null || true
+        fi
+    done
 fi
 
 # 2) Stop by PID files (local start.sh)
-STOPPED=""
-
-if [ -f "$BACKEND_PID_FILE" ]; then
-    BACKEND_PID=$(cat "$BACKEND_PID_FILE")
-    if kill -0 "$BACKEND_PID" 2>/dev/null; then
-        print_info "Stopping backend server (PID: $BACKEND_PID)..."
-        kill "$BACKEND_PID" 2>/dev/null || true
-        STOPPED="${STOPPED} backend"
+for label in "backend:$BACKEND_PID_FILE" "frontend:$FRONTEND_PID_FILE" "celery:$CELERY_PID_FILE" "db-viewer:$DB_VIEWER_PID_FILE"; do
+    name="${label%%:*}"
+    pf="${label#*:}"
+    if [ -f "$pf" ]; then
+        pid=$(cat "$pf" 2>/dev/null)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            print_info "Stopping $name (PID: $pid)..."
+            kill "$pid" 2>/dev/null || true
+        fi
+        rm -f "$pf"
     fi
-    rm -f "$BACKEND_PID_FILE"
-fi
+done
 
-if [ -f "$FRONTEND_PID_FILE" ]; then
-    FRONTEND_PID=$(cat "$FRONTEND_PID_FILE")
-    if kill -0 "$FRONTEND_PID" 2>/dev/null; then
-        print_info "Stopping frontend server (PID: $FRONTEND_PID)..."
-        kill "$FRONTEND_PID" 2>/dev/null || true
-        STOPPED="${STOPPED} frontend"
+# 3) Free ports (handles stale PIDs or processes not started by start.sh)
+print_info "Freeing ports $BACKEND_PORT, $FRONTEND_PORT, $DB_VIEWER_PORT..."
+for port in "$BACKEND_PORT" "$FRONTEND_PORT" "$DB_VIEWER_PORT"; do
+    if command -v lsof &>/dev/null; then
+        old=$(lsof -ti ":$port" 2>/dev/null || true)
+        if [ -n "$old" ]; then
+            print_info "Killing process(es) on port $port (PID: $old)"
+            kill $old 2>/dev/null || true
+        fi
     fi
-    rm -f "$FRONTEND_PID_FILE"
-fi
-
-if [ -f "$CELERY_PID_FILE" ]; then
-    CELERY_PID=$(cat "$CELERY_PID_FILE")
-    if kill -0 "$CELERY_PID" 2>/dev/null; then
-        print_info "Stopping Celery worker (PID: $CELERY_PID)..."
-        kill "$CELERY_PID" 2>/dev/null || true
-        STOPPED="${STOPPED} celery"
+    if command -v fuser &>/dev/null; then
+        if fuser -s "${port}/tcp" 2>/dev/null; then
+            print_info "Freeing port $port (fuser)"
+            fuser -k "${port}/tcp" 2>/dev/null || true
+        fi
     fi
-    rm -f "$CELERY_PID_FILE"
-fi
+done
+sleep 1
 
-if [ -f "$DB_VIEWER_PID_FILE" ]; then
-    DBVIEWER_PID=$(cat "$DB_VIEWER_PID_FILE")
-    if kill -0 "$DBVIEWER_PID" 2>/dev/null; then
-        print_info "Stopping DB viewer (PID: $DBVIEWER_PID)..."
-        kill "$DBVIEWER_PID" 2>/dev/null || true
-        STOPPED="${STOPPED} db-viewer"
-    fi
-    rm -f "$DB_VIEWER_PID_FILE"
-fi
-
-# 3) Clean up any remaining processes (match start.sh)
-print_info "Cleaning up remaining processes..."
+# 4) pkill by pattern (match start.sh invocations)
+print_info "Cleaning up process patterns..."
 pkill -f "uvicorn.*backend.app.main" 2>/dev/null || true
+pkill -f "uvicorn.*main:app" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
 pkill -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
 pkill -f "celery.*beat" 2>/dev/null || true
 pkill -f "celery.*flower" 2>/dev/null || true
 pkill -f "dev-db-viewer/server.py" 2>/dev/null || true
 
-sleep 1
+sleep 2
 
-# Force kill if still running
+# 5) Force kill if still running
 pkill -9 -f "uvicorn.*backend.app.main" 2>/dev/null || true
 pkill -9 -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
 
-[ -n "$STOPPED" ] && print_success "Stopped:$STOPPED"
+sleep 1
 print_success "All services stopped"

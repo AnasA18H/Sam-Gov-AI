@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class SAMGovScraper:
     """Scraper for SAM.gov opportunity pages"""
     
-    def __init__(self, base_url: str = None):
+    def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or settings.SAM_GOV_BASE_URL
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
@@ -42,7 +42,13 @@ class SAMGovScraper:
             self.browser.close()
         if self.playwright:
             self.playwright.stop()
-    
+
+    def _get_page(self) -> Page:
+        """Return the current page; raise if scraper not used as context manager."""
+        if self.page is None:
+            raise RuntimeError("SAMGovScraper must be used as context manager")
+        return self.page
+
     def scrape_opportunity(self, url: str) -> Dict:
         """
         Scrape a SAM.gov opportunity page and extract all data
@@ -62,20 +68,21 @@ class SAMGovScraper:
         try:
             logger.info(f"Navigating to {url}")
             # Use 'load' instead of 'networkidle' - more reliable for sites with continuous requests
-            self.page.goto(url, wait_until='load', timeout=90000)
+            self._get_page().goto(url, wait_until='load', timeout=90000)
             
             # Wait for page to load (Angular app may need time)
             try:
-                self.page.wait_for_selector('app-root', timeout=30000)
+                self._get_page().wait_for_selector('app-root', timeout=30000)
             except Exception as e:
                 logger.warning(f"app-root selector not found, continuing anyway: {e}")
             
             # Give Angular time to initialize
-            self.page.wait_for_timeout(2000)
+            self._get_page().wait_for_timeout(2000)
             
             # Extract all data
             metadata = self._extract_metadata()
             attachments = self._extract_attachments()
+            has_links_in_links_section = self._has_links_in_links_section()
             
             # Extract page text content for LLM analysis
             page_text = self._extract_page_text()
@@ -84,6 +91,7 @@ class SAMGovScraper:
                 'success': True,
                 'metadata': metadata,
                 'attachments': attachments,
+                'has_links_in_links_section': has_links_in_links_section,
                 'opportunity_id': extract_opportunity_id(url),
                 'page_text': page_text
             }
@@ -91,6 +99,75 @@ class SAMGovScraper:
         except Exception as e:
             logger.error(f"Error scraping {url}: {str(e)}")
             return {'success': False, 'error': str(e)}
+
+    def _has_links_in_links_section(self) -> bool:
+        """
+        Return True only when the SAM.gov Links section actually contains link URLs.
+        This should be robust to wording differences like:
+        - "No links have been added to this opportunity."
+        - other "no links" variants
+        """
+        try:
+            page = self._get_page()
+            page_text = (page.inner_text("body") or "").lower()
+
+            # Fast-path negative checks for common "empty links section" wording variants.
+            if re.search(r"\bno\s+links?\b", page_text) and "link" in page_text:
+                logger.info("DEBUG: Links section appears empty from page text")
+                return False
+
+            # DOM-based detection: search near a heading/label exactly named "Links",
+            # then inspect nearby containers for real href links.
+            links_count = page.evaluate("""() => {
+                const isRealHref = (href) => {
+                    if (!href) return false;
+                    const h = href.trim().toLowerCase();
+                    return h !== '' && h !== '#' && !h.startsWith('javascript:');
+                };
+
+                const labels = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,div,span,strong,p,th,td'))
+                    .filter(el => (el.textContent || '').trim().toLowerCase() === 'links');
+
+                let count = 0;
+                const seen = new Set();
+
+                const scanNode = (node) => {
+                    if (!node) return;
+                    const anchors = Array.from(node.querySelectorAll('a[href]'));
+                    for (const a of anchors) {
+                        const href = a.getAttribute('href');
+                        if (isRealHref(href)) {
+                            const key = `${(a.textContent || '').trim()}|${href}`;
+                            if (!seen.has(key)) {
+                                seen.add(key);
+                                count += 1;
+                            }
+                        }
+                    }
+                };
+
+                for (const label of labels) {
+                    // Scan the label container and a few next siblings.
+                    scanNode(label.parentElement || label);
+                    let sib = label.nextElementSibling;
+                    let hops = 0;
+                    while (sib && hops < 6) {
+                        scanNode(sib);
+                        sib = sib.nextElementSibling;
+                        hops += 1;
+                    }
+                }
+
+                return count;
+            }""")
+
+            has_links = bool(links_count and int(links_count) > 0)
+            logger.info("DEBUG: Links section detected %s real link(s)", int(links_count or 0))
+            return has_links
+        except Exception as e:
+            logger.debug(f"DEBUG: Could not inspect page text for links section: {e}")
+        # Fail-safe: treat as no links so we don't trigger unwanted link downloads.
+        return False
     
     def _extract_metadata(self) -> Dict:
         """Extract metadata from the SAM.gov page"""
@@ -175,7 +252,7 @@ class SAMGovScraper:
             
             for selector in selectors:
                 try:
-                    element = self.page.query_selector(selector)
+                    element = self._get_page().query_selector(selector)
                     if element:
                         text = element.inner_text().strip()
                         # Extract notice ID pattern (alphanumeric, usually 15 chars)
@@ -186,7 +263,7 @@ class SAMGovScraper:
                     continue
             
             # Fallback: search in page content
-            content = self.page.content()
+            content = self._get_page().content()
             match = re.search(r'Notice ID[\s\S]{0,200}?([A-Z0-9]{10,20})', content, re.IGNORECASE)
             if match:
                 return match.group(1)
@@ -209,7 +286,7 @@ class SAMGovScraper:
             
             for selector in selectors:
                 try:
-                    element = self.page.query_selector(selector)
+                    element = self._get_page().query_selector(selector)
                     if element:
                         text = element.inner_text().strip()
                         if text and len(text) > 5:  # Reasonable title length
@@ -239,10 +316,10 @@ class SAMGovScraper:
             for selector in selectors:
                 try:
                     # Find field label first
-                    field = self.page.query_selector('[id="date-offers-date"]')
+                    field = self._get_page().query_selector('[id="date-offers-date"]')
                     if field:
                         # Get value element
-                        value_element = self.page.query_selector('[aria-describedby="date-offers-date"]')
+                        value_element = self._get_page().query_selector('[aria-describedby="date-offers-date"]')
                         if value_element:
                             text = value_element.inner_text().strip()
                             # Parse: "Feb 02, 2026 2:00 PM EST"
@@ -253,7 +330,7 @@ class SAMGovScraper:
                     continue
             
             # Fallback: regex search in page content
-            content = self.page.content()
+            content = self._get_page().content()
             # Pattern: Date Offers Due followed by date
             pattern = r'Date Offers Due[\s\S]{0,300}?(\w+\s+\d{1,2},\s+\d{4}\s+\d{1,2}:\d{2}\s+(?:AM|PM)\s+\w+)'
             match = re.search(pattern, content, re.IGNORECASE)
@@ -307,23 +384,23 @@ class SAMGovScraper:
             agency_info = {}
             
             # Department/Ind. Agency
-            dept = self.page.query_selector('[id="dept-agency"]')
+            dept = self._get_page().query_selector('[id="dept-agency"]')
             if dept:
-                dept_value = self.page.query_selector('[aria-describedby="dept-agency"]')
+                dept_value = self._get_page().query_selector('[aria-describedby="dept-agency"]')
                 if dept_value:
                     agency_info['department'] = dept_value.inner_text().strip()
             
             # Sub-tier
-            sub_tier = self.page.query_selector('[id="sub-tier"]')
+            sub_tier = self._get_page().query_selector('[id="sub-tier"]')
             if sub_tier:
-                sub_tier_value = self.page.query_selector('[aria-describedby="sub-tier"]')
+                sub_tier_value = self._get_page().query_selector('[aria-describedby="sub-tier"]')
                 if sub_tier_value:
                     agency_info['sub_tier'] = sub_tier_value.inner_text().strip()
             
             # Office
-            office = self.page.query_selector('[id="office"]')
+            office = self._get_page().query_selector('[id="office"]')
             if office:
-                office_value = self.page.query_selector('[aria-describedby="office"]')
+                office_value = self._get_page().query_selector('[aria-describedby="office"]')
                 if office_value:
                     agency_info['office'] = office_value.inner_text().strip()
             
@@ -340,16 +417,16 @@ class SAMGovScraper:
             classification = {}
             
             # Set Aside
-            set_aside = self.page.query_selector('[id="set-aside"]')
+            set_aside = self._get_page().query_selector('[id="set-aside"]')
             if set_aside:
-                set_aside_value = self.page.query_selector('[aria-describedby="set-aside"]')
+                set_aside_value = self._get_page().query_selector('[aria-describedby="set-aside"]')
                 if set_aside_value:
                     classification['set_aside'] = set_aside_value.inner_text().strip()
             
             # NAICS Code
-            naics = self.page.query_selector('[id="naics"]')
+            naics = self._get_page().query_selector('[id="naics"]')
             if naics:
-                naics_value = self.page.query_selector('[aria-describedby="naics"]')
+                naics_value = self._get_page().query_selector('[aria-describedby="naics"]')
                 if naics_value:
                     text = naics_value.inner_text().strip()
                     # Extract code like "332999 - Description"
@@ -358,9 +435,9 @@ class SAMGovScraper:
                         classification['naics_code'] = match.group(1)
             
             # PSC Code
-            psc = self.page.query_selector('[id="psc"]')
+            psc = self._get_page().query_selector('[id="psc"]')
             if psc:
-                psc_value = self.page.query_selector('[aria-describedby="psc"]')
+                psc_value = self._get_page().query_selector('[aria-describedby="psc"]')
                 if psc_value:
                     text = psc_value.inner_text().strip()
                     # Extract code like "9999 - Description"
@@ -378,14 +455,14 @@ class SAMGovScraper:
     def _extract_description(self) -> Optional[str]:
         """Extract opportunity description"""
         try:
-            desc_section = self.page.query_selector('[id="desc"]')
+            desc_section = self._get_page().query_selector('[id="desc"]')
             if desc_section:
-                desc_value = self.page.query_selector('[aria-describedby="desc"]')
+                desc_value = self._get_page().query_selector('[aria-describedby="desc"]')
                 if desc_value:
                     return desc_value.inner_text().strip()
             
             # Fallback: look for description class
-            desc = self.page.query_selector('.description, [class*="description"]')
+            desc = self._get_page().query_selector('.description, [class*="description"]')
             if desc:
                 return desc.inner_text().strip()
                 
@@ -397,9 +474,9 @@ class SAMGovScraper:
     def _extract_published_date(self) -> Optional[str]:
         """Extract published date"""
         try:
-            published = self.page.query_selector('[id="published-date"]')
+            published = self._get_page().query_selector('[id="published-date"]')
             if published:
-                published_value = self.page.query_selector('[aria-describedby="published-date"]')
+                published_value = self._get_page().query_selector('[aria-describedby="published-date"]')
                 if published_value:
                     return published_value.inner_text().strip()
         except Exception as e:
@@ -410,7 +487,7 @@ class SAMGovScraper:
     def _extract_status(self) -> Optional[str]:
         """Extract opportunity status"""
         try:
-            status_tag = self.page.query_selector('.sds-tag--status, [class*="status"]')
+            status_tag = self._get_page().query_selector('.sds-tag--status, [class*="status"]')
             if status_tag:
                 return status_tag.inner_text().strip()
         except Exception as e:
@@ -425,23 +502,11 @@ class SAMGovScraper:
             
             # Primary Point of Contact
             try:
-                primary_poc_label = self.page.query_selector('[id="primary-poc"]')
+                primary_poc_label = self._get_page().query_selector('[id="primary-poc"]')
                 if primary_poc_label:
                     # Find the contact card near the label
                     # The structure is: label -> contact card with name, email, phone
                     parent = primary_poc_label.evaluate_handle('el => el.closest(".grid-row, .section-content")')
-                    
-                    # Find name (usually in .contact-title-2 or h5)
-                    name_element = self.page.query_selector('[id="primary-poc"]').evaluate_handle('''
-                        (label) => {
-                            const container = label.closest('.grid-row, .section-content');
-                            if (container) {
-                                const nameEl = container.querySelector('.contact-title-2, h5');
-                                return nameEl ? nameEl.innerText.trim() : null;
-                            }
-                            return null;
-                        }
-                    ''')
                     
                     # Try direct selector for name
                     name_selectors = [
@@ -454,13 +519,13 @@ class SAMGovScraper:
                     name = None
                     for selector in name_selectors:
                         try:
-                            name_el = self.page.query_selector(f'[id="primary-poc"] ~ * {selector}, [aria-describedby="primary-poc"] {selector}')
+                            name_el = self._get_page().query_selector(f'[id="primary-poc"] ~ * {selector}, [aria-describedby="primary-poc"] {selector}')
                             if not name_el:
                                 # Try finding in same section
-                                poc_section = self.page.query_selector('[id="primary-poc"]')
+                                poc_section = self._get_page().query_selector('[id="primary-poc"]')
                                 if poc_section:
                                     parent = poc_section.evaluate_handle('el => el.closest("div")')
-                                    name_el = self.page.query_selector(selector)
+                                    name_el = self._get_page().query_selector(selector)
                             if name_el:
                                 name = name_el.inner_text().strip()
                                 if name and name != '(blank)':
@@ -478,10 +543,10 @@ class SAMGovScraper:
                     # Look for email near primary-poc
                     try:
                         # Try to find email in the same section as primary-poc
-                        primary_section = self.page.query_selector('[id="primary-poc"]')
+                        primary_section = self._get_page().query_selector('[id="primary-poc"]')
                         if primary_section:
                             # Find all email elements and match by context
-                            all_email_elements = self.page.query_selector_all('[aria-describedby="email"]')
+                            all_email_elements = self._get_page().query_selector_all('[aria-describedby="email"]')
                             if all_email_elements:
                                 # Usually the first email element after primary-poc is the primary contact's email
                                 for email_el in all_email_elements:
@@ -499,7 +564,7 @@ class SAMGovScraper:
                     
                     phone = None
                     try:
-                        all_phone_elements = self.page.query_selector_all('[aria-describedby="phone"]')
+                        all_phone_elements = self._get_page().query_selector_all('[aria-describedby="phone"]')
                         if all_phone_elements:
                             # Usually the first phone element after primary-poc is the primary contact's phone
                             for phone_el in all_phone_elements:
@@ -521,7 +586,7 @@ class SAMGovScraper:
             
             # Alternative Point of Contact
             try:
-                alt_poc_label = self.page.query_selector('[id="alt-poc"]')
+                alt_poc_label = self._get_page().query_selector('[id="alt-poc"]')
                 if alt_poc_label:
                     # Similar extraction for alternative contact
                     alt_name = None
@@ -529,15 +594,15 @@ class SAMGovScraper:
                     alt_phone = None
                     
                     # Find name
-                    alt_name_el = self.page.query_selector('[aria-describedby="alt-poc"] .contact-title-2, [aria-describedby="alt-poc"] h5')
+                    alt_name_el = self._get_page().query_selector('[aria-describedby="alt-poc"] .contact-title-2, [aria-describedby="alt-poc"] h5')
                     if alt_name_el:
                         alt_name = alt_name_el.inner_text().strip()
                         if alt_name == '(blank)':
                             alt_name = None
                     
                     # Find email and phone (usually after primary contact fields)
-                    all_email_elements = self.page.query_selector_all('[aria-describedby="email"]')
-                    all_phone_elements = self.page.query_selector_all('[aria-describedby="phone"]')
+                    all_email_elements = self._get_page().query_selector_all('[aria-describedby="email"]')
+                    all_phone_elements = self._get_page().query_selector_all('[aria-describedby="phone"]')
                     
                     # Usually the second set of email/phone is alternative contact
                     if len(all_email_elements) > 1:
@@ -561,11 +626,11 @@ class SAMGovScraper:
             
             # Contracting Office Address
             try:
-                office_address_label = self.page.query_selector('[id="contract-office"]')
+                office_address_label = self._get_page().query_selector('[id="contract-office"]')
                 if office_address_label:
                     # Extract address lines (usually multiple lines)
                     address_lines = []
-                    address_elements = self.page.query_selector_all('[aria-describedby="contract-office"] h6, [aria-describedby="contract-office"] .value-new-line')
+                    address_elements = self._get_page().query_selector_all('[aria-describedby="contract-office"] h6, [aria-describedby="contract-office"] .value-new-line')
                     
                     for addr_el in address_elements:
                         addr_text = addr_el.inner_text().strip()
@@ -594,7 +659,7 @@ class SAMGovScraper:
             # This extracts ALL visible text including headers, descriptions, deadlines, etc.
             try:
                 # Get all text from body element - this includes everything visible on the page
-                body = self.page.query_selector('body')
+                body = self._get_page().query_selector('body')
                 if body:
                     # Use inner_text() to get all visible text content
                     # This includes all text from all elements: headers, paragraphs, tables, lists, etc.
@@ -613,7 +678,7 @@ class SAMGovScraper:
             # Fallback: try to get page content using page.content() and extract text
             try:
                 # Get HTML content and extract text from it
-                html_content = self.page.content()
+                html_content = self._get_page().content()
                 # Try BeautifulSoup if available for better text extraction
                 try:
                     from bs4 import BeautifulSoup
@@ -663,25 +728,26 @@ class SAMGovScraper:
         Note: SAM.gov uses Angular, so links may not have href initially
         """
         attachments = []
-        
+        table = None
+
         try:
             logger.info(f"DEBUG: Starting attachment extraction")
-            
+
             # Wait for Angular to fully render the attachments table
             try:
-                self.page.wait_for_selector('#tblDesc', timeout=15000)
+                self._get_page().wait_for_selector('#tblDesc', timeout=15000)
                 # Wait for Angular to populate the table
-                self.page.wait_for_timeout(3000)  # Give Angular 3 seconds to render
+                self._get_page().wait_for_timeout(3000)  # Give Angular 3 seconds to render
                 logger.info(f"DEBUG: Attachments table found after waiting")
             except Exception as e:
                 logger.warning(f"DEBUG: Table not found after wait: {e}")
             
             # Find attachments table using exact ID from HTML
-            table = self.page.query_selector('#tblDesc')
+            table = self._get_page().query_selector('#tblDesc')
             
             if not table:
                 # Try alternative selectors
-                table = self.page.query_selector('table[aria-describedby="att-table"]')
+                table = self._get_page().query_selector('table[aria-describedby="att-table"]')
             
             if table:
                 logger.info(f"DEBUG: Found attachments table")
@@ -764,7 +830,7 @@ class SAMGovScraper:
                             try:
                                 # Evaluate JavaScript to get download URLs from Angular state
                                 # We'll try to access the Angular component's data
-                                js_result = self.page.evaluate('''() => {
+                                js_result = self._get_page().evaluate('''() => {
                                     // Try to find file links and get their actual hrefs after Angular renders
                                     const links = document.querySelectorAll('a.file-link');
                                     const results = [];
@@ -793,7 +859,7 @@ class SAMGovScraper:
                                 import re
                                 # Extract opportunity ID from current page URL
                                 # Pattern: /workspace/contract/opp/{id}/view
-                                opp_id_match = re.search(r'/opp/([^/]+)', self.page.url)
+                                opp_id_match = re.search(r'/opp/([^/]+)', self._get_page().url)
                                 if opp_id_match:
                                     opp_id = opp_id_match.group(1)
                                     filename = attachment.get('name', '').strip()
@@ -872,7 +938,7 @@ class SAMGovScraper:
             # Fallback: search for file links directly if table parsing failed
             if not attachments:
                 logger.info(f"DEBUG: No attachments from table, trying fallback: searching all file links")
-                file_links = self.page.query_selector_all('a.file-link')
+                file_links = self._get_page().query_selector_all('a.file-link')
                 logger.info(f"DEBUG: Fallback found {len(file_links)} file links")
                 
                 for link in file_links:
@@ -884,7 +950,7 @@ class SAMGovScraper:
                             if not href or href == '#' or href == '':
                                 # Construct URL with URL-encoded filename
                                 import re
-                                opp_id_match = re.search(r'/opp/([^/]+)', self.page.url)
+                                opp_id_match = re.search(r'/opp/([^/]+)', self._get_page().url)
                                 if opp_id_match:
                                     opp_id = opp_id_match.group(1)
                                     encoded_name = quote(name, safe='')
@@ -912,7 +978,7 @@ class SAMGovScraper:
             logger.warning(f"DEBUG: ❌ No attachments extracted - table={table is not None}")
             # Log page HTML snippet for debugging
             try:
-                table_html = self.page.query_selector('#tblDesc')
+                table_html = self._get_page().query_selector('#tblDesc')
                 if table_html:
                     html_preview = table_html.inner_html()[:500]
                     logger.info(f"DEBUG: Table HTML preview: {html_preview}...")
@@ -937,8 +1003,8 @@ class SAMGovScraper:
             save_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Download file - use 'load' instead of 'networkidle' for better reliability
-            with self.page.expect_download() as download_info:
-                self.page.goto(url, wait_until='load', timeout=60000)
+            with self._get_page().expect_download() as download_info:
+                self._get_page().goto(url, wait_until='load', timeout=60000)
             
             download = download_info.value
             download.save_as(str(save_path))

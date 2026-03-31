@@ -13,7 +13,7 @@ import logging
 import mimetypes
 import struct
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Optional, Tuple
 import io
 
 # Document processing libraries
@@ -24,8 +24,10 @@ from openpyxl import load_workbook
 # Additional format support (optional imports)
 try:
     import pandas as pd
+    _pd = pd
     PANDAS_AVAILABLE = True
 except ImportError:
+    _pd = None  # type: ignore[assignment]
     PANDAS_AVAILABLE = False
     logging.warning("pandas not available. CSV and advanced Excel features disabled.")
 
@@ -37,57 +39,73 @@ except ImportError:
     logging.debug("xlrd not available. .xls files will use fallback methods.")
 
 try:
-    from pptx import Presentation
+    from pptx import Presentation as _Presentation
     PPTX_AVAILABLE = True
 except ImportError:
+    _Presentation = None  # type: ignore[assignment]
     PPTX_AVAILABLE = False
     logging.warning("python-pptx not available. PowerPoint support disabled.")
 
 try:
-    import pytesseract
-    from PIL import Image
-    import cv2
-    import numpy as np
+    import pytesseract as _pytesseract
+    from PIL import Image as _PilImage
+    import cv2 as _cv2
+    import numpy as _np
     # Configure pytesseract to use system tesseract
-    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+    _pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
     OCR_AVAILABLE = True
 except ImportError as e:
+    _pytesseract = None  # type: ignore[assignment]
+    _PilImage = None  # type: ignore[assignment]
+    _cv2 = None  # type: ignore[assignment]
+    _np = None  # type: ignore[assignment]
     OCR_AVAILABLE = False
     logging.warning(f"OCR libraries (pytesseract, PIL, cv2) not available: {str(e)}. Scanned PDF and image OCR disabled.")
 except Exception as e:
+    _pytesseract = None  # type: ignore[assignment]
+    _PilImage = None  # type: ignore[assignment]
+    _cv2 = None  # type: ignore[assignment]
+    _np = None  # type: ignore[assignment]
     OCR_AVAILABLE = False
     logging.warning(f"OCR configuration error: {str(e)}. OCR disabled.")
 
 try:
-    import PyPDF2
+    import PyPDF2 as _PyPDF2
     PYPDF2_AVAILABLE = True
 except ImportError:
+    _PyPDF2 = None  # type: ignore[assignment]
     PYPDF2_AVAILABLE = False
     logging.debug("PyPDF2 not available. Using pdfplumber only for PDFs.")
 
 try:
-    from striprtf.striprtf import rtf_to_text
+    from striprtf.striprtf import rtf_to_text as _rtf_to_text
     RTF_AVAILABLE = True
 except ImportError:
+    _rtf_to_text = None  # type: ignore[assignment]
     RTF_AVAILABLE = False
     logging.debug("striprtf not available. RTF files will use basic text extraction.")
 
 try:
-    import markdown
+    import markdown as _markdown
     MARKDOWN_AVAILABLE = True
 except ImportError:
+    _markdown = None  # type: ignore[assignment]
     MARKDOWN_AVAILABLE = False
     logging.debug("markdown not available. Markdown files will use basic text extraction.")
 
 # Google Document AI (optional - for high-quality text extraction)
 try:
-    from google.cloud import documentai
-    from google.oauth2 import service_account
+    from google.cloud import documentai as _documentai
+    from google.oauth2 import service_account as _service_account
     DOCAI_AVAILABLE = True
 except ImportError:
+    _documentai = None  # type: ignore[assignment]
+    _service_account = None  # type: ignore[assignment]
     DOCAI_AVAILABLE = False
     logging.debug("google-cloud-documentai not available. Document AI extraction disabled.")
 except Exception as e:
+    _documentai = None  # type: ignore[assignment]
+    _service_account = None  # type: ignore[assignment]
     DOCAI_AVAILABLE = False
     logging.debug(f"Document AI initialization error: {str(e)}. Document AI extraction disabled.")
 
@@ -110,11 +128,11 @@ class TextExtractor:
     def __init__(self):
         """Initialize the text extractor"""
         # Initialize OCR (pytesseract configuration)
-        if OCR_AVAILABLE:
+        if OCR_AVAILABLE and _pytesseract is not None:
             try:
                 # Ensure tesseract path is set
-                if not hasattr(pytesseract.pytesseract, 'tesseract_cmd') or not pytesseract.pytesseract.tesseract_cmd:
-                    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+                if not hasattr(_pytesseract.pytesseract, 'tesseract_cmd') or not _pytesseract.pytesseract.tesseract_cmd:
+                    _pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
                 logger.info("OCR (pytesseract) initialized successfully")
             except Exception as e:
                 logger.warning(f"OCR initialization warning: {str(e)}")
@@ -315,7 +333,41 @@ class TextExtractor:
         except Exception as e:
             logger.error(f"Error extracting text from {file_path}: {str(e)}", exc_info=True)
             return ""
-    
+
+    def extract_text_pdf_with_document_ai(self, file_path: str | Path) -> str:
+        """
+        Extract text from a PDF using Document AI OCR only (no pdfplumber).
+        Use this when you want consistent OCR output for static forms (e.g. KVP extraction).
+        Handles large PDFs via 15-page chunking. Requires GOOGLE_* config and credentials.
+
+        Args:
+            file_path: Path to PDF file
+
+        Returns:
+            Extracted text from Document AI
+
+        Raises:
+            FileNotFoundError: If file missing or not PDF
+            ImportError/Exception: If Document AI unavailable or processing fails
+        """
+        file_path_obj = Path(file_path)
+        if not file_path_obj.is_absolute():
+            project_root = Path(settings.PROJECT_ROOT)
+            abs_path = project_root / file_path_obj
+            if abs_path.exists():
+                file_path_obj = abs_path
+            elif hasattr(settings, 'STORAGE_BASE_PATH'):
+                storage_base = Path(settings.STORAGE_BASE_PATH)
+                abs_path = storage_base.parent / str(file_path_obj) if 'backend/data' in str(file_path_obj) else storage_base / file_path_obj
+                if abs_path.exists():
+                    file_path_obj = abs_path
+        if not file_path_obj.exists():
+            raise FileNotFoundError(f"PDF file not found: {file_path_obj}")
+        format_type, _ = self._detect_file_format(file_path_obj)
+        if format_type != 'pdf':
+            raise ValueError(f"Not a PDF: {file_path_obj.name} (detected: {format_type})")
+        return self._extract_with_document_ai(file_path_obj)
+
     def _extract_with_document_ai(self, file_path: Path) -> str:
         """
         Extract text from PDF using Google Document AI.
@@ -342,21 +394,23 @@ class TextExtractor:
                 raise FileNotFoundError(f"Service account JSON not found. Set GOOGLE_SERVICE_ACCOUNT_JSON or place file at: {default_path}")
         
         try:
+            if _service_account is None or _documentai is None:
+                raise ImportError("google-cloud-documentai not available")
             # Authenticate
-            creds = service_account.Credentials.from_service_account_file(
+            creds = _service_account.Credentials.from_service_account_file(
                 str(json_path),
                 scopes=["https://www.googleapis.com/auth/cloud-platform"]
             )
             
             # Create client
-            client = documentai.DocumentProcessorServiceClient(credentials=creds)
+            client = _documentai.DocumentProcessorServiceClient(credentials=creds)
             
             # Check PDF page count (Document AI has 15 page limit per request)
             page_count = None
             try:
-                if PYPDF2_AVAILABLE:
+                if PYPDF2_AVAILABLE and _PyPDF2 is not None:
                     with open(file_path, "rb") as f:
-                        pdf_reader = PyPDF2.PdfReader(f)
+                        pdf_reader = _PyPDF2.PdfReader(f)
                         page_count = len(pdf_reader.pages)
             except Exception:
                 pass
@@ -372,12 +426,12 @@ class TextExtractor:
                 
                 name = f"projects/{settings.GOOGLE_PROJECT_ID}/locations/{settings.GOOGLE_LOCATION}/processors/{settings.GOOGLE_PROCESSOR_ID}"
                 
-                raw_document = documentai.RawDocument(
+                raw_document = _documentai.RawDocument(
                     content=file_content,
                     mime_type="application/pdf"
                 )
                 
-                request = documentai.ProcessRequest(
+                request = _documentai.ProcessRequest(
                     name=name,
                     raw_document=raw_document
                 )
@@ -388,10 +442,60 @@ class TextExtractor:
                 text = response.document.text
                 logger.info(f"Document AI extracted {len(text)} characters from {len(response.document.pages)} pages")
                 return text
-                
+
         except Exception as e:
             logger.error(f"Document AI extraction failed: {str(e)}", exc_info=True)
             raise
+
+    def get_document_ai_document(self, file_path: str | Path):
+        """
+        Call Document AI and return the full Document object (with pages/lines/layout)
+        for OCR position extraction. Returns None if PDF has >15 pages (chunked) or on error.
+        """
+        file_path_obj = Path(file_path)
+        if not file_path_obj.is_absolute():
+            project_root = Path(settings.PROJECT_ROOT)
+            abs_path = project_root / file_path_obj
+            if abs_path.exists():
+                file_path_obj = abs_path
+        if not file_path_obj.exists():
+            raise FileNotFoundError(f"PDF file not found: {file_path_obj}")
+        format_type, _ = self._detect_file_format(file_path_obj)
+        if format_type != 'pdf':
+            raise ValueError(f"Not a PDF: {file_path_obj.name}")
+        if not DOCAI_AVAILABLE:
+            return None
+        page_count = None
+        try:
+            if PYPDF2_AVAILABLE and _PyPDF2 is not None:
+                with open(file_path_obj, "rb") as f:
+                    pdf_reader = _PyPDF2.PdfReader(f)
+                    page_count = len(pdf_reader.pages)
+        except Exception:
+            pass
+        if page_count and page_count > 15:
+            logger.info("ocr_fill: get_document_ai_document skipped (PDF has %s pages, positions only for <=15)", page_count)
+            return None
+        try:
+            json_path = Path(settings.GOOGLE_SERVICE_ACCOUNT_JSON) if settings.GOOGLE_SERVICE_ACCOUNT_JSON else None
+            if not json_path or not json_path.exists():
+                default_path = settings.PROJECT_ROOT / "extras" / "resolute-planet-485419-f8-f543cf0a64b5.json"
+                json_path = default_path if default_path.exists() else None
+            if not json_path or not json_path.exists():
+                return None
+            if _service_account is None or _documentai is None:
+                return None
+            creds = _service_account.Credentials.from_service_account_file(str(json_path), scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            client = _documentai.DocumentProcessorServiceClient(credentials=creds)
+            name = f"projects/{settings.GOOGLE_PROJECT_ID}/locations/{settings.GOOGLE_LOCATION}/processors/{settings.GOOGLE_PROCESSOR_ID}"
+            with open(file_path_obj, "rb") as f:
+                file_content = f.read()
+            raw_document = _documentai.RawDocument(content=file_content, mime_type="application/pdf")
+            response = client.process_document(request=_documentai.ProcessRequest(name=name, raw_document=raw_document))
+            return response.document
+        except Exception as e:
+            logger.warning("ocr_fill: get_document_ai_document failed: %s", e)
+            return None
     
     def _extract_large_pdf_with_docai(self, file_path: Path, client, total_pages: int) -> str:
         """
@@ -405,18 +509,18 @@ class TextExtractor:
         Returns:
             Combined extracted text from all chunks
         """
-        if not PYPDF2_AVAILABLE:
-            raise ImportError("PyPDF2 required for splitting large PDFs")
-        
+        if not PYPDF2_AVAILABLE or _PyPDF2 is None or _documentai is None:
+            raise ImportError("PyPDF2 and Document AI required for splitting large PDFs")
+
         name = f"projects/{settings.GOOGLE_PROJECT_ID}/locations/{settings.GOOGLE_LOCATION}/processors/{settings.GOOGLE_PROCESSOR_ID}"
         all_text_parts = []
         chunk_size = 15  # Document AI limit
-        
+
         try:
             with open(file_path, "rb") as f:
                 pdf_content = f.read()
-            
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_content))
+
+            pdf_reader = _PyPDF2.PdfReader(io.BytesIO(pdf_content))
             total_chunks = (total_pages + chunk_size - 1) // chunk_size
             
             logger.info(f"Processing {total_chunks} chunk(s) of up to {chunk_size} pages each...")
@@ -426,7 +530,7 @@ class TextExtractor:
                 end_page = min(start_page + chunk_size, total_pages)
                 
                 # Create a new PDF with just these pages
-                pdf_writer = PyPDF2.PdfWriter()
+                pdf_writer = _PyPDF2.PdfWriter()
                 for page_num in range(start_page, end_page):
                     pdf_writer.add_page(pdf_reader.pages[page_num])
                 
@@ -438,12 +542,12 @@ class TextExtractor:
                 logger.debug(f"Processing chunk {chunk_num + 1}/{total_chunks} (pages {start_page + 1}-{end_page})...")
                 
                 # Process chunk
-                raw_document = documentai.RawDocument(
+                raw_document = _documentai.RawDocument(
                     content=chunk_content,
                     mime_type="application/pdf"
                 )
                 
-                request = documentai.ProcessRequest(
+                request = _documentai.ProcessRequest(
                     name=name,
                     raw_document=raw_document
                 )
@@ -772,7 +876,7 @@ class TextExtractor:
         """
         if format_type == 'docx':
             try:
-                doc = DocxDocument(file_path)
+                doc = DocxDocument(str(file_path))
                 text_parts = []
                 
                 # Extract paragraphs
@@ -835,12 +939,12 @@ class TextExtractor:
             format_type: 'xlsx', 'xls', or 'csv'
         """
         if format_type == 'csv':
-            if PANDAS_AVAILABLE:
+            if PANDAS_AVAILABLE and _pd is not None:
                 try:
                     # Try different encodings
                     for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
                         try:
-                            df = pd.read_csv(file_path, encoding=encoding, on_bad_lines='skip')
+                            df = _pd.read_csv(str(file_path), encoding=encoding, on_bad_lines='skip')
                             text = df.to_string(index=False)
                             logger.info(f"Extracted {len(text)} characters from CSV file")
                             return text
@@ -867,7 +971,7 @@ class TextExtractor:
             if XLRD_AVAILABLE:
                 try:
                     import xlrd
-                    workbook = xlrd.open_workbook(file_path)
+                    workbook = xlrd.open_workbook(str(file_path))
                     text_parts = []
                     for sheet_name in workbook.sheet_names():
                         sheet = workbook.sheet_by_name(sheet_name)
@@ -891,7 +995,7 @@ class TextExtractor:
         
         else:  # .xlsx
             try:
-                workbook = load_workbook(file_path, data_only=True)
+                workbook = load_workbook(str(file_path), data_only=True)
                 text_parts = []
                 for sheet_name in workbook.sheetnames:
                     sheet = workbook[sheet_name]
@@ -916,7 +1020,9 @@ class TextExtractor:
             return ""
         
         try:
-            prs = Presentation(file_path)
+            if _Presentation is None:
+                return ""
+            prs = _Presentation(str(file_path))
             text_parts = []
             
             for slide_num, slide in enumerate(prs.slides, 1):
@@ -993,11 +1099,11 @@ class TextExtractor:
     
     def _extract_from_rtf(self, file_path: Path) -> str:
         """Extract text from RTF file"""
-        if RTF_AVAILABLE:
+        if RTF_AVAILABLE and _rtf_to_text is not None:
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     rtf_content = f.read()
-                text = rtf_to_text(rtf_content)
+                text = _rtf_to_text(rtf_content)
                 logger.info(f"Extracted {len(text)} characters from RTF file")
                 return text
             except Exception as e:
@@ -1024,9 +1130,9 @@ class TextExtractor:
             with open(file_path, 'r', encoding='utf-8') as f:
                 md_content = f.read()
             
-            if MARKDOWN_AVAILABLE:
+            if MARKDOWN_AVAILABLE and _markdown is not None:
                 # Convert markdown to plain text
-                html = markdown.markdown(md_content)
+                html = _markdown.markdown(md_content)
                 # Remove HTML tags
                 text = re.sub(r'<[^>]+>', '', html)
                 logger.info(f"Extracted {len(text)} characters from Markdown file")
@@ -1039,35 +1145,35 @@ class TextExtractor:
             logger.error(f"Error extracting text from Markdown {file_path}: {str(e)}")
             return ""
     
-    def _preprocess_image_for_ocr(self, image_path: Path) -> np.ndarray:
+    def _preprocess_image_for_ocr(self, image_path: Path) -> Optional[Any]:
         """
         Preprocess image file for better OCR results.
         Uses the same enhanced preprocessing as _preprocess_image_for_ocr_from_array.
         """
-        if not OCR_AVAILABLE:
+        if not OCR_AVAILABLE or _cv2 is None or _np is None:
             return None
-        
+
         try:
             # Read image
-            img = cv2.imread(str(image_path))
+            img = _cv2.imread(str(image_path))
             if img is None:
                 logger.error(f"Could not read image {image_path}")
                 return None
-            
+
             # Convert BGR to RGB (OpenCV reads as BGR)
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            
+            img_rgb = _cv2.cvtColor(img, _cv2.COLOR_BGR2RGB)
+
             # Use the enhanced preprocessing
             return self._preprocess_image_for_ocr_from_array(img_rgb)
         except Exception as e:
             logger.warning(f"Image preprocessing failed: {str(e)}, using original image")
             try:
-                img = cv2.imread(str(image_path))
+                img = _cv2.imread(str(image_path))
                 if img is not None:
-                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                    gray = _cv2.cvtColor(img, _cv2.COLOR_BGR2GRAY)
                     return self._preprocess_image_for_ocr_from_array(gray)
                 return None
-            except:
+            except Exception:
                 return None
     
     def _extract_with_ocr(self, file_path: Path) -> str:
@@ -1086,16 +1192,18 @@ class TextExtractor:
             if file_path.suffix.lower() == '.pdf':
                 # Convert PDF pages to images and OCR each
                 try:
-                    from pdf2image import convert_from_path
+                    from pdf2image.pdf2image import convert_from_path
                     # Use higher DPI for better quality (300-400 is optimal)
                     images = convert_from_path(str(file_path), dpi=300, fmt='png')
                     logger.info(f"Converted PDF to {len(images)} images for OCR at 300 DPI")
                     
                     for page_num, image in enumerate(images, 1):
                         # Preprocess image
-                        img_array = np.array(image)
+                        if _np is None or _cv2 is None:
+                            continue
+                        img_array = _np.array(image)
                         if len(img_array.shape) == 3:
-                            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+                            gray = _cv2.cvtColor(img_array, _cv2.COLOR_RGB2GRAY)
                         else:
                             gray = img_array
                         
@@ -1129,10 +1237,12 @@ class TextExtractor:
                 if preprocessed is None:
                     # Fallback: use original image
                     try:
-                        img = Image.open(file_path)
-                        img_array = np.array(img)
+                        if _PilImage is None or _np is None or _cv2 is None:
+                            return ""
+                        img = _PilImage.open(str(file_path))
+                        img_array = _np.array(img)
                         if len(img_array.shape) == 3:
-                            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+                            gray = _cv2.cvtColor(img_array, _cv2.COLOR_RGB2GRAY)
                         else:
                             gray = img_array
                         preprocessed = self._preprocess_image_for_ocr_from_array(gray)
@@ -1153,7 +1263,7 @@ class TextExtractor:
             logger.error(f"Error during OCR extraction: {str(e)}", exc_info=True)
             return ""
     
-    def _ocr_with_multiple_strategies(self, preprocessed_img: np.ndarray, page_num: int) -> str:
+    def _ocr_with_multiple_strategies(self, preprocessed_img: Any, page_num: int) -> str:
         """
         Try multiple OCR strategies (PSM modes) and return the best result.
         PSM (Page Segmentation Mode) modes:
@@ -1164,48 +1274,51 @@ class TextExtractor:
         """
         results = []
         
+        if _pytesseract is None:
+            return ""
+
         # Strategy 1: Default PSM mode (3) - good for most documents
         try:
             config1 = '--psm 3 --oem 3 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,;:!?()[]{}\'"- /\\'
-            text1 = pytesseract.image_to_string(preprocessed_img, lang='eng', config=config1)
+            text1 = _pytesseract.image_to_string(preprocessed_img, lang='eng', config=config1)
             if text1.strip():
                 results.append(('psm3', text1))
         except Exception as e:
             logger.debug(f"PSM 3 failed for page {page_num}: {str(e)}")
-        
+
         # Strategy 2: Single block mode (6) - good for single column documents
         try:
             config2 = '--psm 6 --oem 3'
-            text2 = pytesseract.image_to_string(preprocessed_img, lang='eng', config=config2)
+            text2 = _pytesseract.image_to_string(preprocessed_img, lang='eng', config=config2)
             if text2.strip():
                 results.append(('psm6', text2))
         except Exception as e:
             logger.debug(f"PSM 6 failed for page {page_num}: {str(e)}")
-        
+
         # Strategy 3: Sparse text mode (11) - good for documents with scattered text
         try:
             config3 = '--psm 11 --oem 3'
-            text3 = pytesseract.image_to_string(preprocessed_img, lang='eng', config=config3)
+            text3 = _pytesseract.image_to_string(preprocessed_img, lang='eng', config=config3)
             if text3.strip():
                 results.append(('psm11', text3))
         except Exception as e:
             logger.debug(f"PSM 11 failed for page {page_num}: {str(e)}")
-        
+
         # Strategy 4: Auto PSM with OSD (12) - good for complex layouts
         try:
             config4 = '--psm 12 --oem 3'
-            text4 = pytesseract.image_to_string(preprocessed_img, lang='eng', config=config4)
+            text4 = _pytesseract.image_to_string(preprocessed_img, lang='eng', config=config4)
             if text4.strip():
                 results.append(('psm12', text4))
         except Exception as e:
             logger.debug(f"PSM 12 failed for page {page_num}: {str(e)}")
-        
+
         if not results:
             # Fallback: basic OCR without special config
             try:
-                fallback_text = pytesseract.image_to_string(preprocessed_img, lang='eng')
+                fallback_text = _pytesseract.image_to_string(preprocessed_img, lang='eng')
                 return fallback_text
-            except:
+            except Exception:
                 return ""
         
         # Choose the result with the most text (usually most accurate)
@@ -1252,98 +1365,100 @@ class TextExtractor:
         
         return text.strip()
     
-    def _preprocess_image_for_ocr_from_array(self, img_array: np.ndarray) -> np.ndarray:
+    def _preprocess_image_for_ocr_from_array(self, img_array: Any) -> Any:
         """
         Preprocess image array for OCR with enhanced techniques.
         Applies multiple preprocessing steps for better OCR accuracy.
         """
-        if not OCR_AVAILABLE:
+        if not OCR_AVAILABLE or _cv2 is None or _np is None:
             return img_array
-        
+
         try:
             # Ensure image is grayscale
             if len(img_array.shape) == 3:
-                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+                gray = _cv2.cvtColor(img_array, _cv2.COLOR_RGB2GRAY)
             else:
                 gray = img_array.copy()
-            
+
             # Resize if image is too small (improves OCR accuracy)
             height, width = gray.shape
             if height < 300 or width < 300:
                 scale = max(300 / height, 300 / width)
                 new_width = int(width * scale)
                 new_height = int(height * scale)
-                gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
-            
+                gray = _cv2.resize(gray, (new_width, new_height), interpolation=_cv2.INTER_CUBIC)
+
             # Apply aggressive denoising (better for scanned documents)
-            denoised = cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
-            
+            denoised = _cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
+
             # Enhance contrast using CLAHE (adaptive histogram equalization)
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            clahe = _cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
             enhanced = clahe.apply(denoised)
-            
+
             # Apply morphological operations to clean up the image
-            kernel = np.ones((2, 2), np.uint8)
-            enhanced = cv2.morphologyEx(enhanced, cv2.MORPH_CLOSE, kernel)
-            
+            kernel = _np.ones((2, 2), _np.uint8)
+            enhanced = _cv2.morphologyEx(enhanced, _cv2.MORPH_CLOSE, kernel)
+
             # Deskew detection and correction
             enhanced = self._deskew_image(enhanced)
-            
+
             # Apply adaptive thresholding for better text/background separation
-            binary = cv2.adaptiveThreshold(
-                enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                cv2.THRESH_BINARY, 11, 2
+            binary = _cv2.adaptiveThreshold(
+                enhanced, 255, _cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                _cv2.THRESH_BINARY, 11, 2
             )
-            
+
             # Alternative: Otsu's thresholding (sometimes better)
-            _, binary_otsu = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            
+            _, binary_otsu = _cv2.threshold(enhanced, 0, 255, _cv2.THRESH_BINARY + _cv2.THRESH_OTSU)
+
             # Use the binary image with better contrast
             # Compare both and use the one with better contrast
-            contrast_adaptive = np.std(binary)
-            contrast_otsu = np.std(binary_otsu)
-            
+            contrast_adaptive = _np.std(binary)
+            contrast_otsu = _np.std(binary_otsu)
+
             final_binary = binary_otsu if contrast_otsu > contrast_adaptive else binary
-            
+
             # Final cleanup: remove small noise
-            kernel_clean = np.ones((1, 1), np.uint8)
-            final_binary = cv2.morphologyEx(final_binary, cv2.MORPH_OPEN, kernel_clean)
-            
+            kernel_clean = _np.ones((1, 1), _np.uint8)
+            final_binary = _cv2.morphologyEx(final_binary, _cv2.MORPH_OPEN, kernel_clean)
+
             return final_binary
         except Exception as e:
             logger.warning(f"Image preprocessing failed: {str(e)}, using original image")
             return img_array
     
     @staticmethod
-    def _deskew_image(image: np.ndarray) -> np.ndarray:
+    def _deskew_image(image: Any) -> Any:
         """
         Detect and correct skew in scanned images.
         Returns deskewed image.
         """
+        if _np is None or _cv2 is None:
+            return image
         try:
             # Convert to binary for skew detection
-            coords = np.column_stack(np.where(image > 0))
+            coords = _np.column_stack(_np.where(image > 0))
             if len(coords) == 0:
                 return image
-            
+
             # Find minimum area rectangle
-            angle = cv2.minAreaRect(coords)[-1]
-            
+            angle = _cv2.minAreaRect(coords)[-1]
+
             # Correct angle
             if angle < -45:
                 angle = -(90 + angle)
             else:
                 angle = -angle
-            
+
             # Only correct if angle is significant (> 0.5 degrees)
             if abs(angle) > 0.5:
                 (h, w) = image.shape[:2]
                 center = (w // 2, h // 2)
-                M = cv2.getRotationMatrix2D(center, angle, 1.0)
-                rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, 
-                                        borderMode=cv2.BORDER_REPLICATE)
+                M = _cv2.getRotationMatrix2D(center, angle, 1.0)
+                rotated = _cv2.warpAffine(image, M, (w, h), flags=_cv2.INTER_CUBIC,
+                                        borderMode=_cv2.BORDER_REPLICATE)
                 return rotated
-            
+
             return image
         except Exception as e:
             logger.debug(f"Deskew failed: {str(e)}, returning original image")

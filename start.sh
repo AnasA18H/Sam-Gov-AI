@@ -35,6 +35,72 @@ DB_VIEWER_PORT="${DB_VIEWER_PORT:-5050}"
 # Helper Functions
 ###############################################################################
 
+# Stop all services (Docker, PID files, port-based, pkill). No exit.
+stop_all_services() {
+    print_header "Stopping All Services"
+    # 0) Stop Docker stack and any container using our ports
+    if command -v docker &>/dev/null; then
+        if (docker compose ps -q 2>/dev/null | grep -q .) || (docker-compose ps -q 2>/dev/null | grep -q .); then
+            print_info "Stopping Docker Compose stack..."
+            (docker compose down 2>/dev/null || docker-compose down 2>/dev/null) || true
+            sleep 1
+        fi
+        for port in "$BACKEND_PORT" "$FRONTEND_PORT" "$DB_VIEWER_PORT"; do
+            ids=$(docker ps -q 2>/dev/null | while read cid; do
+                docker port "$cid" 2>/dev/null | grep -qE "0\.0\.0\.0:$port|:::$port" && echo "$cid"
+            done || true)
+            if [ -n "$ids" ]; then
+                print_info "Stopping Docker container(s) on port $port..."
+                echo "$ids" | xargs docker stop 2>/dev/null || true
+            fi
+        done
+        sleep 1
+    fi
+    # 1) Kill by PID files
+    for label in "backend:$BACKEND_PID_FILE" "frontend:$FRONTEND_PID_FILE" "celery:$CELERY_PID_FILE" "db-viewer:$DB_VIEWER_PID_FILE"; do
+        name="${label%%:*}"
+        pf="${label#*:}"
+        if [ -f "$pf" ]; then
+            pid=$(cat "$pf" 2>/dev/null)
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                print_info "Stopping $name (PID: $pid)..."
+                kill "$pid" 2>/dev/null || true
+            fi
+            rm -f "$pf"
+        fi
+    done
+    # 2) Free ports (handles stale PIDs or processes not started by us)
+    for port in "$BACKEND_PORT" "$FRONTEND_PORT" "$DB_VIEWER_PORT"; do
+        if command -v lsof &>/dev/null; then
+            old=$(lsof -ti ":$port" 2>/dev/null || true)
+            if [ -n "$old" ]; then
+                print_info "Freeing port $port (PID(s): $old)..."
+                kill $old 2>/dev/null || true
+            fi
+        fi
+        if command -v fuser &>/dev/null; then
+            if fuser -s "${port}/tcp" 2>/dev/null; then
+                print_info "Freeing port $port (fuser)..."
+                fuser -k "${port}/tcp" 2>/dev/null || true
+            fi
+        fi
+    done
+    sleep 1
+    # 3) pkill by pattern (match start.sh invocations)
+    print_info "Cleaning up process patterns..."
+    pkill -f "uvicorn.*backend.app.main" 2>/dev/null || true
+    pkill -f "uvicorn.*main:app" 2>/dev/null || true
+    pkill -f "vite" 2>/dev/null || true
+    pkill -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
+    pkill -f "dev-db-viewer/server.py" 2>/dev/null || true
+    sleep 2
+    # 4) Force kill if still hanging
+    pkill -9 -f "uvicorn.*backend.app.main" 2>/dev/null || true
+    pkill -9 -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
+    sleep 1
+    print_success "All services stopped"
+}
+
 print_header() {
     echo ""
     echo -e "${BLUE}=================================================================${NC}"
@@ -59,62 +125,30 @@ print_info() {
     echo -e "${BLUE}ℹ${NC} $1"
 }
 
-# Cleanup function
+# Cleanup on Ctrl+C / SIGTERM
 cleanup() {
-    print_header "Shutting Down Services"
-    
-    # Kill backend
-    if [ -f "$BACKEND_PID_FILE" ]; then
-        BACKEND_PID=$(cat "$BACKEND_PID_FILE")
-        if kill -0 "$BACKEND_PID" 2>/dev/null; then
-            print_info "Stopping backend server (PID: $BACKEND_PID)..."
-            kill "$BACKEND_PID" 2>/dev/null || true
-            rm -f "$BACKEND_PID_FILE"
-        fi
-    fi
-    
-    # Kill frontend
-    if [ -f "$FRONTEND_PID_FILE" ]; then
-        FRONTEND_PID=$(cat "$FRONTEND_PID_FILE")
-        if kill -0 "$FRONTEND_PID" 2>/dev/null; then
-            print_info "Stopping frontend server (PID: $FRONTEND_PID)..."
-            kill "$FRONTEND_PID" 2>/dev/null || true
-            rm -f "$FRONTEND_PID_FILE"
-        fi
-    fi
-    
-    # Kill Celery worker
-    if [ -f "$CELERY_PID_FILE" ]; then
-        CELERY_PID=$(cat "$CELERY_PID_FILE")
-        if kill -0 "$CELERY_PID" 2>/dev/null; then
-            print_info "Stopping Celery worker (PID: $CELERY_PID)..."
-            kill "$CELERY_PID" 2>/dev/null || true
-            rm -f "$CELERY_PID_FILE"
-        fi
-    fi
-
-    # Kill DB viewer
-    if [ -f "$DB_VIEWER_PID_FILE" ]; then
-        DBVIEWER_PID=$(cat "$DB_VIEWER_PID_FILE")
-        if kill -0 "$DBVIEWER_PID" 2>/dev/null; then
-            print_info "Stopping DB viewer (PID: $DBVIEWER_PID)..."
-            kill "$DBVIEWER_PID" 2>/dev/null || true
-            rm -f "$DB_VIEWER_PID_FILE"
-        fi
-    fi
-    
-    # Kill any remaining processes (match start.sh process invocations)
-    pkill -f "uvicorn.*backend.app.main" 2>/dev/null || true
-    pkill -f "vite" 2>/dev/null || true
-    pkill -f "celery.*backend.app.core.celery_app" 2>/dev/null || true
-    pkill -f "dev-db-viewer/server.py" 2>/dev/null || true
-    
-    print_success "All services stopped"
+    stop_all_services
     exit 0
 }
 
 # Trap SIGINT and SIGTERM
 trap cleanup SIGINT SIGTERM
+
+###############################################################################
+# Stop / Restart handling
+###############################################################################
+
+if [ "${1-}" = "stop" ]; then
+    stop_all_services
+    exit 0
+fi
+
+if [ "${1-}" = "restart" ]; then
+    print_info "Restart mode: stopping all services, then starting fresh..."
+    stop_all_services
+    sleep 2
+    # Fall through to pre-flight and start
+fi
 
 ###############################################################################
 # Pre-flight Checks
@@ -230,7 +264,13 @@ print_success "Data directories ready"
 
 # Run migrations
 print_info "Running database migrations..."
-alembic upgrade head || print_warning "Migrations may have failed"
+if [ -f "scripts/run_migrations.sh" ]; then
+    ./scripts/run_migrations.sh || print_warning "Migrations may have failed"
+else
+    # Fallback: run alembic directly
+    print_info "Running alembic migrations directly..."
+    alembic upgrade head || print_warning "Migrations may have failed"
+fi
 print_success "Database migrations completed"
 
 ###############################################################################
@@ -239,51 +279,93 @@ print_success "Database migrations completed"
 
 print_header "Starting Backend Server"
 
+# Stop any Docker stack or containers using our ports so the local backend can bind
+if command -v docker &>/dev/null; then
+    if (docker compose ps -q 2>/dev/null | grep -q .) || (docker-compose ps -q 2>/dev/null | grep -q .); then
+        print_info "Stopping Docker Compose stack (to free port $BACKEND_PORT)..."
+        (docker compose down 2>/dev/null || docker-compose down 2>/dev/null) && print_success "Docker stack stopped" || true
+        sleep 1
+    fi
+    for port in "$BACKEND_PORT" "$FRONTEND_PORT" "$DB_VIEWER_PORT"; do
+        ids=$(docker ps -q 2>/dev/null | while read cid; do
+            docker port "$cid" 2>/dev/null | grep -qE "0\.0\.0\.0:$port|:::$port" && echo "$cid"
+        done || true)
+        if [ -n "$ids" ]; then
+            print_info "Stopping Docker container(s) on port $port..."
+            echo "$ids" | xargs docker stop 2>/dev/null || true
+            sleep 1
+        fi
+    done
+fi
+
 # Check if backend is already running
-if curl -s "$BACKEND_URL/health" &> /dev/null; then
+if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "$BACKEND_URL/health" 2>/dev/null | grep -q 200; then
     print_warning "Backend server is already running on port $BACKEND_PORT"
     print_info "Skipping backend startup"
 else
+    # Free port 8000: pkill uvicorn, then force-free the port with fuser and lsof
+    pkill -f "uvicorn.*backend.app.main" 2>/dev/null || true
+    pkill -f "uvicorn.*main:app" 2>/dev/null || true
+    sleep 1
+    if command -v fuser &>/dev/null; then
+        if fuser -s "${BACKEND_PORT}/tcp" 2>/dev/null; then
+            print_info "Freeing port $BACKEND_PORT (fuser)..."
+            fuser -k "${BACKEND_PORT}/tcp" 2>/dev/null || true
+            sleep 2
+        fi
+    fi
+    if command -v lsof &>/dev/null; then
+        OLD_PID=$(lsof -ti ":$BACKEND_PORT" 2>/dev/null || true)
+        if [ -n "$OLD_PID" ]; then
+            print_info "Freeing port $BACKEND_PORT (stopping process(es): $OLD_PID)..."
+            kill -9 $OLD_PID 2>/dev/null || true
+            sleep 2
+        fi
+    fi
+    sleep 2
+
     print_info "Starting FastAPI backend server (using venv)..."
-    
-    # Create logs directory if it doesn't exist
     mkdir -p logs
-    
-    # Start backend in background with venv Python so deps are correct
     source "$VENV_DIR/bin/activate"
+
+    # Start backend in background (no --reload = faster startup and stable PID; for dev reload run: uvicorn backend.app.main:app --reload --port 8000)
     nohup "$VENV_DIR/bin/uvicorn" backend.app.main:app \
         --host 0.0.0.0 \
         --port "$BACKEND_PORT" \
-        --reload \
         > logs/backend.log 2>&1 &
-    
+
     BACKEND_PID=$!
     echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
-    
-    # Wait for backend to start (with --reload, worker can take a few seconds)
+
+    # Wait for backend: poll every 1s, up to 25s total
     print_info "Waiting for backend to start..."
-    sleep 4
     BACKEND_READY=0
-    for i in 1 2 3 4 5 6; do
-        if curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" | grep -q 200; then
+    for i in $(seq 1 25); do
+        if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1 "$BACKEND_URL/health" 2>/dev/null | grep -q 200; then
             BACKEND_READY=1
             break
         fi
-        [ $i -lt 6 ] && sleep 2
-    done
-    
-    if kill -0 "$BACKEND_PID" 2>/dev/null; then
-        if [ "$BACKEND_READY" -eq 1 ]; then
-            print_success "Backend server started (PID: $BACKEND_PID)"
-            print_info "Backend URL: $BACKEND_URL"
-            print_info "API Docs: $BACKEND_URL/docs"
-        else
-            print_warning "Backend process running but health check did not pass yet"
-            print_info "Server may still be starting (--reload). Check logs/backend.log and try: curl $BACKEND_URL/health"
+        if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+            print_error "Backend process exited early"
+            break
         fi
+        sleep 1
+    done
+
+    if [ "$BACKEND_READY" -eq 1 ]; then
+        print_success "Backend server started (PID: $BACKEND_PID)"
+        print_info "Backend URL: $BACKEND_URL"
+        print_info "API Docs: $BACKEND_URL/docs"
+    elif kill -0 "$BACKEND_PID" 2>/dev/null; then
+        print_warning "Backend process running but health check did not pass within 25s"
+        print_info "Check logs/backend.log and try: curl $BACKEND_URL/health"
     else
         print_error "Backend server failed to start"
         print_info "Check logs/backend.log for details"
+        if grep -q "address already in use" logs/backend.log 2>/dev/null; then
+            print_info "Port $BACKEND_PORT is in use. Try: ./stop.sh && ./start.sh"
+            print_info "Or free the port manually: fuser -k $BACKEND_PORT/tcp  (or sudo fuser -k $BACKEND_PORT/tcp)"
+        fi
         rm -f "$BACKEND_PID_FILE"
     fi
 fi
@@ -430,8 +512,9 @@ echo "  • Frontend:  tail -f logs/frontend.log"
 echo "  • Celery:    tail -f logs/celery.log"
 [ -d "$SCRIPT_DIR/dev-db-viewer" ] && echo "  • DB Viewer:  tail -f logs/db-viewer.log"
 echo ""
-echo -e "${YELLOW}To stop all services:${NC}"
-echo "  Press Ctrl+C or run: ./stop.sh"
+echo -e "${YELLOW}To stop or restart:${NC}"
+echo "  Stop:    ./start.sh stop   or  ./stop.sh   or  Press Ctrl+C"
+echo "  Restart: ./start.sh restart   (stops all, then starts fresh)"
 echo ""
 echo -e "${YELLOW}Note:${NC}"
 echo "  • Document Analysis is disabled by default"

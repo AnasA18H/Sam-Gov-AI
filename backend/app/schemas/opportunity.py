@@ -32,6 +32,7 @@ class OpportunityResponse(BaseModel):
     enable_document_analysis: Optional[str] = "false"
     enable_clin_extraction: Optional[str] = "false"
     classification_codes: Optional[dict] = None  # NAICS, delivery_requirements, etc.
+    extracted_rfp_info: Optional[dict] = None  # SF 1449 A–M style summary for form filling
     created_at: datetime
     updated_at: datetime
 
@@ -44,9 +45,6 @@ class OpportunityDetailResponse(OpportunityResponse):
     documents: List["DocumentResponse"] = []
     deadlines: List["DeadlineResponse"] = []
     clins: List["CLINResponse"] = []
-    
-    class Config:
-        from_attributes = True
 
 
 class OpportunityList(BaseModel):

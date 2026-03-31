@@ -41,3 +41,12 @@
 # MICROSOFT_CLIENT_SECRET=your-azure-client-secret
 # MICROSOFT_TENANT_ID=your-tenant-id-or-common
 # MICROSOFT_REDIRECT_URI=http://localhost:8000/api/v1/auth/microsoft/callback
+
+# -----------------------------------------------------------------------------
+# Google Document AI (OCR / text extraction)
+# -----------------------------------------------------------------------------
+# GOOGLE_PROJECT_ID=your-gcp-project-id
+# GOOGLE_LOCATION=us
+# GOOGLE_PROCESSOR_ID=your-processor-id
+# GOOGLE_SERVICE_ACCOUNT_JSON=path/to/service-account.json
+# GOOGLE_DOCAI_ENABLED=true
