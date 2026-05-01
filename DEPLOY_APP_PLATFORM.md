@@ -56,7 +56,7 @@ Add these to the **App-level** settings so they are shared:
 | `AWS_S3_ENDPOINT_URL` | `https://sfo3.digitaloceanspaces.com` |
 | `ANTHROPIC_API_KEY` | (Your Anthropic Key) |
 | `TAVILY_API_KEY` | (Your Tavily Key) |
-| `CORS_ORIGINS` | `https://your-app-url.ondigitalocean.app` |
+| `CORS_ORIGINS` | `https://www.GovOpsAi.com` |
 
 **Automatic Bindings**:
 App Platform automatically sets `DATABASE_URL` and `REDIS_URL` when you link the managed databases.

@@ -4,7 +4,7 @@
 name: sam-gov-ai
 region: nyc
 domains:
-  - domain: app.yourdomain.com # REPLACE with your custom domain or remove this section to use the default DO URL
+  - domain: www.GovOpsAi.com
     type: PRIMARY
 services:
   - name: backend
