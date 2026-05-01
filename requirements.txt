@@ -42,9 +42,10 @@ numpy==1.26.2
 spacy==3.7.2
 scikit-learn==1.3.2
 nltk==3.8.1
-transformers==4.36.0
-# torch 2.1.x has no wheels for Python 3.12; use 2.2+ for py312.
-torch==2.2.2
+# torch and transformers are extremely heavy and not directly used by the app.
+# Removing them to prevent "Resource Exhaustion" errors during cloud deployment.
+# transformers==4.36.0
+# torch==2.2.2
 #
 # LangChain ecosystem
 # langchain-tavily requires langchain>=0.3.20, so keep the whole stack on compatible 0.3.x.
