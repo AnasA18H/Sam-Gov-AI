@@ -51,9 +51,9 @@ Add these to the **App-level** settings so they are shared:
 | `STORAGE_TYPE` | `s3` |
 | `AWS_ACCESS_KEY_ID` | (Your Spaces Key) |
 | `AWS_SECRET_ACCESS_KEY` | (Your Spaces Secret) |
-| `AWS_REGION` | (e.g., `nyc3`) |
-| `S3_BUCKET_NAME` | (Your Bucket Name) |
-| `AWS_S3_ENDPOINT_URL` | `https://<region>.digitaloceanspaces.com` |
+| `AWS_REGION` | `sfo3` |
+| `S3_BUCKET_NAME` | `samgov-docs` |
+| `AWS_S3_ENDPOINT_URL` | `https://sfo3.digitaloceanspaces.com` |
 | `ANTHROPIC_API_KEY` | (Your Anthropic Key) |
 | `TAVILY_API_KEY` | (Your Tavily Key) |
 | `CORS_ORIGINS` | `https://your-app-url.ondigitalocean.app` |

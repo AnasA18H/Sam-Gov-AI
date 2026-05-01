@@ -20,6 +20,15 @@ services:
       - key: STORAGE_TYPE
         scope: RUN_TIME
         value: s3
+      - key: AWS_REGION
+        scope: RUN_TIME
+        value: sfo3
+      - key: S3_BUCKET_NAME
+        scope: RUN_TIME
+        value: samgov-docs
+      - key: AWS_S3_ENDPOINT_URL
+        scope: RUN_TIME
+        value: https://sfo3.digitaloceanspaces.com
       # Add other secrets (Anthropic, etc.) in the DO UI or via doctl
     health_check:
       http_path: /health
@@ -51,6 +60,18 @@ workers:
       - key: REDIS_CELERY_URL
         scope: RUN_TIME
         value: ${redis.REDIS_URL}
+      - key: STORAGE_TYPE
+        scope: RUN_TIME
+        value: s3
+      - key: AWS_REGION
+        scope: RUN_TIME
+        value: sfo3
+      - key: S3_BUCKET_NAME
+        scope: RUN_TIME
+        value: samgov-docs
+      - key: AWS_S3_ENDPOINT_URL
+        scope: RUN_TIME
+        value: https://sfo3.digitaloceanspaces.com
 
 databases:
   - name: db
