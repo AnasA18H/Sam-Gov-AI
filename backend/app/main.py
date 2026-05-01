@@ -18,10 +18,17 @@ _log_file = _log_dir / "backend.log"
 _backend_logger = logging.getLogger("backend")
 _backend_logger.setLevel(logging.INFO)
 if not any(h.baseFilename == str(_log_file) for h in _backend_logger.handlers if getattr(h, "baseFilename", None)):
-    _handler = logging.FileHandler(_log_file, encoding="utf-8")
-    _handler.setLevel(logging.INFO)
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
-    _backend_logger.addHandler(_handler)
+    # File handler for local persistence
+    _file_handler = logging.FileHandler(_log_file, encoding="utf-8")
+    _file_handler.setLevel(logging.INFO)
+    _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    _backend_logger.addHandler(_file_handler)
+    
+    # Stream handler for production visibility (stdout)
+    _stream_handler = logging.StreamHandler()
+    _stream_handler.setLevel(logging.INFO)
+    _stream_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    _backend_logger.addHandler(_stream_handler)
 
 # Create database tables (in production, use Alembic migrations)
 # Base.metadata.create_all(bind=engine)

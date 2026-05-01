@@ -114,7 +114,6 @@ class DocumentAnalyzer:
                     model=getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile"),
                     temperature=0,
                     api_key=SecretStr(settings.GROQ_API_KEY),
-                    timeout=60,
                     max_tokens=64,
                 )
                 logger.info("DocumentAnalyzer: Groq LLM initialized for solicitation classification")

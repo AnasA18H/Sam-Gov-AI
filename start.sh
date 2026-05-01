@@ -264,14 +264,27 @@ print_success "Data directories ready"
 
 # Run migrations
 print_info "Running database migrations..."
+MIGRATIONS_OK=0
 if [ -f "scripts/run_migrations.sh" ]; then
-    ./scripts/run_migrations.sh || print_warning "Migrations may have failed"
+    if ./scripts/run_migrations.sh; then
+        MIGRATIONS_OK=1
+    else
+        print_warning "Migrations may have failed"
+    fi
 else
     # Fallback: run alembic directly
     print_info "Running alembic migrations directly..."
-    alembic upgrade head || print_warning "Migrations may have failed"
+    if alembic upgrade head; then
+        MIGRATIONS_OK=1
+    else
+        print_warning "Migrations may have failed"
+    fi
 fi
-print_success "Database migrations completed"
+if [ "$MIGRATIONS_OK" -eq 1 ]; then
+    print_success "Database migrations completed"
+else
+    print_warning "Database migrations did not complete cleanly"
+fi
 
 ###############################################################################
 # Start Backend Server

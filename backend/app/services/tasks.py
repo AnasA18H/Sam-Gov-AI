@@ -21,10 +21,12 @@ from .document_downloader import DocumentDownloader
 from .document_analyzer import DocumentAnalyzer
 from .tavily_dealers import run_tavily_for_opportunity
 from .word_to_pdf import convert_word_to_pdf
+from .object_storage import s3_enabled, upload_file, make_object_key
 from datetime import datetime
 from dateutil import parser as dateutil_parser
 from sqlalchemy import func
 import logging
+import mimetypes
 
 logger = logging.getLogger(__name__)
 
@@ -249,12 +251,7 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                 downloader = DocumentDownloader(page=scraper.page)
                 logger.info(f"DEBUG: DocumentDownloader initialized with path: {downloader.storage_base_path}")
                 
-                downloaded_files = downloader.download_attachments(
-                    attachments,
-                    opportunity.id,
-                    opportunity.sam_gov_url,
-                    process_individual_links=bool(result.get('has_links_in_links_section', True)),
-                )
+                downloaded_files = downloader.download_attachments(attachments, opportunity.id, opportunity.sam_gov_url)
                 logger.info(f"DEBUG: Downloaded files count: {len(downloaded_files) if downloaded_files else 0}")
                 
                 if downloaded_files:
@@ -297,7 +294,19 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                         doc_type = DocumentType.TEXT
                     else:
                         doc_type = DocumentType.OTHER
-                    
+
+                    storage_type = "local"
+                    file_url = None
+                    if s3_enabled():
+                        try:
+                            local_path = Path(settings.PROJECT_ROOT) / str(file_info['path']).lstrip("/")
+                            mime_type = mimetypes.guess_type(file_info['name'])[0] or "application/octet-stream"
+                            key = make_object_key(opportunity.id, "documents", file_info['name'])
+                            file_url = upload_file(local_path, key, content_type=mime_type)
+                            storage_type = "s3"
+                        except Exception as exc:
+                            logger.warning("Failed to mirror SAM.gov document to S3 for opp=%s file=%s: %s", opportunity.id, file_info.get('name'), exc)
+
                     doc = Document(
                         opportunity_id=opportunity.id,
                         file_name=file_info['name'],
@@ -306,7 +315,8 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                         file_type=doc_type,
                         source=DocumentSource.SAM_GOV,
                         source_url=file_info.get('url'),
-                        storage_type="local"
+                        storage_type=storage_type,
+                        file_url=file_url,
                     )
                     db.add(doc)
                     logger.info(f"DEBUG: Added document to DB: {doc.file_name} (path: {doc.file_path})")
@@ -1044,8 +1054,6 @@ def run_tavily_dealers_for_opportunity(opportunity_id: int):
                 "manufacturer_name": c.manufacturer_name,
                 "part_number": c.part_number,
                 "model_number": getattr(c, "model_number", None),
-                "manufacturer_research": c.manufacturer_research,
-                "dealer_research": c.dealer_research,
             }
             for c in clins
         ]

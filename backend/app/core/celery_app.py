@@ -6,6 +6,11 @@ from celery import Celery
 from celery.signals import worker_process_init
 from .config import settings
 
+# Configure SSL if rediss is used (required for DigitalOcean Managed Redis)
+broker_use_ssl = None
+if settings.REDIS_CELERY_URL.startswith("rediss://"):
+    broker_use_ssl = {"ssl_cert_reqs": "none"}  # DO managed redis uses SSL but cert reqs can be relaxed
+
 # Create Celery app
 celery_app = Celery(
     "samgov_ai",
@@ -13,6 +18,12 @@ celery_app = Celery(
     backend=settings.REDIS_CELERY_URL,
     include=["backend.app.services.tasks"],
 )
+
+if broker_use_ssl:
+    celery_app.conf.update(
+        broker_use_ssl=broker_use_ssl,
+        redis_backend_use_ssl=broker_use_ssl,
+    )
 
 # Ensure task module is imported so all tasks (e.g. rerun_clins_only) are registered
 import importlib

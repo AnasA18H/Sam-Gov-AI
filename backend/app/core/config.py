@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-1"
     S3_BUCKET_NAME: str = "samgov-documents"
+    AWS_S3_ENDPOINT_URL: str = ""
+    AWS_S3_PUBLIC_BASE_URL: str = ""
     
     # SAM.gov
     SAM_GOV_BASE_URL: str = "https://sam.gov"
@@ -91,11 +93,6 @@ class Settings(BaseSettings):
     TAVILY_TIME_RANGE: str = ""
     TAVILY_REUSE_BY_PRODUCT: bool = True  # one Tavily run per unique (manufacturer, product)
     TAVILY_PARALLEL_MAX_WORKERS: int = 4  # 1 = sequential
-    # After per-site Tavily+fetch, one batched LLM pass over merged snippets (split if over limit)
-    TAVILY_AGGREGATE_AI_MAX_CHARS: int = 45000
-    # Skip Tavily search for a CLIN group when, after cross-CLIN email copy, fewer than this fraction
-    # of website rows still lack email (e.g. 0.30 = skip if <30% missing). Set to 0 to always run Tavily.
-    TAVILY_SKIP_IF_MISSING_RATE_BELOW: float = 0.30
     # Google Document AI – set paths/ids in .env
     GOOGLE_SERVICE_ACCOUNT_JSON: str = ""
     GOOGLE_PROJECT_ID: str = ""

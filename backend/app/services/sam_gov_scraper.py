@@ -82,7 +82,6 @@ class SAMGovScraper:
             # Extract all data
             metadata = self._extract_metadata()
             attachments = self._extract_attachments()
-            has_links_in_links_section = self._has_links_in_links_section()
             
             # Extract page text content for LLM analysis
             page_text = self._extract_page_text()
@@ -91,7 +90,6 @@ class SAMGovScraper:
                 'success': True,
                 'metadata': metadata,
                 'attachments': attachments,
-                'has_links_in_links_section': has_links_in_links_section,
                 'opportunity_id': extract_opportunity_id(url),
                 'page_text': page_text
             }
@@ -99,75 +97,6 @@ class SAMGovScraper:
         except Exception as e:
             logger.error(f"Error scraping {url}: {str(e)}")
             return {'success': False, 'error': str(e)}
-
-    def _has_links_in_links_section(self) -> bool:
-        """
-        Return True only when the SAM.gov Links section actually contains link URLs.
-        This should be robust to wording differences like:
-        - "No links have been added to this opportunity."
-        - other "no links" variants
-        """
-        try:
-            page = self._get_page()
-            page_text = (page.inner_text("body") or "").lower()
-
-            # Fast-path negative checks for common "empty links section" wording variants.
-            if re.search(r"\bno\s+links?\b", page_text) and "link" in page_text:
-                logger.info("DEBUG: Links section appears empty from page text")
-                return False
-
-            # DOM-based detection: search near a heading/label exactly named "Links",
-            # then inspect nearby containers for real href links.
-            links_count = page.evaluate("""() => {
-                const isRealHref = (href) => {
-                    if (!href) return false;
-                    const h = href.trim().toLowerCase();
-                    return h !== '' && h !== '#' && !h.startsWith('javascript:');
-                };
-
-                const labels = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,div,span,strong,p,th,td'))
-                    .filter(el => (el.textContent || '').trim().toLowerCase() === 'links');
-
-                let count = 0;
-                const seen = new Set();
-
-                const scanNode = (node) => {
-                    if (!node) return;
-                    const anchors = Array.from(node.querySelectorAll('a[href]'));
-                    for (const a of anchors) {
-                        const href = a.getAttribute('href');
-                        if (isRealHref(href)) {
-                            const key = `${(a.textContent || '').trim()}|${href}`;
-                            if (!seen.has(key)) {
-                                seen.add(key);
-                                count += 1;
-                            }
-                        }
-                    }
-                };
-
-                for (const label of labels) {
-                    // Scan the label container and a few next siblings.
-                    scanNode(label.parentElement || label);
-                    let sib = label.nextElementSibling;
-                    let hops = 0;
-                    while (sib && hops < 6) {
-                        scanNode(sib);
-                        sib = sib.nextElementSibling;
-                        hops += 1;
-                    }
-                }
-
-                return count;
-            }""")
-
-            has_links = bool(links_count and int(links_count) > 0)
-            logger.info("DEBUG: Links section detected %s real link(s)", int(links_count or 0))
-            return has_links
-        except Exception as e:
-            logger.debug(f"DEBUG: Could not inspect page text for links section: {e}")
-        # Fail-safe: treat as no links so we don't trigger unwanted link downloads.
-        return False
     
     def _extract_metadata(self) -> Dict:
         """Extract metadata from the SAM.gov page"""
@@ -507,6 +436,18 @@ class SAMGovScraper:
                     # Find the contact card near the label
                     # The structure is: label -> contact card with name, email, phone
                     parent = primary_poc_label.evaluate_handle('el => el.closest(".grid-row, .section-content")')
+                    
+                    # Find name (usually in .contact-title-2 or h5)
+                    name_element = self._get_page().query_selector('[id="primary-poc"]').evaluate_handle('''
+                        (label) => {
+                            const container = label.closest('.grid-row, .section-content');
+                            if (container) {
+                                const nameEl = container.querySelector('.contact-title-2, h5');
+                                return nameEl ? nameEl.innerText.trim() : null;
+                            }
+                            return null;
+                        }
+                    ''')
                     
                     # Try direct selector for name
                     name_selectors = [

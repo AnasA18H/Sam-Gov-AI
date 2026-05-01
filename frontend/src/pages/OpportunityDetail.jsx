@@ -50,7 +50,7 @@ const OpportunityDetail = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const API_BASE_URL = import.meta.env.VITE_API_URL || '';
   const [opportunity, setOpportunity] = useState(null);
   
   /** For Word docs: get or create the PDF used for editing, then open editor with that PDF. For others, open with the doc. */

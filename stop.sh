@@ -45,6 +45,10 @@ print_info() {
 
 print_header "Stopping Application Services"
 
+# Best-effort: if start.sh is running in a terminal, it loops forever.
+# We don't rely on killing the script itself, but killing its child processes
+# (uvicorn/celery/vite/db-viewer) below will effectively stop the app.
+
 # 1) Stop all Docker services that may be using our ports (compose stack + any container on 8000/5173/5050)
 if command -v docker &>/dev/null; then
     print_info "Checking for Docker Compose stack..."

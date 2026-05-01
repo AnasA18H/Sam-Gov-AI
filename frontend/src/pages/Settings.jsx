@@ -360,7 +360,7 @@ const Settings = () => {
       ctx.beginPath();
       ctx.moveTo(pathEnd.x, pathEnd.y);
       ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
-    ctx.stroke();
+      ctx.stroke();
       signaturePathEndRef.current = { x: midX, y: midY };
       /* Keep only last 2 points to limit memory */
       signaturePointsRef.current = [prev, curr];
@@ -643,32 +643,32 @@ const Settings = () => {
               <div className="flex items-center gap-3 mb-1">
                 <span className="flex items-center justify-center w-10 h-10 rounded-full bg-white/20 dark:bg-white/10">
                   <HiOutlineUser className="w-5 h-5" />
-            </span>
+                </span>
                 <span className="text-sm font-medium">Welcome, {displayName}</span>
+              </div>
             </div>
-                  </div>
             <nav className="flex-1 px-3 pb-4 space-y-0.5 overflow-y-auto">
-                  <button
-                    type="button"
+              <button
+                type="button"
                 onClick={() => navigate('/dashboard')}
                 className="flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm font-medium rounded-lg hover:bg-white/15 dark:hover:bg-white/10 transition-colors"
-                  >
+              >
                 <HiOutlineViewGrid className="w-5 h-5 shrink-0 opacity-90" />
                 Dashboard
-                  </button>
-                    <button
-                      type="button"
+              </button>
+              <button
+                type="button"
                 onClick={() => navigate('/profile')}
                 className="flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm font-medium rounded-lg hover:bg-white/15 dark:hover:bg-white/10 transition-colors"
-                    >
+              >
                 <HiOutlineUser className="w-5 h-5 shrink-0 opacity-90" />
                 Profile
-                    </button>
+              </button>
               <div className="border-t border-white/20 dark:border-gray-500/30 my-3" aria-hidden />
               {SETTINGS_SECTIONS.map(({ id, label, number }) => (
-                    <button
+                <button
                   key={id}
-                      type="button"
+                  type="button"
                   onClick={() => setActiveSettingsSection(id)}
                   className={`flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm font-medium rounded-lg transition-colors ${activeSettingsSection === id ? 'bg-white/25 dark:bg-teal-dm/30' : 'hover:bg-white/15 dark:hover:bg-white/10'}`}
                 >
@@ -685,8 +685,8 @@ const Settings = () => {
               >
                 <HiOutlineLogout className="w-5 h-5 shrink-0 opacity-90" />
                 Log out
-                    </button>
-                  </div>
+              </button>
+            </div>
           </aside>
 
           {/* Main content – scrolls independently; offset by sidebar width */}
@@ -699,7 +699,7 @@ const Settings = () => {
                 <div className="flex items-center gap-3 mb-5">
                   <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-200 dark:bg-dark-border text-gray-600 dark:text-gray-300 text-sm font-bold">1</span>
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Profile</h2>
-            </div>
+                </div>
           <div className="rounded-xl border border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-hover/20 p-5">
             <div className="p-5">
               <p className="text-sm app-note mb-6 inline-block">Saved here and used when you autofill PDF forms (e.g. SF 1449). Fill once, use every time.</p>
@@ -747,18 +747,18 @@ const Settings = () => {
                         placeholder="Street, city, state, ZIP"
                       />
                     </div>
-                      <div>
-                        <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                          <HiOutlineIdentification className="w-4 h-4 text-[#14B8A6] dark:text-teal-dm shrink-0" />
-                          UEI
-                        </label>
-                        <input
-                          type="text"
-                          value={profileForm.uei}
-                          onChange={(e) => handleProfileChange('uei', e.target.value)}
-                          className="w-full px-3 py-2.5 text-sm border border-gray-200 dark:border-dark-border rounded-xl bg-white dark:bg-dark-hover text-gray-900 dark:text-white focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:border-transparent"
-                          placeholder="Unique Entity ID"
-                        />
+                    <div>
+                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                        <HiOutlineIdentification className="w-4 h-4 text-[#14B8A6] dark:text-teal-dm shrink-0" />
+                        UEI
+                      </label>
+                      <input
+                        type="text"
+                        value={profileForm.uei}
+                        onChange={(e) => handleProfileChange('uei', e.target.value)}
+                        className="w-full px-3 py-2.5 text-sm border border-gray-200 dark:border-dark-border rounded-xl bg-white dark:bg-dark-hover text-gray-900 dark:text-white focus:ring-2 focus:ring-[#14B8A6] dark:focus:ring-teal-dm focus:border-transparent"
+                        placeholder="Unique Entity ID"
+                      />
                     </div>
                     <div>
                       <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
@@ -816,8 +816,8 @@ const Settings = () => {
                 </>
               )}
             </div>
-            </div>
-          </section>
+          </div>
+              </section>
               )}
 
               {activeSettingsSection === 'email' && (
@@ -825,7 +825,7 @@ const Settings = () => {
                 <div className="flex items-center gap-3 mb-5">
                   <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-200 dark:bg-dark-border text-gray-600 dark:text-gray-300 text-sm font-bold">2</span>
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Email & calendar</h2>
-            </div>
+                </div>
                 <div className="rounded-2xl bg-gray-50/60 dark:bg-dark-hover/30 p-6">
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Connect an account to send quote emails and sync deadlines to your calendar.</p>
                   {loading ? (
@@ -842,20 +842,20 @@ const Settings = () => {
                           <p className="text-xs text-gray-500 dark:text-gray-400">{emailConnection.provider === 'google' ? 'Google' : 'Microsoft'}</p>
                         </div>
                       </div>
-                  <button
-                    type="button"
+                      <button
+                        type="button"
                         onClick={handleDisconnect}
                         className="self-start sm:self-center text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                         title="Disconnect email account"
                         aria-label="Disconnect email account"
                       >
                         Disconnect
-                  </button>
+                      </button>
                     </div>
                   ) : (
                     <div className="flex flex-col sm:flex-row gap-3">
-                  <button
-                    type="button"
+                      <button
+                        type="button"
                         onClick={() => handleConnect('google')}
                         className="inline-flex items-center justify-center gap-3 px-5 py-3 text-sm font-medium text-gray-700 dark:text-gray-200 rounded-xl bg-white dark:bg-dark-elevated border border-gray-200/80 dark:border-dark-border hover:border-gray-300 dark:hover:border-dark-hover transition-colors min-w-[140px]"
                         title="Connect Gmail"
@@ -873,16 +873,16 @@ const Settings = () => {
                       >
                         <FaMicrosoft className="w-5 h-5 shrink-0" />
                         Outlook
-                  </button>
-                </div>
+                      </button>
+                    </div>
                   )}
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-5 pt-5 border-t border-gray-200/60 dark:border-dark-border/60">
                     {emailConnection?.connected
                       ? 'Use “Add to Calendar” on an opportunity to create events for its deadlines.'
                       : 'After connecting, you can add opportunity deadlines to your calendar.'}
                   </p>
-            </div>
-          </section>
+                </div>
+              </section>
               )}
 
               {activeSettingsSection === 'signature' && (
@@ -890,7 +890,7 @@ const Settings = () => {
                 <div className="flex items-center gap-3 mb-5">
                   <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-200 dark:bg-dark-border text-gray-600 dark:text-gray-300 text-sm font-bold">3</span>
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Digital signature</h2>
-            </div>
+                </div>
                 <div className="rounded-xl border border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-hover/20 p-5">
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Draw or upload up to 3 signatures. In the document editor, use <strong>Draw → Signature</strong> to place one on the PDF.</p>
                   <div className="space-y-4">
@@ -955,29 +955,29 @@ const Settings = () => {
                             <HiOutlineRefresh className="w-4 h-4" />
                             Refresh
                           </button>
-            </div>
-            </div>
+                        </div>
+                      </div>
                       <div className="w-full lg:w-52 shrink-0">
                         <div className="rounded-xl border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated p-4 space-y-4">
                           <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">Ink pen</span>
-                      <div>
+                          <div>
                             <p className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-2">Color</p>
-                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <input type="color" value={signaturePenColor} onChange={(e) => setSignaturePenColor(e.target.value)} className="w-9 h-9 rounded-lg border-2 border-gray-200 dark:border-dark-border cursor-pointer bg-white dark:bg-dark-hover" title="Ink color" />
-                          {SIGNATURE_PALETTE.map(({ name, hex }) => (
+                              {SIGNATURE_PALETTE.map(({ name, hex }) => (
                                 <button key={hex} type="button" onClick={() => setSignaturePenColor(hex)} className={`w-8 h-8 rounded-lg border-2 transition-all ${signaturePenColor === hex ? 'ring-2 ring-[#14B8A6] dark:ring-teal-dm ring-offset-2' : 'border-gray-200 dark:border-dark-border hover:border-gray-300 dark:hover:border-dark-hover'}`} style={{ backgroundColor: hex }} title={name} />
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <p className="text-xs font-medium text-gray-600 dark:text-gray-300">Width</p>
-                          <span className="text-xs font-medium tabular-nums text-gray-700 dark:text-gray-300">{signaturePenWidth.toFixed(1)}</span>
-                        </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <p className="text-xs font-medium text-gray-600 dark:text-gray-300">Width</p>
+                              <span className="text-xs font-medium tabular-nums text-gray-700 dark:text-gray-300">{signaturePenWidth.toFixed(1)}</span>
+                            </div>
                             <input type="range" min={0.5} max={10} step={0.1} value={signaturePenWidth} onChange={(e) => setSignaturePenWidth(Number(e.target.value))} className="w-full h-1 rounded-full appearance-none cursor-pointer bg-gray-200 dark:bg-dark-hover accent-[#14B8A6] dark:accent-teal-dm" title="Ink pen width" />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
                     </div>
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-5 pt-5 border-t border-gray-200/60 dark:border-dark-border/60">
@@ -1195,31 +1195,31 @@ const Settings = () => {
 
               {(activeSettingsSection === 'profile' || activeSettingsSection === 'signature' || activeSettingsSection === 'stamps') && (
               <div className="flex justify-end pt-6 border-t border-gray-200 dark:border-dark-border mt-8">
-                      <button
-                        type="button"
-                        onClick={handleProfileSave}
-                        disabled={profileSaving}
+                <button
+                  type="button"
+                  onClick={handleProfileSave}
+                  disabled={profileSaving}
                   title={profileSaving ? 'Saving…' : 'Save profile'}
                   aria-label={profileSaving ? 'Saving…' : 'Save profile'}
                   className="inline-flex items-center gap-2.5 px-6 py-3 text-sm font-medium text-white dark:text-black bg-[#14B8A6] dark:bg-teal-dm hover:bg-[#0D9488] dark:hover:bg-teal-600 rounded-xl disabled:opacity-50 shadow-sm transition-colors"
-                      >
-                        {profileSaving ? (
+                >
+                  {profileSaving ? (
                     <svg className="animate-spin w-5 h-5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                        ) : (
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  ) : (
                     <HiOutlineSave className="w-5 h-5 shrink-0" />
-                        )}
+                  )}
                   {profileSaving ? 'Saving…' : 'Save profile'}
-                      </button>
+                </button>
                 {profileSaved && (
                   <span className="self-center ml-3 text-sm font-medium text-green-600 dark:text-green-400">Saved.</span>
                 )}
-                    </div>
+              </div>
               )}
-          </div>
-        </main>
+            </div>
+          </main>
         </div>
       </div>
     </ProtectedRoute>

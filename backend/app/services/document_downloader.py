@@ -39,8 +39,6 @@ class DocumentDownloader:
         self.storage_base_path = storage_base_path
         self.storage_base_path.mkdir(parents=True, exist_ok=True)
         self.page = page  # Playwright page for authenticated downloads
-        # Case 2 link cache: collect all PDF links seen while visiting pages, then download missing ones.
-        self._case2_discovered_pdf_links: Dict[str, str] = {}
         logger.info(f"DEBUG: DocumentDownloader initialized - storage_base_path: {self.storage_base_path} (exists: {self.storage_base_path.exists()})")
     
     def download_document(self, url: str, opportunity_id: int, filename: Optional[str] = None) -> Optional[Dict]:
@@ -446,12 +444,14 @@ class DocumentDownloader:
                         return self._create_file_info(file_path, url, file_size)
                 except Exception as e:
                     logger.info(f"Case 1: Direct PDF download failed: {e}")
-                    # Try alternative method: use requests for direct PDF
+                    
+                    # If it's a net::ERR_ABORTED, it might be a binary stream that triggered a download
+                    # already, or it needs specific cookies/headers.
+                    # Try cookie-aware requests as fallback.
                     try:
-                        logger.info(f"Case 1: Trying alternative method with requests")
-                        response = requests.get(url, stream=True, timeout=60, headers={
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                        })
+                        logger.info(f"Case 1: Trying alternative method with cookie-aware requests")
+                        session = self._get_requests_session_with_cookies()
+                        response = session.get(url, stream=True, timeout=60)
                         response.raise_for_status()
                         
                         file_path = opp_dir / filename
@@ -464,7 +464,7 @@ class DocumentDownloader:
                         
                         file_size = file_path.stat().st_size
                         if file_size > 0 and self._is_valid_pdf(file_path):
-                            logger.info(f"Case 1: Direct PDF download via requests - {file_path.name} ({file_size} bytes)")
+                            logger.info(f"Case 1: Direct PDF download via cookie-aware requests - {file_path.name} ({file_size} bytes)")
                             return self._create_file_info(file_path, url, file_size)
                     except Exception as req_error:
                         logger.info(f"Case 1: Requests method also failed: {req_error}")
@@ -857,33 +857,17 @@ class DocumentDownloader:
         try:
             pdf_links = self._find_pdf_download_links()
             if not pdf_links:
-                logger.info(f"Case 2: No PDF links found on page, checking intermediate document links")
-                # Some sites (e.g., NECO) require one extra click like "Additional Documents"
-                # before direct PDF links appear.
-                intermediate_links = self._find_intermediate_document_links()
-                for hub_url in intermediate_links:
-                    try:
-                        logger.info(f"Case 2: Following intermediate documents link: {hub_url}")
-                        self.page.goto(hub_url, wait_until='load', timeout=60000)
-                        self.page.wait_for_timeout(1500)
-                        pdf_links = self._find_pdf_download_links()
-                        if pdf_links:
-                            logger.info(f"Case 2: Found {len(pdf_links)} PDF links after intermediate navigation")
-                            break
-                    except Exception as e:
-                        logger.warning(f"Case 2: Intermediate link navigation failed ({hub_url}): {e}")
-                if not pdf_links:
-                    logger.info(f"Case 2: No PDF links found on page")
-                    return None
+                logger.info(f"Case 2: No PDF links found on page")
+                return None
             
-            self._cache_case2_pdf_links(pdf_links)
             logger.info(f"Case 2: Found {len(pdf_links)} PDF download link(s) on page")
-            pdf_links = self._rank_pdf_links_for_context(pdf_links, url, filename)
             for pdf_link in pdf_links:
                 try:
                     pdf_url = pdf_link.get('url')
                     pdf_name = pdf_link.get('name', filename)
                     
+                    logger.info(f"Case 2: Examining link: {pdf_name} -> {pdf_url}")
+
                     # Clean up URL (remove fragments like #)
                     if pdf_url and '#' in pdf_url:
                         pdf_url = pdf_url.split('#')[0]
@@ -892,15 +876,13 @@ class DocumentDownloader:
                     if not pdf_name.endswith('.pdf'):
                         pdf_name += '.pdf'
                     
-                    logger.info(f"Case 2: Attempting to download PDF from link: {pdf_url}")
-                    
                     # Try clicking the link element first (more reliable)
                     link_element = pdf_link.get('element')
                     onclick_handler = pdf_link.get('onclick', '')
                     
                     if link_element:
                         try:
-                            logger.info(f"Case 2: Trying to click link element")
+                            logger.info(f"Case 2: Trying to click link element for: {pdf_name}")
                             # For JavaScript-based links, we might need to wait for download differently
                             with self.page.expect_download(timeout=60000) as download_info:
                                 # Scroll element into view first
@@ -935,6 +917,7 @@ class DocumentDownloader:
                     # Fallback: Navigate directly to PDF URL
                     if not pdf_url:
                         continue
+                    
                     try:
                         # Resolve relative URLs
                         if not pdf_url.startswith('http'):
@@ -958,20 +941,17 @@ class DocumentDownloader:
                                     # If navigation fails because download started, that's actually good
                                     if "Download is starting" not in str(nav_error):
                                         raise
-                                        # Download should be available after navigation
-                        
-                            download = download_info.value
-                            file_path = opp_dir / self._sanitize_filename(pdf_name)
-                            download.save_as(str(file_path))
-                            file_size = file_path.stat().st_size
                             
-                            if file_size > 0 and self._is_valid_pdf(file_path):
-                                logger.info(f"Case 2: Successfully downloaded PDF via navigation: {pdf_name} ({file_size} bytes)")
-                                return self._create_file_info(file_path, url, file_size)
+                                download = download_info.value
+                                file_path = opp_dir / self._sanitize_filename(pdf_name)
+                                download.save_as(str(file_path))
+                                file_size = file_path.stat().st_size
+                                
+                                if file_size > 0 and self._is_valid_pdf(file_path):
+                                    logger.info(f"Case 2: Successfully downloaded PDF via navigation: {pdf_name} ({file_size} bytes)")
+                                    return self._create_file_info(file_path, url, file_size)
                         else:
                             # Not a direct PDF URL - might be a page that leads to PDF
-                            # Navigate and check if it's a new page (not a direct download)
-                            # If depth allows, recursively apply all cases
                             if depth < 4 and original_url is not None and opportunity_id is not None:
                                 logger.info(f"Case 2: Link is not direct PDF, navigating and reapplying cases (depth {depth + 1})")
                                 current_url_before = self.page.url
@@ -983,17 +963,16 @@ class DocumentDownloader:
                                 if current_url_after != current_url_before:
                                     logger.info(f"Case 2: Navigated to new page, recursively applying cases")
                                     return self._download_with_playwright(current_url_after, opportunity_id, filename, opp_dir, depth=depth + 1, original_url=original_url)
-                            
+                                
                     except Exception as e:
-                        logger.warning(f"Case 2: Direct navigation also failed: {e}")
-                        # Try one more time with requests as last resort
+                        logger.warning(f"Case 2: Direct navigation failed for {pdf_url}: {e}")
+                        # Try one more time with cookie-aware requests as last resort
                         try:
                             if not pdf_url:
                                 continue
-                            logger.info(f"Case 2: Trying requests as last resort for: {pdf_url}")
-                            response = requests.get(pdf_url, stream=True, timeout=60, headers={
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                            })
+                            logger.info(f"Case 2: Trying cookie-aware requests as last resort for: {pdf_url}")
+                            session = self._get_requests_session_with_cookies()
+                            response = session.get(pdf_url, stream=True, timeout=60)
                             response.raise_for_status()
                             
                             file_path = opp_dir / self._sanitize_filename(pdf_name)
@@ -1003,7 +982,7 @@ class DocumentDownloader:
                             
                             file_size = file_path.stat().st_size
                             if file_size > 0 and self._is_valid_pdf(file_path):
-                                logger.info(f"Case 2: Successfully downloaded PDF via requests: {pdf_name} ({file_size} bytes)")
+                                logger.info(f"Case 2: Successfully downloaded PDF via cookie-aware requests: {pdf_name} ({file_size} bytes)")
                                 return self._create_file_info(file_path, url, file_size)
                         except Exception as req_error:
                             logger.warning(f"Case 2: Requests method also failed: {req_error}")
@@ -1017,79 +996,6 @@ class DocumentDownloader:
         except Exception as e:
             logger.warning(f"Case 2: Error finding PDF links: {e}")
             return None
-
-    def _cache_case2_pdf_links(self, pdf_links: List[Dict]) -> None:
-        """Remember all PDF links discovered by Case 2 for later download pass."""
-        for link in pdf_links or []:
-            try:
-                u = (link.get('url') or "").strip()
-                if not u:
-                    continue
-                if not u.startswith('http'):
-                    u = urljoin(self.page.url if self.page else "", u)
-                if not u or ".pdf" not in u.lower():
-                    continue
-                name = (link.get('name') or Path(u.split('?', 1)[0]).name or "document.pdf").strip()
-                if not name.lower().endswith(".pdf"):
-                    name = f"{name}.pdf"
-                self._case2_discovered_pdf_links[u] = name
-            except Exception:
-                continue
-
-    def _rank_pdf_links_for_context(self, pdf_links: List[Dict], source_url: str, source_name: str) -> List[Dict]:
-        """
-        Rank candidate PDF links so we pick the one most related to the current source link/name.
-        Example: source "...soln=SPRPA126RVA840001" should prefer ".../SPRPA126RVA840001.pdf".
-        """
-        if not pdf_links:
-            return []
-
-        hints = set()
-        try:
-            # Name hint from attachment label
-            if source_name:
-                for m in re.findall(r"[A-Za-z0-9]{6,}", source_name):
-                    hints.add(m.upper())
-            # URL hint from query like soln=SPRPA126RVA840001
-            if source_url:
-                for m in re.findall(r"(?:soln|sol|id|doc)=([A-Za-z0-9_-]{6,})", source_url, flags=re.IGNORECASE):
-                    hints.add(m.upper())
-                for m in re.findall(r"[A-Za-z0-9]{6,}", source_url):
-                    hints.add(m.upper())
-        except Exception:
-            pass
-
-        def _score(link: Dict) -> int:
-            u = str(link.get('url') or '').upper()
-            n = str(link.get('name') or '').upper()
-            basename = Path((link.get('url') or '').split('?', 1)[0]).name.upper()
-            score = 0
-            for h in hints:
-                if not h:
-                    continue
-                # Strong match: exact basename (without extension)
-                if basename == f"{h}.PDF":
-                    score += 300
-                if n == f"{h}.PDF":
-                    score += 260
-                # Good match: contained token
-                if h in basename:
-                    score += 120
-                if h in n:
-                    score += 90
-                if h in u:
-                    score += 70
-            return score
-
-        ranked = sorted(pdf_links, key=_score, reverse=True)
-        if hints and ranked:
-            top = ranked[0]
-            logger.info(
-                "Case 2: ranked PDF links for context '%s' (top=%s)",
-                source_name or source_url,
-                top.get('url') or top.get('name') or 'unknown'
-            )
-        return ranked
     
     def _try_case3_extract_text(self, url: str, filename: str, opp_dir: Path) -> Optional[Dict]:
         """Case 3: Extract text content and save as TXT (LAST RESORT)"""
@@ -1120,16 +1026,45 @@ class DocumentDownloader:
             logger.warning(f"Case 3: Error extracting text: {e}")
             return None
     
+    def _get_requests_session_with_cookies(self) -> requests.Session:
+        """Create a requests session synced with Playwright cookies and headers"""
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Upgrade-Insecure-Requests': '1',
+        })
+        
+        if self.page:
+            try:
+                # Sync cookies from Playwright to requests
+                cookies = self.page.context.cookies()
+                for cookie in cookies:
+                    session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'], path=cookie['path'])
+                
+                # Sync some headers if possible
+                # (Playwright doesn't expose all browser headers easily, but User-Agent is key)
+                ua = self.page.evaluate('() => navigator.userAgent')
+                if ua:
+                    session.headers.update({'User-Agent': ua})
+            except Exception as e:
+                logger.warning(f"Failed to sync cookies to requests: {e}")
+        
+        return session
+
     def _download_with_requests(self, url: str, opportunity_id: int, filename: str, opp_dir: Path) -> Optional[Dict]:
-        """Fallback download using requests"""
+        """Fallback download using requests (cookie-aware)"""
         try:
             file_path = opp_dir / filename
-            logger.info(f"Downloading {url} to {file_path} using requests")
+            logger.info(f"Downloading {url} to {file_path} using requests (cookie-aware)")
             
-            response = requests.get(url, stream=True, timeout=60, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
+            session = self._get_requests_session_with_cookies()
+            response = session.get(url, stream=True, timeout=60)
             response.raise_for_status()
+            
+            # Check content type
+            content_type = response.headers.get('Content-Type', '').lower()
             
             with open(file_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
@@ -1141,7 +1076,10 @@ class DocumentDownloader:
             if file_size > 0:
                 with open(file_path, 'rb') as f:
                     first_bytes = f.read(1024)
-                    if b'<html' in first_bytes.lower() or b'<!doctype' in first_bytes.lower():
+                    # If it's a PDF but mislabeled as HTML, check magic bytes
+                    if first_bytes.startswith(b'%PDF'):
+                        pass # It's a valid PDF
+                    elif b'<html' in first_bytes.lower() or b'<!doctype' in first_bytes.lower():
                         logger.error(f"Downloaded file appears to be HTML error page: {filename}")
                         file_path.unlink()
                         return None
@@ -1340,40 +1278,6 @@ class DocumentDownloader:
         except Exception as e:
             logger.warning(f"Error finding PDF links: {e}")
             return []
-
-    def _find_intermediate_document_links(self) -> List[str]:
-        """
-        Find non-PDF document hub links that often lead to a page with direct PDF links.
-        Example: "Click here for Additional Documents" -> /necoattach.aspx?... -> *.pdf links.
-        """
-        if self.page is None:
-            return []
-        links: List[str] = []
-        try:
-            candidates = self.page.query_selector_all('a')
-            for a in candidates:
-                try:
-                    text = (a.inner_text() or "").strip().lower()
-                    href = (a.get_attribute('href') or "").strip()
-                    if not href:
-                        continue
-                    full_href = href if href.startswith('http') else urljoin(self.page.url, href)
-                    hay = f"{text} {full_href.lower()}"
-                    if any(k in hay for k in (
-                        "additional document",
-                        "attachments",
-                        "attached files",
-                        "solicitation detail",
-                        "necoattach",
-                        "840-v5.aspx",
-                    )):
-                        if full_href not in links:
-                            links.append(full_href)
-                except Exception:
-                    continue
-        except Exception as e:
-            logger.warning(f"Error finding intermediate document links: {e}")
-        return links[:8]
     
     def _extract_text_from_page(self) -> Optional[str]:
         """Extract text content from the current page, preserving structure"""
@@ -1712,19 +1616,9 @@ class DocumentDownloader:
         
         return extracted
     
-    def download_attachments(
-        self,
-        attachments: List[Dict],
-        opportunity_id: int,
-        opportunity_url: Optional[str] = None,
-        process_individual_links: bool = True,
-    ) -> List[Dict]:
+    def download_attachments(self, attachments: List[Dict], opportunity_id: int, opportunity_url: Optional[str] = None) -> List[Dict]:
         """
-        Download multiple attachments.
-        Behavior:
-        - Try ZIP ("Download All") first when page is available.
-        - Also process individual attachment links when provided.
-        - Merge both results and deduplicate by path/name.
+        Download multiple attachments - tries ZIP download first, falls back to individual downloads
         
         Args:
             attachments: List of attachment dicts from scraper
@@ -1735,22 +1629,6 @@ class DocumentDownloader:
         """
         logger.info(f"DEBUG: download_attachments called - attachments count: {len(attachments)}, opportunity_id: {opportunity_id}")
         
-        downloaded: List[Dict] = []
-        seen_keys = set()
-        zip_downloaded_names = set()
-
-        def _add_unique(file_info: Optional[Dict]) -> None:
-            if not file_info:
-                return
-            key = (
-                str(file_info.get('path') or '').strip().lower(),
-                str(file_info.get('name') or '').strip().lower(),
-            )
-            if key in seen_keys:
-                return
-            seen_keys.add(key)
-            downloaded.append(file_info)
-
         # Try downloading as ZIP first if we have a page object
         if self.page:
             logger.info(f"DEBUG: Attempting to download all attachments as ZIP")
@@ -1759,28 +1637,16 @@ class DocumentDownloader:
             if zip_result and zip_result.get('extracted_files'):
                 extracted_files = zip_result['extracted_files']
                 logger.info(f"DEBUG: Successfully downloaded ZIP and extracted {len(extracted_files)} files")
-                for file_info in extracted_files:
-                    _add_unique(file_info)
-                    name = str(file_info.get('name') or '').strip().lower()
-                    if name:
-                        zip_downloaded_names.add(name)
+                return extracted_files
             else:
-                logger.warning(f"DEBUG: ZIP download failed or returned no files")
+                logger.warning(f"DEBUG: ZIP download failed or returned no files, falling back to individual downloads")
         
-        # Also process individual links when available (covers cases where links exist in addition to ZIP)
-        if not process_individual_links:
-            logger.info("DEBUG: Skipping individual attachment link downloads (Links section has no links)")
-            logger.info(
-                f"DEBUG: download_attachments complete - downloaded {len(downloaded)} unique files "
-                f"(ZIP only; individual link processing disabled)"
-            )
-            return downloaded
-
-        logger.info(f"DEBUG: Processing individual file downloads from extracted links")
+        # Fallback to individual downloads
+        logger.info(f"DEBUG: Falling back to individual file downloads")
         logger.info(f"DEBUG: Attachment list: {attachments}")
-
-        attempted_urls = set()
-
+        
+        downloaded = []
+        
         for idx, attachment in enumerate(attachments):
             logger.info(f"DEBUG: Processing attachment {idx + 1}/{len(attachments)}: {attachment}")
             url = attachment.get('url')
@@ -1791,50 +1657,17 @@ class DocumentDownloader:
             if not url:
                 logger.warning(f"DEBUG: Skipping attachment {idx + 1} - no URL found")
                 continue
-
-            # If ZIP already produced this same file by name, skip individual URL to avoid
-            # creating duplicate HTML/TXT fallbacks for the same PDF.
-            name_l = str(name or '').strip().lower()
-            if name_l and name_l in zip_downloaded_names:
-                logger.info(
-                    f"DEBUG: Skipping individual download for '{name}' because ZIP already included it"
-                )
-                continue
-            attempted_urls.add(str(url).strip())
             
             file_info = self.download_document(url, opportunity_id, name or url or "document")
             if file_info:
                 file_info['type'] = attachment.get('type', 'unknown')
                 file_info['access'] = attachment.get('access', 'unknown')
-                _add_unique(file_info)
+                downloaded.append(file_info)
                 logger.info(f"DEBUG: Successfully downloaded attachment {idx + 1}: {file_info.get('name')}")
             else:
                 logger.error(f"DEBUG: Failed to download attachment {idx + 1}: {name or url}")
-
-        # Post-pass: download any extra PDF links discovered during Case 2 page visits.
-        if self._case2_discovered_pdf_links:
-            logger.info(
-                "DEBUG: Case 2 discovered %s PDF link(s); attempting any not already visited",
-                len(self._case2_discovered_pdf_links),
-            )
-            for pdf_url, pdf_name in list(self._case2_discovered_pdf_links.items()):
-                if pdf_url in attempted_urls:
-                    continue
-                attempted_urls.add(pdf_url)
-                logger.info("DEBUG: Downloading extra discovered PDF: %s", pdf_url)
-                extra = self.download_document(pdf_url, opportunity_id, pdf_name or "document.pdf")
-                if extra:
-                    extra['type'] = 'pdf'
-                    extra['access'] = 'unknown'
-                    _add_unique(extra)
-                    logger.info("DEBUG: Successfully downloaded extra discovered PDF: %s", extra.get('name'))
-                else:
-                    logger.warning("DEBUG: Failed to download extra discovered PDF: %s", pdf_url)
         
-        logger.info(
-            f"DEBUG: download_attachments complete - downloaded {len(downloaded)} unique files "
-            f"(from ZIP + {len(attachments)} individual entries)"
-        )
+        logger.info(f"DEBUG: download_attachments complete - downloaded {len(downloaded)}/{len(attachments)} files")
         return downloaded
     
     def _sanitize_filename(self, filename: str) -> str:

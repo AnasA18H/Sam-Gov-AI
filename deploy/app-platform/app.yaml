@@ -1,0 +1,74 @@
+# DigitalOcean App Platform Specification
+# This file defines the multi-component app: Backend, Worker, and Frontend.
+
+name: sam-gov-ai
+region: nyc
+services:
+  - name: backend
+    instance_count: 1
+    instance_size_slug: basic-xs
+    dockerfile_path: Dockerfile.backend
+    http_port: 8000
+    source_dir: /
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        value: ${db.DATABASE_URL}
+      - key: REDIS_CELERY_URL
+        scope: RUN_AND_BUILD_TIME
+        value: ${redis.REDIS_URL}
+      - key: STORAGE_TYPE
+        scope: RUN_TIME
+        value: s3
+      # Add other secrets (Anthropic, etc.) in the DO UI or via doctl
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 30
+      period_seconds: 10
+
+  - name: frontend
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    dockerfile_path: Dockerfile.frontend
+    http_port: 80
+    source_dir: /
+    envs:
+      - key: VITE_API_URL
+        scope: BUILD_TIME
+        value: ${backend.PUBLIC_URL}
+
+workers:
+  - name: celery-worker
+    instance_count: 1
+    instance_size_slug: basic-xs
+    dockerfile_path: Dockerfile.backend
+    run_command: celery -A backend.app.core.celery_app worker --loglevel=info
+    source_dir: /
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${db.DATABASE_URL}
+      - key: REDIS_CELERY_URL
+        scope: RUN_TIME
+        value: ${redis.REDIS_URL}
+
+databases:
+  - name: db
+    engine: PG
+    production: true # Use a managed DB for production
+  - name: redis
+    engine: REDIS
+    production: true
+
+# Pre-deploy job for migrations
+jobs:
+  - name: db-migrate
+    kind: PRE_DEPLOY
+    instance_size_slug: basic-xxs
+    dockerfile_path: Dockerfile.backend
+    run_command: alembic upgrade head
+    source_dir: /
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${db.DATABASE_URL}

@@ -119,8 +119,13 @@ class TextExtractor:
     
     # Document type classification patterns
     DOCUMENT_TYPE_PATTERNS = {
-        'sf1449': [r'SF\s*1449', r'Standard Form\s*1449', r'Form\s*1449'],
-        'sf30': [r'SF\s*30', r'Standard Form\s*30', r'Amendment'],
+        'sf1449': [r'SF\s*1449', r'Standard Form\s*1449', r'Form\s*1449', r'Section B - Schedule of Supplies/Services'],
+        'sf33': [r'SF\s*33', r'Standard Form\s*33', r'Solicitation, Offer and Award', r'SECTION B - SUPPLIES OR SERVICES AND PRICES/COSTS'],
+        'sf18': [r'SF\s*18', r'Request for Quotation', r'Block 11 - Schedule'],
+        'sf30': [r'SF\s*30', r'Standard Form\s*30', r'Amendment', r'Modification'],
+        'dla': [r'DLA', r'DIBBS', r'PR:', r'PRLI', r'NSN/MATERIAL:'],
+        'va': [r'Department of Veterans Affairs', r'VA Solicitation', r'Price/Cost Schedule'],
+        'gsa': [r'GSA Schedule', r'GSA Advantage', r'Price List'],
         'sow': [r'Statement\s+of\s+Work', r'SOW', r'Scope\s+of\s+Work'],
         'amendment': [r'Amendment', r'Modification', r'Change\s+Order'],
     }
@@ -138,7 +143,7 @@ class TextExtractor:
                 logger.warning(f"OCR initialization warning: {str(e)}")
     
     @staticmethod
-    def _clean_text(text: str) -> str:
+    def _clean_text(text: str, preserve_layout: bool = True) -> str:
         """
         Clean extracted text by removing PDF encoding artifacts and other garbage
         Removes (cid:XXX) patterns which are PDF character encoding artifacts
@@ -181,9 +186,18 @@ class TextExtractor:
             cleaned_lines.append(line)
         text = '\n'.join(cleaned_lines)
         
-        # Remove other common PDF artifacts
-        text = re.sub(r'[^\x20-\x7E\n\r\t]', '', text)  # Remove non-printable chars except newlines/tabs
-        text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
+        # Final cleaning
+        if preserve_layout:
+            # Preserve structure: remove non-printable but keep newlines/tabs
+            text = "".join(c for c in text if ord(c) >= 32 or c in '\n\r\t')
+            # Normalize excessive empty lines but keep single/double newlines
+            text = re.sub(r'\n{3,}', '\n\n', text)
+            # Remove trailing spaces from each line to save tokens, but keep leading/internal spacing
+            text = '\n'.join(line.rstrip() for line in text.split('\n'))
+        else:
+            # Traditional cleaning: collapse all whitespace including newlines
+            text = re.sub(r'[^\x20-\x7E\n\r\t]', '', text)
+            text = re.sub(r'\s+', ' ', text)
         
         return text.strip()
     
@@ -912,9 +926,8 @@ class TextExtractor:
                     text = content.decode('utf-8', errors='ignore')
                     # Filter out non-printable characters
                     text = ''.join(char for char in text if char.isprintable() or char in '\n\r\t')
-                    # Clean up
-                    text = re.sub(r'\x00+', '', text)  # Remove null bytes
-                    text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
+                    # Clean up using the standardized cleaner
+                    text = self._clean_text(text, preserve_layout=True)
                     if len(text.strip()) > 100:  # Only return if we got substantial text
                         logger.info(f"Extracted {len(text)} characters from .doc file (basic extraction)")
                         return text

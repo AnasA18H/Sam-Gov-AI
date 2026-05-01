@@ -21,8 +21,8 @@ const Analyze = () => {
   const [files, setFiles] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [enableDocumentAnalysis, setEnableDocumentAnalysis] = useState(true);
-  const [enableClinExtraction, setEnableClinExtraction] = useState(true);
+  const [enableDocumentAnalysis, setEnableDocumentAnalysis] = useState(false);
+  const [enableClinExtraction, setEnableClinExtraction] = useState(false);
   const navigate = useNavigate();
 
   // Auto-disable CLIN extraction if document analysis is disabled
@@ -71,7 +71,7 @@ const Analyze = () => {
       }
 
       // Send request with FormData
-      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const API_BASE_URL = import.meta.env.VITE_API_URL || '';
       const token = localStorage.getItem('access_token');
       
       const response = await fetch(`${API_BASE_URL}/api/v1/opportunities`, {
@@ -254,11 +254,17 @@ const Analyze = () => {
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Analysis Options
                     </label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-3">
                       {/* Document Analysis Toggle */}
                       <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-dark-hover/50 rounded-lg border border-gray-200 dark:border-dark-border">
                         <div className="flex-1">
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">Document Analysis</span>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">Document Analysis</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-300">(Text extraction, classification)</span>
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-300 mt-1">
+                            Extract text from documents and classify solicitation type
+                          </p>
                         </div>
                         <button
                           type="button"
@@ -278,9 +284,15 @@ const Analyze = () => {
                       </div>
 
                       {/* CLIN Extraction Toggle */}
-                      <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-dark-hover/50 rounded-lg border border-gray-200 dark:border-dark-border">
+                      <div className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-dark-hover/50 rounded-lg border border-gray-200 dark:border-dark-border">
                         <div className="flex-1">
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">CLIN Extraction</span>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">CLIN Extraction</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-300">(Requires Document Analysis)</span>
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-300 mt-1">
+                            Extract Contract Line Item Numbers using AI (Claude/Groq)
+                          </p>
                         </div>
                         <button
                           type="button"

@@ -6,6 +6,8 @@
 # local runtime
 *.pid
 logs/
+deploy/secrets/
+deploy/.env.prod
 
 # python
 __pycache__/
@@ -35,3 +37,11 @@ ExamplePDF/
 
 # OS
 .DS_Store
+# secrets in extras
+
+extras/
+extras/google_service_account.json
+extras/*.txt
+extras/*.json
+extras/*client_secret*
+extras/*secret*

@@ -4,7 +4,7 @@ Opportunities API endpoints
 import re
 import time
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -43,11 +43,32 @@ from ..services.quote_email_drafts import generate_drafts_for_opportunity
 from ..services.form_autofill import get_autofill_values
 from ..services.pdf_form_filler import introspect_pdf_fields
 from ..services.clin_extractor import CLINExtractor
+from ..services.object_storage import (
+    s3_enabled,
+    upload_file,
+    make_object_key,
+    presigned_get_url,
+    delete_s3_uri,
+    parse_s3_uri,
+)
 
 logger = logging.getLogger(__name__)
 
 # Reuse for autofill LLM (lazy init); primary and fallback (e.g. Claude then Groq)
 _autofill_extractor = None
+
+
+def _maybe_upload_to_s3(opportunity_id: int, category: str, file_path: Path, mime_type: Optional[str]) -> tuple[str, Optional[str]]:
+    """Upload local file to S3-compatible storage when enabled."""
+    if not s3_enabled():
+        return "local", None
+    try:
+        key = make_object_key(opportunity_id, category, file_path.name)
+        s3_uri = upload_file(file_path, key, content_type=mime_type)
+        return "s3", s3_uri
+    except Exception as exc:
+        logger.warning("S3 upload failed for %s: %s; falling back to local storage", file_path, exc)
+        return "local", None
 
 def _get_autofill_llms():
     """Return (primary_llm, fallback_llm) for form autofill; try primary first, then fallback if it fails."""
@@ -171,6 +192,19 @@ async def create_opportunity(
     )
     
     db.add(new_opportunity)
+    if s3_enabled():
+        try:
+            current_uri = str(getattr(document, "file_url", "") or "")
+            parsed = parse_s3_uri(current_uri) if current_uri else None
+            if parsed:
+                _, key = parsed
+                document.file_url = upload_file(file_path, key, content_type=document.mime_type)  # type: ignore[assignment]
+            else:
+                key = make_object_key(oid, "uploads", file_path.name)
+                document.file_url = upload_file(file_path, key, content_type=document.mime_type)  # type: ignore[assignment]
+            document.storage_type = "s3"  # type: ignore[assignment]
+        except Exception as exc:
+            logger.warning("overwrite_document: failed to sync to S3 for doc_id=%s: %s", did, exc)
     db.commit()
     db.refresh(new_opportunity)
     
@@ -219,6 +253,12 @@ async def create_opportunity(
                     if mime_type is None:
                         mime_type, _ = mimetypes.guess_type(file.filename)
                     
+                    storage_type, file_url = _maybe_upload_to_s3(
+                        new_opportunity.id,
+                        "uploads",
+                        file_path,
+                        mime_type or "application/octet-stream",
+                    )
                     # Create document record
                     doc = Document(
                         opportunity_id=new_opportunity.id,
@@ -229,7 +269,8 @@ async def create_opportunity(
                         file_type=doc_type,
                         mime_type=mime_type or "application/octet-stream",
                         source=DocumentSource.USER_UPLOAD,
-                        storage_type="local"
+                        storage_type=storage_type,
+                        file_url=file_url,
                     )
                     db.add(doc)
                     uploaded_files.append(doc)
@@ -701,6 +742,13 @@ async def delete_opportunity(
     failed_files = []
     for doc in documents:
         try:
+            doc_file_url = str(getattr(doc, "file_url", "") or "")
+            if doc_file_url.startswith("s3://"):
+                try:
+                    delete_s3_uri(doc_file_url)
+                    logger.info("✅ Deleted object: %s", doc_file_url)
+                except Exception as s3_exc:
+                    logger.warning("❌ Error deleting object %s: %s", doc_file_url, s3_exc)
             # Resolve file path
             file_path = Path(str(doc.file_path))
             
@@ -916,10 +964,13 @@ async def view_document(
             detail="Document not found"
         )
     
-    # If document has a public URL (S3), redirect to it
+    # If document is in object storage, return a short-lived URL.
     file_url = getattr(document, "file_url", None)
     if file_url:
-        from fastapi.responses import RedirectResponse
+        if str(file_url).startswith("s3://"):
+            signed_url = presigned_get_url(str(file_url))
+            if signed_url:
+                return RedirectResponse(url=signed_url)
         return RedirectResponse(url=str(file_url))
     
     # For local files, serve the file (same path resolution as overwrite_document)
@@ -1063,6 +1114,19 @@ async def create_pdf_from_word(
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update PDF file.")
         existing_pdf.file_size = existing_path.stat().st_size  # type: ignore[assignment]
         existing_pdf.mime_type = "application/pdf"  # type: ignore[assignment]
+        if s3_enabled():
+            try:
+                existing_uri = str(getattr(existing_pdf, "file_url", "") or "")
+                parsed = parse_s3_uri(existing_uri) if existing_uri else None
+                if parsed:
+                    _, key = parsed
+                    existing_pdf.file_url = upload_file(existing_path, key, content_type="application/pdf")  # type: ignore[assignment]
+                else:
+                    key = make_object_key(oid, "uploads", existing_path.name)
+                    existing_pdf.file_url = upload_file(existing_path, key, content_type="application/pdf")  # type: ignore[assignment]
+                existing_pdf.storage_type = "s3"  # type: ignore[assignment]
+            except Exception as exc:
+                logger.warning("create_pdf_from_word: failed S3 sync for existing PDF doc_id=%s: %s", existing_pdf.id, exc)
         db.commit()
         db.refresh(existing_pdf)
         logger.info("create_pdf_from_word: re-converted Word doc_id=%s, updated PDF doc_id=%s", did, existing_pdf.id)
@@ -1074,6 +1138,7 @@ async def create_pdf_from_word(
     dest_path = upload_dir / safe_name
     dest_path.write_bytes(pdf_path.read_bytes())
     rel_path = str(dest_path.resolve().relative_to(settings.PROJECT_ROOT.resolve()))
+    storage_type, file_url = _maybe_upload_to_s3(oid, "uploads", dest_path, "application/pdf")
     new_doc = Document(
         opportunity_id=oid,
         file_name=safe_name,
@@ -1083,7 +1148,8 @@ async def create_pdf_from_word(
         file_type=DocumentType.PDF,
         mime_type="application/pdf",
         source=DocumentSource.USER_UPLOAD,
-        storage_type="local",
+        storage_type=storage_type,
+        file_url=file_url,
         converted_from_document_id=did,
     )
     db.add(new_doc)
@@ -1435,6 +1501,12 @@ async def add_document(
         else:
             doc_type = DocumentType.OTHER
     rel_path = str(file_path.resolve().relative_to(settings.PROJECT_ROOT.resolve()))
+    storage_type, file_url = _maybe_upload_to_s3(
+        oid,
+        "uploads",
+        file_path,
+        mime_type or "application/octet-stream",
+    )
     doc = Document(
         opportunity_id=oid,
         file_name=safe_filename,
@@ -1444,7 +1516,8 @@ async def add_document(
         file_type=doc_type,
         mime_type=mime_type or "application/octet-stream",
         source=DocumentSource.USER_UPLOAD,
-        storage_type="local",
+        storage_type=storage_type,
+        file_url=file_url,
     )
     db.add(doc)
     db.commit()
@@ -1481,11 +1554,6 @@ async def overwrite_document(
     ).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    if getattr(document, "file_url", None):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot overwrite document stored externally (S3)"
-        )
     doc_file_path_str = str(getattr(document, "file_path", "") or "")
     if not doc_file_path_str:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document has no file path")
@@ -1619,7 +1687,14 @@ async def delete_document(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     doc_file_path_str = str(getattr(document, "file_path", "") or "")
-    if doc_file_path_str and not getattr(document, "file_url", None):
+    file_url = str(getattr(document, "file_url", "") or "")
+    if file_url.startswith("s3://"):
+        try:
+            delete_s3_uri(file_url)
+            logger.info("delete_document: removed object %s", file_url)
+        except Exception as exc:
+            logger.warning("delete_document: could not remove object %s: %s", file_url, exc)
+    if doc_file_path_str and not file_url.startswith("s3://"):
         file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
         if file_path.exists() and file_path.is_file():
             try:

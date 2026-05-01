@@ -518,22 +518,25 @@ data/debug_extracts/opportunity_{id}/
 
 ## Deployment
 
-### Digital Ocean App Platform
+### DigitalOcean (recommended)
 
-1. Push code to Git repository
-2. Connect repository to Digital Ocean App Platform
-3. Configure environment variables (DATABASE_URL, REDIS_URL, JWT_SECRET_KEY, API keys, etc.)
-4. Deploy
+Production target for this project is:
+- Droplet for app containers
+- Managed PostgreSQL for database
+- Spaces (S3-compatible) for document storage
 
-### Docker
+Use the full runbook:
+- [`DEPLOY_DIGITALOCEAN.md`](DEPLOY_DIGITALOCEAN.md)
+
+Production compose and env template:
+- [`deploy/docker-compose.prod.yml`](deploy/docker-compose.prod.yml)
+- [`deploy/.env.prod.example`](deploy/.env.prod.example)
+- [`deploy/Caddyfile`](deploy/Caddyfile)
+
+### Local Docker (development)
 
 ```bash
-# Build and run
-docker-compose up -d
-
-# Or build individually
-docker build -f Dockerfile.backend -t samgov-backend .
-docker build -f Dockerfile.frontend -t samgov-frontend .
+docker compose up -d
 ```
 
 ---

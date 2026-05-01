@@ -8,12 +8,22 @@ echo "=========================================="
 echo "Running Database Migrations"
 echo "=========================================="
 
-# Activate virtual environment
-if [ -d "venv" ]; then
-    source venv/bin/activate
-    echo "✓ Virtual environment activated"
+# Activate virtual environment (prefer already-active VIRTUAL_ENV)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$SCRIPT_DIR"
+
+if [ -n "${VIRTUAL_ENV-}" ] && [ -x "${VIRTUAL_ENV}/bin/python" ]; then
+    echo "✓ Virtual environment already active: ${VIRTUAL_ENV}"
+elif [ -d ".venv" ] && [ -x ".venv/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source ".venv/bin/activate"
+    echo "✓ Virtual environment activated: .venv"
+elif [ -d "venv" ] && [ -x "venv/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source "venv/bin/activate"
+    echo "✓ Virtual environment activated: venv"
 else
-    echo "✗ Virtual environment not found"
+    echo "✗ Virtual environment not found (expected .venv/ or venv/)"
     exit 1
 fi
 

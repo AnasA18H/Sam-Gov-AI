@@ -7,8 +7,9 @@ Extracts Contract Line Item Numbers (CLINs) from government contract documents u
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
 import dateutil.parser
 
 try:
@@ -105,9 +106,6 @@ if PYDANTIC_AVAILABLE:
 
 class CLINExtractor:
     """Simple CLIN extractor using Claude (primary) and Groq (fallback)"""
-    LARGE_BATCH_THRESHOLD_CHARS = 120000
-    CHUNK_TARGET_CHARS = 45000
-    CHUNK_OVERLAP_CHARS = 2000
     
     def __init__(self, text_extractor: Optional[TextExtractor] = None):
         self.text_extractor = text_extractor or TextExtractor()
@@ -125,7 +123,7 @@ class CLINExtractor:
                     temperature=0,
                     api_key=SecretStr(settings.ANTHROPIC_API_KEY),
                     timeout=_llm_client_timeout,
-                    model_kwargs={"max_tokens": 4096},
+                    max_tokens=4096,
                     stop=None,
                 )
                 logger.info(f"Claude LLM initialized: model={getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-sonnet-20240229')} timeout={_llm_client_timeout}s")
@@ -140,7 +138,6 @@ class CLINExtractor:
                     model=getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile"),
                     temperature=0,
                     api_key=SecretStr(settings.GROQ_API_KEY),
-                    timeout=_llm_client_timeout,
                     max_tokens=4096,
                 )  # type: ignore[call-arg]
                 logger.info(f"Groq LLM initialized: model={getattr(settings, 'GROQ_MODEL', 'llama-3.3-70b-versatile')} timeout={_llm_client_timeout}s")
@@ -434,12 +431,7 @@ class CLINExtractor:
                 logger.error(f"{llm_name} JSON fallback failed: {fallback_error}")
                 return ([], [])
     
-    def extract_clins(
-        self,
-        text: str,
-        file_path: Optional[str] = None,
-        run_missing_fields_second_pass: bool = True,
-    ) -> Tuple[List[Dict], List[Dict]]:
+    def extract_clins(self, text: str, file_path: Optional[str] = None) -> Tuple[List[Dict], List[Dict]]:
         """Extract CLINs and deadlines from a single document"""
         if not self.llm and not self.fallback_llm:
             logger.warning("No LLM available")
@@ -640,8 +632,8 @@ DOCUMENT TEXT:
         clins_dicts = self._convert_to_dicts(clins)
         deadlines_dicts = self._convert_deadlines_to_dicts(deadlines)
         
-        # Optional second pass to fill missing fields.
-        if clins_dicts and run_missing_fields_second_pass:
+        # Check if 20% or more fields are null - if so, do a second pass to fill missing values
+        if clins_dicts:
             missing_fields_count, total_fields_count = self._count_missing_fields(clins_dicts)
             missing_percentage = (missing_fields_count / total_fields_count * 100) if total_fields_count > 0 else 0
             if missing_percentage >= 20:
@@ -649,349 +641,97 @@ DOCUMENT TEXT:
                 clins_dicts = self._fill_missing_fields(clins_dicts, text)
             elif missing_fields_count > 0:
                 logger.debug(f"Found {missing_fields_count} missing fields ({missing_percentage:.1f}%) - below 20% threshold, skipping second pass")
-        elif clins_dicts:
-            logger.info("Skipping per-chunk missing-fields second pass (chunk mode)")
         
         return (clins_dicts, deadlines_dicts)
     
-    def _extract_price_schedule_section(self, text: str, max_chars: int = 35000) -> Optional[str]:
-        """Extract the price/CLIN schedule block so line items at the end of the table are never truncated.
-        Returns the section from B.3/ITEM NUMBER through GRAND TOTAL or B.4, or None if not found."""
+    def _extract_price_schedule_section(self, text: str, max_chars: int = 40000) -> Optional[str]:
+        """
+        Extract the targeted Section B / Price Schedule block based on standard government formats.
+        Prioritizes SECTION B and identified pricing schedules.
+        """
         if not text or len(text) < 200:
             return None
+        
         text_lower = text.lower()
+        
+        # Start markers based on user requirements
         start_markers = [
-            "b.3 price",
+            "section b - supplies or services and prices/costs",
+            "section b - schedule of supplies/services",
+            "section b - pricing schedule",
+            "section b - contract line items",
+            "section b - price/cost schedule",
+            "b.3 price/cost schedule",
+            "b.3 price schedule",
+            "block 11 - schedule",
             "price/cost schedule",
-            "item number",
+            "pricing schedule",
             "schedule of supplies",
             "clin schedule",
-            "pricing schedule",
+            "item number",
+            "material/nsn:",
+            "pr:",
+            "\nsection b\n",
         ]
+        
         start_pos = -1
+        matched_marker = None
         for m in start_markers:
             i = text_lower.find(m)
             if i != -1 and (start_pos == -1 or i < start_pos):
                 start_pos = i
+                matched_marker = m
+        
         if start_pos == -1:
-            return None
-        # End at GRAND TOTAL, B.4, or after max_chars
+            # Final fallback: search for "SECTION B" alone if it's a standalone line
+            standalone_b = re.search(r'\n\s*SECTION\s+B\s*\n', text, re.IGNORECASE)
+            if standalone_b:
+                start_pos = standalone_b.start()
+                matched_marker = "SECTION B (standalone)"
+            else:
+                return None
+        
+        logger.info(f"Targeted Section B extraction starting at: '{matched_marker}'")
+        
+        # Segment starting from Section B
         segment = text[start_pos : start_pos + max_chars]
-        end_markers = ["grand total", "\nb.4 ", "section b.4", "b.4 delivery", "delivery schedule"]
+        segment_lower = segment.lower()
+        
+        # End markers for Section B (where Section C or other sections start)
+        # In standard solicitations, Section B is followed by C, D, E, etc.
+        end_markers = [
+            "\nsection c",
+            "\nsection d",
+            "\nsection e",
+            "\nsection f",
+            "\nsection g",
+            "grand total",
+            "total price",
+            "\nb.4 ",
+            "b.4 delivery",
+            "delivery schedule",
+            "specifications/statement of work",
+            "description/specifications",
+            "end of section b",
+        ]
+        
         end_pos = len(segment)
         for m in end_markers:
-            j = segment.lower().find(m)
-            if j != -1 and j < end_pos:
+            # We look for markers that appear AFTER the start marker in the original text
+            j = segment_lower.find(m)
+            # Skip the marker if it's too close to the start (might be part of the header)
+            if j != -1 and j > 50 and j < end_pos:
                 end_pos = j
-        return segment[:end_pos].strip() or None
-
-    def _fit_text_for_budget(self, text: str, budget: int) -> str:
-        """
-        Fit text into a character budget while preserving both beginning and end,
-        because CLIN tables often continue near the end of documents.
-        """
-        if not text or budget <= 0:
-            return ""
-        if len(text) <= budget:
-            return text
-        if budget < 800:
-            return text[:budget]
-        head = int(budget * 0.55)
-        tail = budget - head - 40
-        return f"{text[:head]}\n\n...[TRUNCATED]...\n\n{text[-max(0, tail):]}"
-
-    def _build_docs_text_for_budget(
-        self,
-        documents: List[Tuple[str, str]],
-        max_total_chars: int,
-        prepend_schedule_max_chars: int,
-    ) -> Tuple[str, int]:
-        """
-        Build prompt document text under a total character budget.
-        Returns (docs_for_prompt, raw_combined_chars_before_budget).
-        """
-        all_text = []
-        for doc_name, doc_text in documents:
-            if doc_text and doc_text.strip():
-                all_text.append(f"=== DOCUMENT: {doc_name} ===\n{doc_text}")
-        combined_text = "\n\n".join(all_text)
-        if not combined_text:
-            return "", 0
-
-        schedule_section = self._extract_price_schedule_section(combined_text, max_chars=prepend_schedule_max_chars)
-        docs_for_prompt = combined_text
-        if schedule_section:
-            docs_for_prompt = f"""PRICE/COST SCHEDULE SECTION BELOW — You MUST extract EVERY line item from this section, including all items at the END of the table. Do not stop early.
-
----
-{schedule_section}
----
-
-FULL DOCUMENTS (for additional context and fields):
-{combined_text}"""
-
-        fitted = self._fit_text_for_budget(docs_for_prompt, max_total_chars)
-        return fitted, len(combined_text)
-
-    def _split_text_into_chunks(self, text: str, target_chars: int, overlap_chars: int) -> List[str]:
-        """Split large text into overlapping chunks."""
-        if not text:
-            return []
-        if len(text) <= target_chars:
-            return [text]
-        chunks: List[str] = []
-        start = 0
-        n = len(text)
-        while start < n:
-            end = min(n, start + target_chars)
-            # Try to end near a paragraph boundary for cleaner chunks
-            if end < n:
-                boundary = text.rfind("\n\n", start + int(target_chars * 0.6), end)
-                if boundary != -1:
-                    end = boundary + 2
-            chunk = text[start:end]
-            if chunk.strip():
-                chunks.append(chunk)
-            if end >= n:
-                break
-            start = max(0, end - overlap_chars)
-        return chunks
-
-    def _merge_and_dedupe_clins(self, clins: List[Dict]) -> List[Dict]:
-        """Merge duplicate CLIN rows by (clin_number + part/base item), preferring richer records."""
-        def _norm(v: Optional[str]) -> str:
-            return (v or "").strip().lower()
-        def _score(c: Dict) -> int:
-            important = [
-                'product_description', 'quantity', 'unit_of_measure', 'product_name',
-                'manufacturer_name', 'part_number', 'model_number', 'drawing_number',
-                'base_item_number', 'scope_of_work', 'service_requirements',
-                'delivery_address', 'special_delivery_instructions', 'delivery_timeline',
-            ]
-            return sum(1 for k in important if c.get(k))
-
-        merged: Dict[Tuple[str, str, str], Dict] = {}
-        for c in clins:
-            clin_no = _norm(c.get('clin_number'))
-            part = _norm(c.get('part_number'))
-            base = _norm(c.get('base_item_number'))
-            key = (clin_no, part, base)
-            if key not in merged:
-                merged[key] = c
-                continue
-            existing = merged[key]
-            # Keep richer row; fill blanks from the other row
-            primary, secondary = (existing, c) if _score(existing) >= _score(c) else (c, existing)
-            out = dict(primary)
-            for k, v in secondary.items():
-                if (out.get(k) is None or out.get(k) == "") and v not in (None, ""):
-                    out[k] = v
-            merged[key] = out
-        return list(merged.values())
-
-    def _merge_and_dedupe_deadlines(self, deadlines: List[Dict]) -> List[Dict]:
-        """Dedupe deadlines and drop stale/noisy dates far outside current solicitation window."""
-        cleaned: List[Dict] = []
-        for d in deadlines:
-            if not isinstance(d, dict):
-                continue
-            # Must have a parseable due_date
-            due_dt = d.get('due_date')
-            if not isinstance(due_dt, datetime):
-                continue
-            # Normalize blank timezone to None to avoid duplicate rows with "" vs null
-            tz = d.get('timezone')
-            if isinstance(tz, str):
-                tz = tz.strip().upper() or None
-            d = dict(d)
-            d['timezone'] = tz
-            cleaned.append(d)
-
-        # Remove stale deadlines: keep dates within ~13 months before latest due date.
-        # This filters legacy dates from old amendments/templates.
-        if cleaned:
-            max_due = max(d['due_date'] for d in cleaned if isinstance(d.get('due_date'), datetime))
-            floor = max_due - timedelta(days=400)
-            cleaned = [d for d in cleaned if isinstance(d.get('due_date'), datetime) and d['due_date'] >= floor]
-
-        seen = set()
-        out: List[Dict] = []
-        for d in cleaned:
-            due_date = str(d.get('due_date') or '')
-            due_time = str(d.get('due_time') or '')
-            dtype = str(d.get('deadline_type') or '')
-            desc = str(d.get('description') or '')
-            key = (due_date, due_time, str(d.get('timezone') or ''), dtype, desc[:80])
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(d)
-        return out
-
-    def _reconcile_merged_clins_llm(self, clins: List[Dict]) -> List[Dict]:
-        """
-        Final small LLM pass over merged JSON only to normalize/fill obvious missing values.
-        Safe fallback: return original merged list on any parse/model issue.
-        """
-        llm_to_use = self.llm or self.fallback_llm
-        if not llm_to_use or not clins:
-            return clins
-        try:
-            payload = json.dumps(clins, default=str)
-            payload = self._fit_text_for_budget(payload, 45000)
-            prompt = f"""Normalize and lightly reconcile these merged CLIN JSON objects.
-
-Rules:
-- Output valid JSON array only.
-- Keep one object per CLIN line item (do not invent new CLINs).
-- Do not delete non-empty fields.
-- If two synonymous fields exist, keep canonical keys already present.
-- If obvious normalization is needed (spacing/case/empty placeholders), normalize it.
-- Do not hallucinate values.
-
-CLINS JSON:
-{payload}
-"""
-            def _parse_llm_json(raw_msg) -> Optional[List[Dict]]:
-                raw_local = raw_msg.content if hasattr(raw_msg, "content") else str(raw_msg)
-                if isinstance(raw_local, list):
-                    raw_local = "".join((b.get("text", "") if isinstance(b, dict) else str(b)) for b in raw_local)
-                txt_local = (raw_local if isinstance(raw_local, str) else str(raw_local)).strip()
-                if txt_local.startswith("```"):
-                    txt_local = re.sub(r"^```(?:json)?\s*", "", txt_local)
-                    txt_local = re.sub(r"\s*```\s*$", "", txt_local)
-                # Direct parse: array or object with clins key
-                try:
-                    parsed_local = json.loads(txt_local)
-                    if isinstance(parsed_local, list):
-                        return [p for p in parsed_local if isinstance(p, dict)]
-                    if isinstance(parsed_local, dict) and isinstance(parsed_local.get("clins"), list):
-                        return [p for p in parsed_local["clins"] if isinstance(p, dict)]
-                except Exception:
-                    pass
-                # Fallback: extract first JSON array block
-                array_match = re.search(r"\[[\s\S]*\]", txt_local)
-                if array_match:
-                    try:
-                        parsed_arr = json.loads(array_match.group(0))
-                        if isinstance(parsed_arr, list):
-                            return [p for p in parsed_arr if isinstance(p, dict)]
-                    except Exception:
-                        pass
-                return None
-
-            parsed = _parse_llm_json(llm_to_use.invoke(prompt))
-            if parsed:
-                return parsed
-
-            retry_prompt = prompt + "\n\nIMPORTANT: Return JSON ONLY. Start with '[' and end with ']'. No prose."
-            parsed_retry = _parse_llm_json(llm_to_use.invoke(retry_prompt))
-            if parsed_retry:
-                return parsed_retry
-            logger.warning("CLIN reconcile pass returned non-JSON; using merged result")
-            return clins
-        except Exception as e:
-            logger.warning("CLIN reconcile pass failed, using merged result: %s", e)
-            return clins
-
-    def _is_clause_or_form_noise(self, clin_dict: Dict) -> bool:
-        """Detect non-pricing/legal clause items that should not be treated as true CLIN rows."""
-        text = f"{clin_dict.get('product_description') or ''} {clin_dict.get('product_name') or ''}".upper()
-        has_strong_pricing_or_item_signal = any([
-            clin_dict.get('quantity') not in (None, 0),
-            bool(clin_dict.get('unit_of_measure')),
-            clin_dict.get('extended_price') not in (None, 0),
-            bool(clin_dict.get('part_number')),
-            bool(clin_dict.get('model_number')),
-            bool(clin_dict.get('base_item_number')),
-            bool(clin_dict.get('drawing_number')),
-            bool(clin_dict.get('delivery_timeline')),
-            bool(clin_dict.get('delivery_address')),
-            bool(clin_dict.get('scope_of_work')),
-            bool(clin_dict.get('service_requirements')),
-            "NSN" in text,
-        ])
-        # If row has actual pricing/item signals, keep it.
-        if has_strong_pricing_or_item_signal:
-            return False
-
-        clause_markers = [
-            "CERTIFICATION", "REPRESENTATION", "PROVISION", "CLAUSE", "FAR ",
-            "DFARS", "STANDARD FORM", "CHECKLIST", "MADURO REGIME",
-            "ARMS CONTROL", "COMMERCIAL DERIVATIVE MILITARY ARTICLE",
-        ]
-        return any(m in text for m in clause_markers)
-
-    def _filter_noise_clins(self, clins: List[Dict]) -> List[Dict]:
-        """Remove obvious clause/form noise rows before final fill."""
-        filtered: List[Dict] = []
-        dropped = 0
-        for c in clins:
-            if not isinstance(c, dict):
-                continue
-            if self._is_cdrl_item(c) or self._is_clause_or_form_noise(c):
-                dropped += 1
-                continue
-            filtered.append(c)
-        if dropped:
-            logger.info("Filtered %s noisy CLIN rows before final fill.", dropped)
-        return filtered
-
-    def _extract_clins_batch_chunked(self, documents: List[Tuple[str, str]], combined_text: str) -> Tuple[List[Dict], List[Dict]]:
-        """Large-data path: chunk extraction, merge/dedupe, final small reconcile pass."""
-        logger.info(
-            "Large batch detected (%s chars > %s). Using chunked extraction path.",
-            len(combined_text), self.LARGE_BATCH_THRESHOLD_CHARS
-        )
-        chunked_docs: List[Tuple[str, str]] = []
-        for doc_name, doc_text in documents:
-            if not doc_text or not doc_text.strip():
-                continue
-            chunks = self._split_text_into_chunks(
-                doc_text,
-                target_chars=self.CHUNK_TARGET_CHARS,
-                overlap_chars=self.CHUNK_OVERLAP_CHARS,
-            )
-            for idx, ctext in enumerate(chunks, start=1):
-                chunked_docs.append((f"{doc_name} [chunk {idx}/{len(chunks)}]", ctext))
-
-        all_clins: List[Dict] = []
-        all_deadlines: List[Dict] = []
-        for cname, ctext in chunked_docs:
-            clins_chunk, deadlines_chunk = self.extract_clins(
-                ctext,
-                file_path=cname,
-                run_missing_fields_second_pass=False,
-            )
-            all_clins.extend(clins_chunk or [])
-            all_deadlines.extend(deadlines_chunk or [])
-
-        merged_clins = self._merge_and_dedupe_clins(all_clins)
-        merged_clins = self._filter_noise_clins(merged_clins)
-        merged_deadlines = self._merge_and_dedupe_deadlines(all_deadlines)
-        reconciled_clins = self._reconcile_merged_clins_llm(merged_clins)
-        reconciled_clins = self._filter_noise_clins(reconciled_clins)
-        final_clins = reconciled_clins
-
-        # Final second pass only once, after merge + reconcile, using full combined context.
-        if final_clins:
-            missing_fields_count, total_fields_count = self._count_missing_fields(final_clins)
-            if missing_fields_count > 0 and total_fields_count > 0:
-                missing_percentage = (missing_fields_count / total_fields_count) * 100
-                logger.info(
-                    "Final merged CLINs still have %s missing fields (%.1f%%). Running one final missing-fields pass.",
-                    missing_fields_count,
-                    missing_percentage,
-                )
-                final_clins = self._fill_missing_fields(final_clins, combined_text)
-            else:
-                logger.info("Final merged CLINs have no missing fields; skipping final missing-fields pass.")
-
-        logger.info(
-            "Chunked extraction complete: chunks=%s raw_clins=%s merged_clins=%s deadlines=%s",
-            len(chunked_docs), len(all_clins), len(final_clins), len(merged_deadlines)
-        )
-        return final_clins, merged_deadlines
+        
+        extracted = segment[:end_pos].strip()
+        
+        # If extraction is too small, it might have failed to find the end correctly, 
+        # or Section B is indeed short.
+        if len(extracted) < 100:
+             # Try a larger segment if we hit an early end marker
+             pass
+             
+        return extracted or None
 
     def extract_clins_batch(self, documents: List[Tuple[str, str]]) -> Tuple[List[Dict], List[Dict]]:
         """Extract CLINs from multiple documents - try all at once, else per document"""
@@ -1002,33 +742,72 @@ CLINS JSON:
         if not documents:
             return ([], [])
         
-        # Build full combined text first so small requests keep full context.
-        if not documents:
+        # Try all documents at once first - use raw text without cleaning
+        all_text = []
+        for doc_name, doc_text in documents:
+            if doc_text and doc_text.strip():
+                all_text.append(f"=== DOCUMENT: {doc_name} ===\n{doc_text}")
+        
+        if not all_text:
             return ([], [])
-        combined_text = "\n\n".join([f"=== DOCUMENT: {n} ===\n{t}" for n, t in documents if t and t.strip()])
-        if not combined_text:
-            return ([], [])
-        if len(combined_text) > self.LARGE_BATCH_THRESHOLD_CHARS:
-            return self._extract_clins_batch_chunked(documents, combined_text)
+        
+        combined_text = "\n\n".join(all_text)
+        
+        # Prepend the price/schedule section so line items at the end of the table are always in context
+        schedule_section = self._extract_price_schedule_section(combined_text)
+        
+        # Detect document type for classification
+        doc_type = "unknown"
+        if documents:
+            # Check the first document or the one with the schedule section
+            first_doc_path = Path(documents[0][0])
+            doc_type = self.text_extractor.classify_document_type(first_doc_path, documents[0][1])
 
-        # Non-large path: preserve full context for quality (no Claude truncation).
-        # Keep Groq budgeted as fallback safety.
-        combined_text_len = len(combined_text)
-        claude_docs_text = combined_text
-        groq_docs_text, _ = self._build_docs_text_for_budget(
-            documents=documents,
-            max_total_chars=22000,
-            prepend_schedule_max_chars=12000,
-        )
+        docs_for_prompt = combined_text
+        if schedule_section:
+            logger.info(f"Prepending targeted Section B context ({len(schedule_section)} chars). DocType: {doc_type}")
+            docs_for_prompt = f"""[PRIORITY REFERENCE INFO: TARGETED SECTION B / PRICING SCHEDULE]
+This section is extracted from the solicitation's primary pricing area (e.g. Section B). 
+It contains the core CLIN data. You MUST extract EVERY line item from here.
 
-        def _build_prompt(docs_text: str) -> str:
-            return f"""You are a government contracting analyst. Analyze these solicitation documents and extract ALL Contract Line Item Numbers (CLINs) and their complete details.
+--- SECTION B START ---
+{schedule_section}
+--- SECTION B END ---
 
-Each document is separated by "=== DOCUMENT: [name] ===".
+[ADDITIONAL DOCUMENT CONTEXT]
+The following is the full text of all documents for cross-referencing manufacturer info, SOW, and delivery details.
+{combined_text}"""
+        
+        # Enhanced prompt for batch extraction
+        prompt = f"""You are a government contracting analyst. Analyze these solicitation documents and extract ALL Contract Line Item Numbers (CLINs) and their complete details.
 
-CRITICAL: Extract EVERY CLIN found across ALL documents. Search SYSTEMATICALLY through EACH document. Look for:
+### THE GOLDEN RULE: WHERE TO FIND CLINS
+CLINs are primarily located in **SECTION B**. Use this table to focus your search based on the document type:
+
+| Document Type | Form | CLIN Location |
+| :--- | :--- | :--- |
+| RFP / IFB (SF33) | Standard | SECTION B - "Supplies or Services and Prices/Costs" |
+| RFQ (SF1449) | Commercial | Section B - "Schedule of Supplies/Services" |
+| RFQ (SF18) | Simplified | Block 11 - "Schedule" (continuation sheets) |
+| VA Solicitation | VA-specific | SECTION B or Price/Cost Schedule |
+| DLA Solicitation (DIBBS) | DLA | SECTION B with PR/PRLI/UI table |
+| GSA Schedule | GSA | Price List or Attachment |
+
+**CRITICAL HEADERS TO LOOK FOR:**
+- SECTION B - SUPPLIES OR SERVICES AND PRICES/COSTS
+- SECTION B - SCHEDULE OF SUPPLIES/SERVICES
+- B.3 PRICE/COST SCHEDULE
+- SECTION B - PRICING SCHEDULE
+- SECTION B - CONTRACT LINE ITEMS
+
+### WHERE CLINS ARE NEVER LOCATED (Ignore these for CLIN extraction):
+- SECTION A (Cover Sheet)
+- SECTION C (Statement of Work / Specifications)
+- SECTION D through I (Packaging, Inspection, Delivery, Admin, Clauses)
+- SECTION K, L, M (Provisions, Instructions, Evaluation)
+
+CRITICAL: Extract EVERY CLIN found in the [PRIORITY REFERENCE INFO] section and cross-reference with ALL documents. Search SYSTEMATICALLY through EACH document. Look for:
 - Tables with headers containing "CLIN", "Line Item", "Item Number", "Schedule Item", "Item No", "ITEM NUMBER", "B.3 PRICE/COST SCHEDULE"
-- Sections titled "Schedule of Supplies/Services", "Pricing Schedule", "CLIN Schedule", "SECTION B", "Schedule"
 - Lists following numbering like "0001.", "0002.", "0003.", "a.", "b." or 4-digit item numbers
 - Any clearly defined line items in pricing schedules, amendments, attachments across ALL documents
 - Numbered items with quantities, descriptions, and pricing information
@@ -1197,24 +976,22 @@ RETURN FORMAT:
 - Always extract and return ALL deadlines found (questions due, quotes due, etc.); "deadlines" must not be empty when the document mentions multiple due dates.
 
 DOCUMENTS:
-{docs_text}"""
+{docs_for_prompt}"""
         
         # Log combined text info
         logger.info(f"Combining {len(documents)} documents into single request")
-        logger.info(f"Total combined text length: {combined_text_len} characters")
-        logger.info(f"Claude docs text length after budget: {len(claude_docs_text)} characters")
-        logger.info(f"Groq docs text length after budget: {len(groq_docs_text)} characters")
+        logger.info(f"Total combined text length: {len(combined_text)} characters")
         for doc_name, _ in documents:
             logger.info(f"  - {doc_name}")
         
         # Try Claude first with all documents combined
         logger.info("Sending ALL documents combined in ONE request to Claude for CLIN and deadline extraction...")
-        all_clins, all_deadlines = self._extract_with_llm(_build_prompt(claude_docs_text), use_claude=True)
+        all_clins, all_deadlines = self._extract_with_llm(prompt, use_claude=True)
         
         # If failed, try Groq
         if not all_clins and self.fallback_llm:
-            logger.info("Claude batch failed, trying Groq with budgeted prompt...")
-            all_clins, all_deadlines = self._extract_with_llm(_build_prompt(groq_docs_text), use_claude=False)
+            logger.info("Claude batch failed, trying Groq with ALL documents combined...")
+            all_clins, all_deadlines = self._extract_with_llm(prompt, use_claude=False)
         
         # Log extraction results
         if all_clins:
