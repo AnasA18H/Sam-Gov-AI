@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 # Pydantic schema for LLM extraction (V1BaseModel/V1Field only defined when import succeeds)
 if PYDANTIC_AVAILABLE:
     class CLINItem(V1BaseModel):  # type: ignore[misc, valid-type]
+        class Config:
+            protected_namespaces = ()
+            
         item_number: str = V1Field(description="The CLIN number (e.g., '0001', '0002')")
         description: str = V1Field(description="Full product/service description")
         quantity: Optional[int] = V1Field(None, description="Quantity as integer")
