@@ -28,9 +28,6 @@ envs:
   - key: AWS_SECRET_ACCESS_KEY
     scope: RUN_TIME
     type: SECRET
-  - key: API_V1_PREFIX
-    scope: RUN_TIME
-    value: /v1
 
 services:
   - name: backend
