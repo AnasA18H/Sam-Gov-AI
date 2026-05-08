@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     
     # Anthropic / LLM – set in .env
     ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-3-sonnet-20240229"
+    ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
     # Groq / LLM fallback – set in .env
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"  # was llama-3.1-70b-versatile (decommissioned)

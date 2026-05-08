@@ -302,7 +302,13 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                     file_url = None
                     if s3_enabled():
                         try:
-                            local_path = Path(settings.PROJECT_ROOT) / str(file_info['path']).lstrip("/")
+                            raw_path = str(file_info['path'])
+                            # file_info['path'] may be absolute (e.g. /app/backend/data/...)
+                            # or relative (backend/data/...). Handle both to avoid /app/app/ double prefix.
+                            if Path(raw_path).is_absolute():
+                                local_path = Path(raw_path)
+                            else:
+                                local_path = Path(settings.PROJECT_ROOT) / raw_path.lstrip("/")
                             mime_type = mimetypes.guess_type(file_info['name'])[0] or "application/octet-stream"
                             key = make_object_key(opportunity.id, "documents", file_info['name'])
                             logger.info("S3 upload: local_path=%s exists=%s key=%s", local_path, local_path.exists(), key)
