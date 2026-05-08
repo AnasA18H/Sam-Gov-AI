@@ -34,10 +34,10 @@ services:
         value: https://sfo3.digitaloceanspaces.com
       - key: AWS_ACCESS_KEY_ID
         scope: RUN_TIME
-        type: SECRET
+        value: DO009ZPCEUGGUTVJBKZ6
       - key: AWS_SECRET_ACCESS_KEY
         scope: RUN_TIME
-        type: SECRET
+        value: "Aew/2MUkMYP7cst7kmjSIWGoVhZNl+Hu/v8SoWsyCHA"
       # Add other secrets (Anthropic, etc.) in the DO UI or via doctl
     health_check:
       http_path: /health
@@ -83,10 +83,10 @@ workers:
         value: https://sfo3.digitaloceanspaces.com
       - key: AWS_ACCESS_KEY_ID
         scope: RUN_TIME
-        type: SECRET
+        value: DO009ZPCEUGGUTVJBKZ6
       - key: AWS_SECRET_ACCESS_KEY
         scope: RUN_TIME
-        type: SECRET
+        value: "Aew/2MUkMYP7cst7kmjSIWGoVhZNl+Hu/v8SoWsyCHA"
 
 databases:
   - name: db
