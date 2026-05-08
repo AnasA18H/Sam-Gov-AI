@@ -6,6 +6,29 @@ region: nyc
 domains:
   - domain: www.GovOpsAi.com
     type: PRIMARY
+
+# App-level env vars: injected into ALL components (backend, worker, frontend).
+# Secrets must be set via: DO Dashboard → App → Settings → Environment Variables
+envs:
+  - key: STORAGE_TYPE
+    scope: RUN_TIME
+    value: s3
+  - key: AWS_REGION
+    scope: RUN_TIME
+    value: sfo3
+  - key: S3_BUCKET_NAME
+    scope: RUN_TIME
+    value: samgov-docs
+  - key: AWS_S3_ENDPOINT_URL
+    scope: RUN_TIME
+    value: https://sfo3.digitaloceanspaces.com
+  - key: AWS_ACCESS_KEY_ID
+    scope: RUN_TIME
+    type: SECRET
+  - key: AWS_SECRET_ACCESS_KEY
+    scope: RUN_TIME
+    type: SECRET
+
 services:
   - name: backend
     instance_count: 1
@@ -20,24 +43,6 @@ services:
       - key: REDIS_CELERY_URL
         scope: RUN_AND_BUILD_TIME
         value: ${redis.REDIS_URL}
-      - key: STORAGE_TYPE
-        scope: RUN_TIME
-        value: s3
-      - key: AWS_REGION
-        scope: RUN_TIME
-        value: sfo3
-      - key: S3_BUCKET_NAME
-        scope: RUN_TIME
-        value: samgov-docs
-      - key: AWS_S3_ENDPOINT_URL
-        scope: RUN_TIME
-        value: https://sfo3.digitaloceanspaces.com
-      - key: AWS_ACCESS_KEY_ID
-        scope: RUN_TIME
-        type: SECRET
-      - key: AWS_SECRET_ACCESS_KEY
-        scope: RUN_TIME
-        type: SECRET
       # Add other secrets (Anthropic, etc.) in the DO UI or via doctl
     health_check:
       http_path: /health
@@ -69,24 +74,6 @@ workers:
       - key: REDIS_CELERY_URL
         scope: RUN_TIME
         value: ${redis.REDIS_URL}
-      - key: STORAGE_TYPE
-        scope: RUN_TIME
-        value: s3
-      - key: AWS_REGION
-        scope: RUN_TIME
-        value: sfo3
-      - key: S3_BUCKET_NAME
-        scope: RUN_TIME
-        value: samgov-docs
-      - key: AWS_S3_ENDPOINT_URL
-        scope: RUN_TIME
-        value: https://sfo3.digitaloceanspaces.com
-      - key: AWS_ACCESS_KEY_ID
-        scope: RUN_TIME
-        type: SECRET
-      - key: AWS_SECRET_ACCESS_KEY
-        scope: RUN_TIME
-        type: SECRET
 
 databases:
   - name: db
