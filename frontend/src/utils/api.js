@@ -139,7 +139,22 @@ export { API_BASE };
 
 // Opportunities API
 export const opportunitiesAPI = {
-  create: (data) => api.post('/api/v1/opportunities', data),
+  create: (data) => {
+    // Backend expects multipart/form-data (Form fields + optional files)
+    // Always use FormData so Content-Type is set correctly
+    if (data instanceof FormData) {
+      return api.post('/api/v1/opportunities', data);
+    }
+    const formData = new FormData();
+    if (data.sam_gov_url) formData.append('sam_gov_url', data.sam_gov_url);
+    if (data.enable_document_analysis !== undefined) formData.append('enable_document_analysis', data.enable_document_analysis);
+    if (data.enable_clin_extraction !== undefined) formData.append('enable_clin_extraction', data.enable_clin_extraction);
+    if (data.files) {
+      for (const file of data.files) formData.append('files', file);
+    }
+    return api.post('/api/v1/opportunities', formData);
+  },
+
   list: (params = {}) => api.get('/api/v1/opportunities', { params }),
   get: (id) => api.get(`/api/v1/opportunities/${id}`),
   delete: (id) => api.delete(`/api/v1/opportunities/${id}`),

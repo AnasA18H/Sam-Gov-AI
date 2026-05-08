@@ -85,7 +85,18 @@ const Analyze = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to create opportunity');
+        // FastAPI 422 returns detail as an array of validation errors, not a string
+        let errorMsg = 'Failed to create opportunity';
+        if (errorData.detail) {
+          if (typeof errorData.detail === 'string') {
+            errorMsg = errorData.detail;
+          } else if (Array.isArray(errorData.detail)) {
+            errorMsg = errorData.detail.map(e => e.msg || JSON.stringify(e)).join(', ');
+          } else {
+            errorMsg = JSON.stringify(errorData.detail);
+          }
+        }
+        throw new Error(errorMsg);
       }
 
       const data = await response.json();
