@@ -8,6 +8,10 @@
 logs/
 deploy/secrets/
 deploy/.env.prod
+secret.txt
+secrets.txt
+*-secret*.txt
+*-key*.txt
 
 # python
 __pycache__/
