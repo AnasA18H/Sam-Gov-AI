@@ -12,17 +12,36 @@ from botocore.client import Config
 from ..core.config import settings
 
 
+import logging
+logger = logging.getLogger(__name__)
+
+
 def s3_enabled() -> bool:
     return settings.STORAGE_TYPE.lower() == "s3"
 
 
 def _get_s3_client():
+    key_id = settings.AWS_ACCESS_KEY_ID or ""
+    secret = settings.AWS_SECRET_ACCESS_KEY or ""
+    logger.info(
+        "S3 client init: key_id=...%s secret_len=%d endpoint=%s region=%s bucket=%s",
+        key_id[-6:] if key_id else "MISSING",
+        len(secret),
+        settings.AWS_S3_ENDPOINT_URL,
+        settings.AWS_REGION,
+        settings.S3_BUCKET_NAME,
+    )
     kwargs = {
         "service_name": "s3",
-        "aws_access_key_id": settings.AWS_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.AWS_SECRET_ACCESS_KEY,
+        "aws_access_key_id": key_id,
+        "aws_secret_access_key": secret,
         "region_name": settings.AWS_REGION,
-        "config": Config(signature_version="s3v4"),
+        # path-style addressing is required for DigitalOcean Spaces with a
+        # custom endpoint_url — virtual-hosted style causes SignatureDoesNotMatch
+        "config": Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+        ),
     }
     if settings.AWS_S3_ENDPOINT_URL:
         kwargs["endpoint_url"] = settings.AWS_S3_ENDPOINT_URL
