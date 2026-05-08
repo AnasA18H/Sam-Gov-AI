@@ -32,6 +32,12 @@ services:
       - key: AWS_S3_ENDPOINT_URL
         scope: RUN_TIME
         value: https://sfo3.digitaloceanspaces.com
+      - key: AWS_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: AWS_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
       # Add other secrets (Anthropic, etc.) in the DO UI or via doctl
     health_check:
       http_path: /health
@@ -75,6 +81,12 @@ workers:
       - key: AWS_S3_ENDPOINT_URL
         scope: RUN_TIME
         value: https://sfo3.digitaloceanspaces.com
+      - key: AWS_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: AWS_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
 
 databases:
   - name: db

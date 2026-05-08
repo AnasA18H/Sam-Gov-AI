@@ -305,10 +305,12 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                             local_path = Path(settings.PROJECT_ROOT) / str(file_info['path']).lstrip("/")
                             mime_type = mimetypes.guess_type(file_info['name'])[0] or "application/octet-stream"
                             key = make_object_key(opportunity.id, "documents", file_info['name'])
+                            logger.info("S3 upload: local_path=%s exists=%s key=%s", local_path, local_path.exists(), key)
                             file_url = upload_file(local_path, key, content_type=mime_type)
                             storage_type = "s3"
+                            logger.info("S3 upload succeeded: %s -> %s", local_path.name, file_url)
                         except Exception as exc:
-                            logger.warning("Failed to mirror SAM.gov document to S3 for opp=%s file=%s: %s", opportunity.id, file_info.get('name'), exc)
+                            logger.error("Failed to upload SAM.gov document to S3 for opp=%s file=%s local_path=%s: %s", opportunity.id, file_info.get('name'), local_path, exc, exc_info=True)
 
                     doc = Document(
                         opportunity_id=opportunity.id,
