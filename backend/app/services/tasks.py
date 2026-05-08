@@ -16,7 +16,6 @@ from ..models.opportunity import Opportunity
 from ..models.document import Document, DocumentType, DocumentSource
 from ..models.deadline import Deadline
 from ..models.clin import CLIN
-from .sam_gov_scraper import SAMGovScraper
 from .document_downloader import DocumentDownloader
 from .document_analyzer import DocumentAnalyzer
 from .tavily_dealers import run_tavily_for_opportunity
@@ -119,6 +118,10 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
         logger.info(f"Starting scrape for opportunity {opportunity_id}: {opportunity.sam_gov_url}")
         
         # Scrape the SAM.gov page
+        # Lazy import: playwright.sync_api must not be imported at module level
+        # because this module is also imported by FastAPI (asyncio loop). Celery
+        # workers have no asyncio loop so sync_playwright works fine here.
+        from .sam_gov_scraper import SAMGovScraper  # noqa: PLC0415
         with SAMGovScraper() as scraper:
             result = scraper.scrape_opportunity(opportunity.sam_gov_url)
             

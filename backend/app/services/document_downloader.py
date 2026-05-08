@@ -2,14 +2,16 @@
 Document downloader service
 Handles downloading and storing SAM.gov attachments
 """
+from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 from datetime import datetime
 import requests
 from urllib.parse import urlparse, urljoin
-from playwright.sync_api import Page
+if TYPE_CHECKING:
+    from playwright.sync_api import Page
 import zipfile
 import shutil
 
