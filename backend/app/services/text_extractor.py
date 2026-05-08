@@ -1290,10 +1290,20 @@ class TextExtractor:
         if _pytesseract is None:
             return ""
 
+        def _get_str(res: Any) -> str:
+            if isinstance(res, dict):
+                if 'text' in res:
+                    text_val = res['text']
+                    if isinstance(text_val, list):
+                        return " ".join(str(t) for t in text_val if str(t).strip())
+                    return str(text_val)
+                return str(res)
+            return str(res) if res is not None else ""
+
         # Strategy 1: Default PSM mode (3) - good for most documents
         try:
             config1 = '--psm 3 --oem 3 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,;:!?()[]{}\'"- /\\'
-            text1 = _pytesseract.image_to_string(preprocessed_img, lang='eng', config=config1)
+            text1 = _get_str(_pytesseract.image_to_string(preprocessed_img, lang='eng', config=config1))
             if text1.strip():
                 results.append(('psm3', text1))
         except Exception as e:
@@ -1302,7 +1312,7 @@ class TextExtractor:
         # Strategy 2: Single block mode (6) - good for single column documents
         try:
             config2 = '--psm 6 --oem 3'
-            text2 = _pytesseract.image_to_string(preprocessed_img, lang='eng', config=config2)
+            text2 = _get_str(_pytesseract.image_to_string(preprocessed_img, lang='eng', config=config2))
             if text2.strip():
                 results.append(('psm6', text2))
         except Exception as e:
@@ -1311,7 +1321,7 @@ class TextExtractor:
         # Strategy 3: Sparse text mode (11) - good for documents with scattered text
         try:
             config3 = '--psm 11 --oem 3'
-            text3 = _pytesseract.image_to_string(preprocessed_img, lang='eng', config=config3)
+            text3 = _get_str(_pytesseract.image_to_string(preprocessed_img, lang='eng', config=config3))
             if text3.strip():
                 results.append(('psm11', text3))
         except Exception as e:
@@ -1320,7 +1330,7 @@ class TextExtractor:
         # Strategy 4: Auto PSM with OSD (12) - good for complex layouts
         try:
             config4 = '--psm 12 --oem 3'
-            text4 = _pytesseract.image_to_string(preprocessed_img, lang='eng', config=config4)
+            text4 = _get_str(_pytesseract.image_to_string(preprocessed_img, lang='eng', config=config4))
             if text4.strip():
                 results.append(('psm12', text4))
         except Exception as e:
@@ -1329,7 +1339,7 @@ class TextExtractor:
         if not results:
             # Fallback: basic OCR without special config
             try:
-                fallback_text = _pytesseract.image_to_string(preprocessed_img, lang='eng')
+                fallback_text = _get_str(_pytesseract.image_to_string(preprocessed_img, lang='eng'))
                 return fallback_text
             except Exception:
                 return ""
