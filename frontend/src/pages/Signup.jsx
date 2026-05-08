@@ -188,7 +188,7 @@ const Signup = () => {
               <div className="h-1 w-8 bg-yellow-400 rounded"></div>
               <div className="h-1 w-8 bg-blue-500 rounded"></div>
             </div>
-            <h1 className="text-2xl font-semibold text-[#2D1B3D] dark:text-white">Sam Gov AI</h1>
+            <h1 className="text-2xl font-semibold text-[#2D1B3D] dark:text-white">Gov OPs AI</h1>
           </div>
 
           {/* Welcome Section */}

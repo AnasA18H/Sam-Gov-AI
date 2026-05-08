@@ -88,7 +88,7 @@ const Profile = () => {
                   <div className="h-0.5 w-6 bg-yellow-400 rounded" />
                   <div className="h-0.5 w-6 bg-blue-500 rounded" />
                 </div>
-                <span className="text-lg font-semibold text-[#2D1B3D] dark:text-white">Sam Gov AI</span>
+                <span className="text-lg font-semibold text-[#2D1B3D] dark:text-white">Gov OPs AI</span>
               </div>
               <div className="flex items-center gap-2">
                 <ThemeToggle />

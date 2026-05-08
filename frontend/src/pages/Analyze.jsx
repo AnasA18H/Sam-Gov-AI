@@ -129,7 +129,7 @@ const Analyze = () => {
                   onClick={() => navigate('/dashboard')}
                   className="text-lg font-semibold text-[#2D1B3D] dark:text-white hover:text-[#14B8A6] transition-colors focus:outline-none focus:ring-2 focus:ring-[#14B8A6] focus:ring-offset-2 dark:focus:ring-offset-black rounded"
                 >
-                  Sam Gov AI
+                  Gov OPs AI
                 </button>
               </div>
               <div className="flex items-center space-x-2">

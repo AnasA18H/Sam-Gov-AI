@@ -38,7 +38,7 @@ ACCESS_TOKEN_EXPIRE = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
 
 def _verification_email_html(code: str) -> str:
     """HTML body for verification email with company branding."""
-    app_name = getattr(settings, "APP_NAME", "Sam Gov AI")
+    app_name = getattr(settings, "APP_NAME", "Gov OPs AI")
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -89,14 +89,14 @@ def _send_verification_email(to_email: str, code: str) -> bool:
         return False
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"{getattr(settings, 'APP_NAME', 'Sam Gov AI')} — Your verification code"
+        msg["Subject"] = f"{getattr(settings, 'APP_NAME', 'Gov OPs AI')} — Your verification code"
         msg["From"] = settings.SMTP_USER
         msg["To"] = to_email
         text = (
             f"Your verification code is: {code}\n\n"
             "It expires in 15 minutes.\n\n"
             "If you didn't request this code, you can ignore this email.\n\n"
-            f"— {getattr(settings, 'APP_NAME', 'Sam Gov AI')}"
+            f"— {getattr(settings, 'APP_NAME', 'Gov OPs AI')}"
         )
         msg.attach(MIMEText(text, "plain"))
         msg.attach(MIMEText(_verification_email_html(code), "html"))

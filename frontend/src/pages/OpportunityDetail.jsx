@@ -658,7 +658,7 @@ const OpportunityDetail = () => {
                     <div className="h-0.5 w-6 bg-yellow-400 rounded" />
                     <div className="h-0.5 w-6 bg-blue-500 rounded" />
                   </div>
-                  <span className="text-xl font-semibold text-[#2D1B3D] dark:text-white tracking-tight">Sam Gov AI</span>
+                  <span className="text-xl font-semibold text-[#2D1B3D] dark:text-white tracking-tight">Gov OPs AI</span>
                 </button>
                 <button
                   onClick={() => navigate('/dashboard')}

@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
     # Application (all secrets read from .env; no defaults in code)
-    APP_NAME: str = "Sam Gov AI"
+    APP_NAME: str = "Gov OPs AI"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = os.getenv("DEBUG", "True").lower() == "true"
     SECRET_KEY: str = ""  # Set in .env
