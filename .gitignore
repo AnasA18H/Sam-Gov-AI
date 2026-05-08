@@ -1,7 +1,7 @@
 .env
 .env.*
 !.env.example
-!.env.prod.example
+# .env.prod.example tracked but must contain only placeholders - never real secrets
 
 # local runtime
 *.pid
