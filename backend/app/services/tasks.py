@@ -264,7 +264,11 @@ def scrape_sam_gov_opportunity(opportunity_id: int):
                         file_type_str = (file_info.get('type') or '').lower()
                         name_lower = (file_info.get('name') or '').lower()
                         if file_type_str in ('word', 'doc', 'docx') or name_lower.endswith(('.doc', '.docx')):
-                            abs_path = Path(settings.PROJECT_ROOT) / file_info.get('path', '').lstrip('/')
+                            raw_word_path = file_info.get('path', '')
+                            if Path(raw_word_path).is_absolute():
+                                abs_path = Path(raw_word_path)
+                            else:
+                                abs_path = Path(settings.PROJECT_ROOT) / raw_word_path.lstrip('/')
                             if abs_path.is_file():
                                 pdf_path = convert_word_to_pdf(abs_path, delete_original=True)
                                 if pdf_path:
