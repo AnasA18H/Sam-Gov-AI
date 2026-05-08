@@ -26,7 +26,7 @@ from ..models.clin import CLIN
 from ..models.deadline import Deadline
 from ..models.user_email_connection import UserEmailConnection
 from ..models.draft_quote_email import DraftQuoteEmail
-from ..schemas.opportunity import OpportunityCreate, OpportunityResponse, OpportunityDetailResponse, OpportunityList
+from ..schemas.opportunity import OpportunityResponse, OpportunityDetailResponse, OpportunityList
 from ..schemas.document import DocumentResponse
 from ..schemas.draft_quote_email import DraftQuoteEmailList, DraftQuoteEmailResponse
 from sqlalchemy.orm import joinedload
@@ -192,19 +192,6 @@ async def create_opportunity(
     )
     
     db.add(new_opportunity)
-    if s3_enabled():
-        try:
-            current_uri = str(getattr(document, "file_url", "") or "")
-            parsed = parse_s3_uri(current_uri) if current_uri else None
-            if parsed:
-                _, key = parsed
-                document.file_url = upload_file(file_path, key, content_type=document.mime_type)  # type: ignore[assignment]
-            else:
-                key = make_object_key(oid, "uploads", file_path.name)
-                document.file_url = upload_file(file_path, key, content_type=document.mime_type)  # type: ignore[assignment]
-            document.storage_type = "s3"  # type: ignore[assignment]
-        except Exception as exc:
-            logger.warning("overwrite_document: failed to sync to S3 for doc_id=%s: %s", did, exc)
     db.commit()
     db.refresh(new_opportunity)
     
@@ -690,9 +677,9 @@ async def delete_opportunity(
         )
     
     # Log all data that will be deleted
-    logger.info(f"=" * 80)
-    logger.info(f"DELETING OPPORTUNITY {opportunity_id}")
-    logger.info(f"=" * 80)
+    logger.info("=" * 80)
+    logger.info("DELETING OPPORTUNITY %s", opportunity_id)
+    logger.info("=" * 80)
     logger.info(f"Opportunity: {opportunity.title or 'Untitled'} (ID: {opportunity_id})")
     logger.info(f"Notice ID: {opportunity.notice_id or 'N/A'}")
     logger.info(f"Status: {opportunity.status}")
@@ -703,30 +690,30 @@ async def delete_opportunity(
     deadlines = db.query(Deadline).filter(Deadline.opportunity_id == opportunity_id).all()
     
     # Log data counts
-    logger.info(f"Related data to be deleted:")
-    logger.info(f"  - Documents: {len(documents)}")
-    logger.info(f"  - CLINs: {len(clins)}")
-    logger.info(f"  - Deadlines: {len(deadlines)}")
+    logger.info("Related data to be deleted:")
+    logger.info("  - Documents: %s", len(documents))
+    logger.info("  - CLINs: %s", len(clins))
+    logger.info("  - Deadlines: %s", len(deadlines))
     
     # Log document details
     if documents:
-        logger.info(f"  Document files:")
+        logger.info("  Document files:")
         for doc in documents:
             logger.info(f"    - {doc.file_name} ({doc.file_type}, {doc.file_size or 'N/A'} bytes)")
     
     # Log CLIN details
     if clins:
-        logger.info(f"  CLINs:")
+        logger.info("  CLINs:")
         for clin in clins:
             logger.info(f"    - CLIN {clin.clin_number}: {clin.product_name or clin.clin_name or 'N/A'}")
     
     # Log deadline details
     if deadlines:
-        logger.info(f"  Deadlines:")
+        logger.info("  Deadlines:")
         for deadline in deadlines:
             logger.info(f"    - {deadline.deadline_type}: {deadline.due_date} {deadline.due_time or ''}")
     
-    logger.info(f"=" * 80)
+    logger.info("=" * 80)
 
     # Remove calendar events from user's Google/Outlook calendar (if any were synced)
     conn = db.query(UserEmailConnection).filter(UserEmailConnection.user_id == current_user.id).first()
@@ -881,38 +868,38 @@ async def delete_opportunity(
             logger.warning(f"Error processing temp pattern {pattern}: {str(e)}")
     
     # Summary of file/directory deletion
-    logger.info(f"=" * 80)
-    logger.info(f"FILE DELETION SUMMARY:")
-    logger.info(f"  - Individual files deleted: {len(deleted_files)}")
-    logger.info(f"  - Directories deleted: {len(deleted_dirs)}")
+    logger.info("=" * 80)
+    logger.info("FILE DELETION SUMMARY:")
+    logger.info("  - Individual files deleted: %s", len(deleted_files))
+    logger.info("  - Directories deleted: %s", len(deleted_dirs))
     if deleted_dirs:
         total_dir_files = sum(d.get('files', 0) for d in deleted_dirs)
-        logger.info(f"  - Files in directories: {total_dir_files}")
+        logger.info("  - Files in directories: %s", total_dir_files)
     if temp_files_deleted:
-        logger.info(f"  - Temp files/dirs deleted: {len(temp_files_deleted)}")
+        logger.info("  - Temp files/dirs deleted: %s", len(temp_files_deleted))
     if failed_files:
-        logger.warning(f"  - Failed file deletions: {len(failed_files)}")
+        logger.warning("  - Failed file deletions: %s", len(failed_files))
     if failed_dirs:
-        logger.warning(f"  - Failed directory deletions: {len(failed_dirs)}")
-    logger.info(f"=" * 80)
+        logger.warning("  - Failed directory deletions: %s", len(failed_dirs))
+    logger.info("=" * 80)
     
     # Delete the opportunity from database
     # Note: CASCADE will automatically delete all related database records:
     # - Documents (via ondelete="CASCADE" in Document.opportunity_id)
     # - CLINs (via ondelete="CASCADE" in CLIN.opportunity_id)
     # - Deadlines (via ondelete="CASCADE" in Deadline.opportunity_id)
-    logger.info(f"Deleting database records...")
+    logger.info("Deleting database records...")
     db.delete(opportunity)
     db.commit()
     
-    logger.info(f"=" * 80)
-    logger.info(f"✅ SUCCESSFULLY DELETED OPPORTUNITY {opportunity_id}")
-    logger.info(f"   - Database records: 1 opportunity, {len(documents)} documents, {len(clins)} CLINs, {len(deadlines)} deadlines")
-    logger.info(f"   - Files deleted: {len(deleted_files)}")
-    logger.info(f"   - Directories deleted: {len(deleted_dirs)}")
+    logger.info("=" * 80)
+    logger.info("✅ SUCCESSFULLY DELETED OPPORTUNITY %s", opportunity_id)
+    logger.info("   - Database records: 1 opportunity, %s documents, %s CLINs, %s deadlines", len(documents), len(clins), len(deadlines))
+    logger.info("   - Files deleted: %s", len(deleted_files))
+    logger.info("   - Directories deleted: %s", len(deleted_dirs))
     if temp_files_deleted:
-        logger.info(f"   - Temp files/dirs deleted: {len(temp_files_deleted)}")
-    logger.info(f"=" * 80)
+        logger.info("   - Temp files/dirs deleted: %s", len(temp_files_deleted))
+    logger.info("=" * 80)
     return None
 
 

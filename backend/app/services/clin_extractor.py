@@ -197,7 +197,7 @@ class CLINExtractor:
                             f.write("=" * 80 + "\n")
                             try:
                                 f.write(json.dumps([item.dict() if hasattr(item, 'dict') else str(item) for item in result.clins], indent=2, default=str))
-                            except:
+                            except Exception:
                                 f.write(str(result.clins))
                         elif isinstance(result, dict):
                             f.write(f"Dict keys: {list(result.keys())}\n")
@@ -363,7 +363,7 @@ class CLINExtractor:
                             clins_list = parsed.get('clins', []) if isinstance(parsed.get('clins'), list) else []
                             deadlines_list = parsed.get('deadlines', []) if isinstance(parsed.get('deadlines'), list) else []
                         logger.info(f"{llm_name} extracted {len(clins_list)} CLINs after JSON repair")
-                    except:
+                    except Exception:
                         pass
                 except Exception as repair_err:
                     logger.debug(f"JSON repair failed: {repair_err}")
@@ -387,7 +387,7 @@ class CLINExtractor:
                                 clin_obj = json.loads(clin_str)
                                 if isinstance(clin_obj, dict) and 'item_number' in clin_obj:
                                     clins_list.append(clin_obj)
-                            except:
+                            except Exception:
                                 # Try to extract fields individually with regex
                                 item_num_match = re.search(r'"item_number"\s*:\s*"([^"]+)"', clin_str)
                                 if item_num_match:
@@ -416,7 +416,7 @@ class CLINExtractor:
                             try:
                                 clins_list = json.loads(array_str)
                                 logger.info(f"{llm_name} extracted {len(clins_list)} CLINs from clins array directly")
-                            except:
+                            except Exception:
                                 pass
                         
                         if deadlines_match:
@@ -424,9 +424,9 @@ class CLINExtractor:
                             try:
                                 deadlines_list = json.loads(array_str)
                                 logger.info(f"{llm_name} extracted {len(deadlines_list)} deadlines from deadlines array directly")
-                            except:
+                            except Exception:
                                 pass
-                    except:
+                    except Exception:
                         pass
                 
                 return (clins_list if isinstance(clins_list, list) else [], deadlines_list if isinstance(deadlines_list, list) else [])  # type: ignore[return-value]
@@ -731,8 +731,8 @@ DOCUMENT TEXT:
         # If extraction is too small, it might have failed to find the end correctly, 
         # or Section B is indeed short.
         if len(extracted) < 100:
-             # Try a larger segment if we hit an early end marker
-             pass
+            # Try a larger segment if we hit an early end marker
+            pass
              
         return extracted or None
 
