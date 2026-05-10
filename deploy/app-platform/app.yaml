@@ -4,7 +4,7 @@
 name: sam-gov-ai
 region: nyc
 domains:
-  - domain: www.GovOpsAi.com
+  - domain: govopsai.com
     type: PRIMARY
 
 # App-level env vars: injected into ALL components (backend, worker, frontend).
