@@ -71,7 +71,7 @@ workers:
     instance_count: 1
     instance_size_slug: basic-s
     dockerfile_path: Dockerfile.backend
-    run_command: celery -A backend.app.core.celery_app worker --loglevel=info --concurrency=2
+    run_command: celery -A backend.app.core.celery_app worker --loglevel=info --concurrency=1
     source_dir: /
     envs:
       - key: DATABASE_URL

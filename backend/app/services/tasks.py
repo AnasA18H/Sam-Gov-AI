@@ -797,7 +797,7 @@ def analyze_documents(opportunity_id: int, enable_document_analysis: bool = Fals
         # Next step: Tavily web search for manufacturer + dealers per CLIN (when CLIN extraction was enabled)
         if enable_clin_extraction and len(deduplicated_clins) > 0:
             try:
-                getattr(run_tavily_dealers_for_opportunity, "delay")(opportunity_id)
+                getattr(run_tavily_for_opportunity, "delay")(opportunity_id)
                 logger.info("Queued Tavily dealer search for opportunity %s (%s CLINs)", opportunity_id, len(deduplicated_clins))
             except Exception as tavily_queue_err:
                 logger.warning("Failed to queue Tavily task for opportunity %s: %s", opportunity_id, tavily_queue_err)
