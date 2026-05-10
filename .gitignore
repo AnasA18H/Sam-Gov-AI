@@ -1,17 +1,13 @@
 .env
 .env.*
 !.env.example
-# .env.prod.example tracked but must contain only placeholders - never real secrets
+!.env.prod.example
 
 # local runtime
 *.pid
 logs/
 deploy/secrets/
 deploy/.env.prod
-secret.txt
-secrets.txt
-*-secret*.txt
-*-key*.txt
 
 # python
 __pycache__/
@@ -26,7 +22,7 @@ frontend/dist/
 # IDE
 .vscode/
 .idea/
-
+secret.txt
 # Cursor project artifacts
 backend/.cursor/
 
