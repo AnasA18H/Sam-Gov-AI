@@ -806,6 +806,12 @@ async def delete_opportunity(
     debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
     if debug_dir not in directories_to_delete:
         directories_to_delete.append(debug_dir)
+        
+    # Tavily results directory (data/tavily_results/opportunity_{opportunity_id})
+    if hasattr(settings, 'DATA_DIR'):
+        tavily_dir = settings.DATA_DIR / "tavily_results" / f"opportunity_{opportunity_id}"
+        if tavily_dir not in directories_to_delete:
+            directories_to_delete.append(tavily_dir)
     
     # Also check for any temp files in the data directory
     data_dir = settings.DATA_DIR
