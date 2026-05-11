@@ -447,9 +447,22 @@ class CLINExtractor:
         # Enhanced prompt for comprehensive CLIN extraction
         prompt = f"""You are a government contracting analyst. Analyze this solicitation document and extract ALL Contract Line Item Numbers (CLINs) and their complete details.
 
+### THE GOLDEN RULE: WHERE TO FIND CLINS
+CLINs are primarily located in **SECTION B**. Use this quick reference to focus your search based on the document type:
+
+| Document Type | Form # | CLIN Location |
+| :--- | :--- | :--- |
+| RFP / IFB | SF33 | SECTION B - "Supplies or Services and Prices/Costs" |
+| RFQ (Commercial) | SF1449 | Section B - Schedule of Supplies/Services |
+| RFQ (Simplified) | SF18 | Block 11 - Schedule (continuation sheets) |
+| DLA Solicitation | DIBBS | SECTION B (PR/PRLI table) |
+| VA Solicitation | VA Form | SECTION B or Price/Cost Schedule |
+| GSA Schedule | GSA | Price List or Attachment |
+| DoD Solicitation | DD Form 1707 | B.3 PRICE/COST SCHEDULE |
+
 CRITICAL: Extract EVERY CLIN found in the document. Search SYSTEMATICALLY through the ENTIRE document. Look for:
 - Tables with headers containing "CLIN", "Line Item", "Item Number", "Schedule Item", "Item No", "ITEM NUMBER", "B.3 PRICE/COST SCHEDULE"
-- Sections titled "Schedule of Supplies/Services", "Pricing Schedule", "CLIN Schedule", "SECTION B", "Schedule"
+- Sections titled "Schedule of Supplies/Services", "Pricing Schedule", "CLIN Schedule", "SECTION B", "Schedule", "Block 11"
 - Lists following numbering like "0001.", "0002.", "0003.", "a.", "b." or 4-digit item numbers
 - Any clearly defined line items in pricing schedules, amendments, attachments
 - Numbered items with quantities, descriptions, and pricing information
@@ -785,16 +798,17 @@ The following is the full text of all documents for cross-referencing manufactur
         prompt = f"""You are a government contracting analyst. Analyze these solicitation documents and extract ALL Contract Line Item Numbers (CLINs) and their complete details.
 
 ### THE GOLDEN RULE: WHERE TO FIND CLINS
-CLINs are primarily located in **SECTION B**. Use this table to focus your search based on the document type:
+CLINs are primarily located in **SECTION B**. Use this quick reference to focus your search based on the document type:
 
-| Document Type | Form | CLIN Location |
+| Document Type | Form # | CLIN Location |
 | :--- | :--- | :--- |
-| RFP / IFB (SF33) | Standard | SECTION B - "Supplies or Services and Prices/Costs" |
-| RFQ (SF1449) | Commercial | Section B - "Schedule of Supplies/Services" |
-| RFQ (SF18) | Simplified | Block 11 - "Schedule" (continuation sheets) |
-| VA Solicitation | VA-specific | SECTION B or Price/Cost Schedule |
-| DLA Solicitation (DIBBS) | DLA | SECTION B with PR/PRLI/UI table |
+| RFP / IFB | SF33 | SECTION B - "Supplies or Services and Prices/Costs" |
+| RFQ (Commercial) | SF1449 | Section B - Schedule of Supplies/Services |
+| RFQ (Simplified) | SF18 | Block 11 - Schedule (continuation sheets) |
+| DLA Solicitation | DIBBS | SECTION B (PR/PRLI table) |
+| VA Solicitation | VA Form | SECTION B or Price/Cost Schedule |
 | GSA Schedule | GSA | Price List or Attachment |
+| DoD Solicitation | DD Form 1707 | B.3 PRICE/COST SCHEDULE |
 
 **CRITICAL HEADERS TO LOOK FOR:**
 - SECTION B - SUPPLIES OR SERVICES AND PRICES/COSTS
