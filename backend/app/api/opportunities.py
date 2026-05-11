@@ -1087,10 +1087,27 @@ async def create_pdf_from_word(
         )
     doc_file_path_str = str(getattr(document, "file_path", "") or "")
     file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+    
+    # If not on disk, check if it's on S3 and download it temporarily
+    if not file_path.exists() or not file_path.is_file():
+        file_url = getattr(document, "file_url", None)
+        if file_url and str(file_url).startswith("s3://"):
+            try:
+                body = get_s3_object_body(str(file_url))
+                if body:
+                    upload_dir = settings.UPLOADS_DIR / str(oid)
+                    upload_dir.mkdir(parents=True, exist_ok=True)
+                    safe_name = getattr(document, "original_file_name", "temp_word.docx") or "temp_word.docx"
+                    safe_name = safe_name.replace("/", "_").replace("\\", "_")
+                    file_path = upload_dir / safe_name
+                    file_path.write_bytes(body.read())
+            except Exception as e:
+                logger.error("Error downloading Word document from S3 for conversion: %s", e)
+                
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Word file not found on disk.",
+            detail="Word file not found on disk or storage.",
         )
     pdf_path = convert_word_to_pdf(file_path.resolve(), delete_original=False)
     if not pdf_path:
@@ -1541,7 +1558,9 @@ async def overwrite_document(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Overwrite an existing opportunity document with new file content (e.g. after in-app edit). Saves to same path in data."""
+    """Overwrite an existing opportunity document with new file content (e.g. after in-app edit).
+    Writes to a local temp path and syncs back to S3 when S3 is enabled.
+    """
     oid = _parse_positive_int(opportunity_id, "opportunity_id")
     did = _parse_positive_int(document_id, "document_id")
     if not file or not getattr(file, "filename", None):
@@ -1561,30 +1580,7 @@ async def overwrite_document(
     ).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    doc_file_path_str = str(getattr(document, "file_path", "") or "")
-    if not doc_file_path_str:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document has no file path")
-    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
-    logger.info(
-        "overwrite_document: opp_id=%s doc_id=%s db_path=%r resolved=%s exists=%s",
-        oid, did, doc_file_path_str, file_path, file_path.exists(),
-    )
-    # If file doesn't exist yet (e.g. path from scraping but never downloaded), create parent dirs and write
-    if not file_path.exists():
-        try:
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            logger.error(f"Error creating parent dir for overwrite: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Could not create document directory",
-            ) from e
-    elif not file_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Document path exists but is not a file: {doc_file_path_str}",
-        )
-    # Allow PDF or Word replacement; optionally keep same type
+
     filename = file.filename or ""
     ext = Path(filename).suffix.lower()
     if ext not in (".pdf", ".doc", ".docx"):
@@ -1597,74 +1593,91 @@ async def overwrite_document(
     except Exception as e:
         logger.error("overwrite_document: Error reading upload: %s", e, exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to read uploaded file")
-    logger.info("overwrite_document: Read content len=%s bytes, writing to %s", len(content), file_path)
     if not content:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty. Save the PDF again.",
         )
+
+    # Determine write-path: use a local temp dir under uploads regardless of whether doc was from S3
+    upload_dir = settings.UPLOADS_DIR / str(oid)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build a stable local filename based on the original document name
+    existing_name = (
+        getattr(document, "original_file_name", None)
+        or getattr(document, "file_name", None)
+        or f"doc_{did}"
+    )
+    base_stem = Path(existing_name).stem.replace("/", "_").replace("\\", "_")
+
+    file_size = 0
+    final_mime: str = "application/octet-stream"
+
     try:
         if ext in (".doc", ".docx"):
-            # Write Word to a temp file, convert to PDF, then save PDF as the document file
-            temp_word = file_path.parent / (file_path.stem + "_replace.docx")
+            # Write Word → convert to PDF → persist PDF
+            temp_word = upload_dir / f"{base_stem}_replace.docx"
             temp_word.write_bytes(content)
             pdf_path = convert_word_to_pdf(temp_word.resolve(), delete_original=True)
             if pdf_path:
-                final_pdf = file_path.parent / (file_path.stem + ".pdf")
-                final_pdf.write_bytes(pdf_path.read_bytes())
-                if pdf_path != final_pdf:
-                    try:
-                        pdf_path.unlink()
-                    except OSError:
-                        pass
-                if file_path.exists() and file_path != final_pdf:
-                    try:
-                        file_path.unlink()
-                    except OSError:
-                        pass
-                file_path = final_pdf
-                document.file_path = str(final_pdf.resolve().relative_to(settings.PROJECT_ROOT.resolve()))  # type: ignore[assignment]
-                document.file_name = final_pdf.name  # type: ignore[assignment]
-                document.file_size = final_pdf.stat().st_size  # type: ignore[assignment]
+                final_local = upload_dir / f"{base_stem}.pdf"
+                final_local.write_bytes(pdf_path.read_bytes())
+                if pdf_path != final_local:
+                    try: pdf_path.unlink()
+                    except OSError: pass
+                file_path = final_local
+                final_mime = "application/pdf"
+                document.file_name = final_local.name  # type: ignore[assignment]
                 document.file_type = DocumentType.PDF  # type: ignore[assignment]
-                document.mime_type = "application/pdf"  # type: ignore[assignment]
-                file_size = final_pdf.stat().st_size
+                document.mime_type = final_mime  # type: ignore[assignment]
             else:
+                # LibreOffice unavailable – keep as Word
+                file_path = upload_dir / f"{base_stem}.docx"
                 file_path.write_bytes(content)
-                document.file_size = len(content)  # type: ignore[assignment]
+                final_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                document.file_name = file_path.name  # type: ignore[assignment]
                 document.file_type = DocumentType.WORD  # type: ignore[assignment]
-                document.mime_type = mimetypes.guess_type(filename)[0] or "application/vnd.openxmlformats-officedocument.wordprocessingml.document"  # type: ignore[assignment]
-                file_size = len(content)
+                document.mime_type = final_mime  # type: ignore[assignment]
         else:
-            # PDF upload: write to .pdf path so we don't leave PDF bytes in a .docx file
-            if ext == ".pdf" and file_path.suffix.lower() != ".pdf":
-                target_path = file_path.parent / (file_path.stem + ".pdf")
-                target_path.write_bytes(content)
-                if file_path.exists():
-                    try:
-                        file_path.unlink()
-                    except OSError:
-                        pass
-                file_path = target_path
-                document.file_path = str(target_path.resolve().relative_to(settings.PROJECT_ROOT.resolve()))  # type: ignore[assignment]
-                document.file_name = target_path.name  # type: ignore[assignment]
-            else:
-                file_path.write_bytes(content)
-            logger.info("overwrite_document: Wrote %s bytes to %s", len(content), file_path)
-            file_size = file_path.stat().st_size
-            mime_type, _ = mimetypes.guess_type(filename)
-            if ext == ".pdf":
-                doc_type = DocumentType.PDF
-                if not mime_type:
-                    mime_type = "application/pdf"
-            else:
-                doc_type = getattr(document, "file_type", DocumentType.OTHER)
-            document.file_size = file_size  # type: ignore[assignment]
-            document.mime_type = mime_type or "application/octet-stream"  # type: ignore[assignment]
-            document.file_type = doc_type  # type: ignore[assignment]
+            # Pure PDF upload
+            file_path = upload_dir / f"{base_stem}.pdf"
+            file_path.write_bytes(content)
+            final_mime = "application/pdf"
+            document.file_name = file_path.name  # type: ignore[assignment]
+            document.file_type = DocumentType.PDF  # type: ignore[assignment]
+            document.mime_type = final_mime  # type: ignore[assignment]
+
+        file_size = file_path.stat().st_size
+        document.file_size = file_size  # type: ignore[assignment]
+        # Keep a local relative path as fallback
+        try:
+            document.file_path = str(file_path.resolve().relative_to(settings.PROJECT_ROOT.resolve()))  # type: ignore[assignment]
+        except ValueError:
+            document.file_path = str(file_path)  # type: ignore[assignment]
+
     except Exception as e:
-        logger.error("overwrite_document: Error writing file: %s path=%s", e, file_path, exc_info=True)
+        logger.error("overwrite_document: Error writing file: %s", e, exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save file")
+
+    # ── S3 sync: upload the locally-written file back to object storage ──────
+    if s3_enabled():
+        try:
+            existing_uri = str(getattr(document, "file_url", "") or "")
+            parsed = parse_s3_uri(existing_uri) if existing_uri else None
+            if parsed:
+                # Overwrite same S3 key
+                _, key = parsed
+            else:
+                # Determine a new key (category = "uploads")
+                key = make_object_key(oid, "uploads", file_path.name)
+            new_uri = upload_file(file_path, key, content_type=final_mime)
+            document.file_url = new_uri  # type: ignore[assignment]
+            document.storage_type = "s3"  # type: ignore[assignment]
+            logger.info("overwrite_document: Synced to S3 uri=%s size=%s", new_uri, file_size)
+        except Exception as exc:
+            logger.warning("overwrite_document: S3 sync failed for doc_id=%s: %s — file kept locally", did, exc)
+
     db.commit()
     db.refresh(document)
     logger.info("overwrite_document: Success opp_id=%s doc_id=%s file_size=%s", oid, did, file_size)
