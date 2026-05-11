@@ -1114,6 +1114,31 @@ def run_tavily_dealers_for_opportunity(opportunity_id: int):
         else:
             logger.warning("[Tavily task] no CLINs persisted (updates_count=%s)", len(updates))
         logger.info("[Tavily task] finished opportunity_id=%s clins_processed=%s persisted=%s", opportunity_id, result.get("clins_processed"), persisted)
+        
+        # --- CLEANUP TEMP FILES ---
+        import shutil
+        # 1. Clean up debug extracts
+        try:
+            debug_dir = settings.DEBUG_EXTRACTS_DIR / f"opportunity_{opportunity_id}"
+            if debug_dir.exists() and debug_dir.is_dir():
+                shutil.rmtree(debug_dir)
+                logger.info(f"Cleanup: Deleted temporary debug extracts directory {debug_dir}")
+        except Exception as e:
+            logger.warning(f"Cleanup failed for debug extracts: {e}")
+            
+        # 2. Clean up Tavily results
+        try:
+            tavily_dir = result.get("output_dir")
+            if tavily_dir:
+                tavily_path = Path(tavily_dir)
+                if tavily_path.exists() and tavily_path.is_dir():
+                    shutil.rmtree(tavily_path)
+                    logger.info(f"Cleanup: Deleted temporary Tavily results directory {tavily_path}")
+        except Exception as e:
+            logger.warning(f"Cleanup failed for Tavily results: {e}")
+            
+        # Note: We deliberately do NOT delete the attachments in data/documents/ as requested
+        
         return result
     except Exception as e:
         logger.exception("[Tavily task] error: %s", e)
