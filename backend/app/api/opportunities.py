@@ -4,7 +4,7 @@ Opportunities API endpoints
 import re
 import time
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -50,6 +50,7 @@ from ..services.object_storage import (
     presigned_get_url,
     delete_s3_uri,
     parse_s3_uri,
+    get_s3_object_body,
 )
 
 logger = logging.getLogger(__name__)
@@ -956,25 +957,6 @@ async def view_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found"
         )
-    
-    # If document is in object storage, return a short-lived URL.
-    file_url = getattr(document, "file_url", None)
-    if file_url:
-        if str(file_url).startswith("s3://"):
-            signed_url = presigned_get_url(str(file_url))
-            if signed_url:
-                return RedirectResponse(url=signed_url)
-        return RedirectResponse(url=str(file_url))
-    
-    # For local files, serve the file (same path resolution as overwrite_document)
-    doc_file_path_str = str(getattr(document, "file_path", "") or "")
-    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
-    logger.info("view_document: opp_id=%s doc_id=%s db_path=%r resolved=%s exists=%s", oid, did, doc_file_path_str, file_path, file_path.exists() and file_path.is_file())
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document file not found at path: {doc_file_path_str}"
-        )
 
     # Determine media type (use plain str for type checker)
     doc_mime = getattr(document, "mime_type", None)
@@ -988,6 +970,38 @@ async def view_document(
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     doc_name = getattr(document, "original_file_name", None) or getattr(document, "file_name", None) or ""
+    
+    # If document is in object storage, return a short-lived URL.
+    file_url = getattr(document, "file_url", None)
+    if file_url:
+        if str(file_url).startswith("s3://"):
+            try:
+                body = get_s3_object_body(str(file_url))
+                if body:
+                    return StreamingResponse(
+                        body,
+                        media_type=media_type,
+                        headers={
+                            "Content-Disposition": f'inline; filename="{doc_name}"',
+                            "Cache-Control": "no-store, no-cache, must-revalidate",
+                            "Pragma": "no-cache"
+                        }
+                    )
+            except Exception as e:
+                logger.error("Error proxying S3 object %s: %s", file_url, e)
+                raise HTTPException(status_code=500, detail="Failed to load document from storage")
+        return RedirectResponse(url=str(file_url))
+    
+    # For local files, serve the file (same path resolution as overwrite_document)
+    doc_file_path_str = str(getattr(document, "file_path", "") or "")
+    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+    logger.info("view_document: opp_id=%s doc_id=%s db_path=%r resolved=%s exists=%s", oid, did, doc_file_path_str, file_path, file_path.exists() and file_path.is_file())
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document file not found at path: {doc_file_path_str}"
+        )
+
     return FileResponse(
         path=str(file_path),
         filename=str(doc_name),

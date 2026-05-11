@@ -106,4 +106,13 @@ def presigned_get_url(uri: str, expires_seconds: int = 900) -> Optional[str]:
         ClientMethod="get_object",
         Params={"Bucket": bucket, "Key": key},
         ExpiresIn=expires_seconds,
+
+def get_s3_object_body(uri: str):
+    parsed = parse_s3_uri(uri)
+    if not parsed:
+        return None
+    bucket, key = parsed
+    client = _get_s3_client()
+    response = client.get_object(Bucket=bucket, Key=key)
+    return response['Body']
     )
