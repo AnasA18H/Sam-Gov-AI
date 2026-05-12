@@ -458,18 +458,25 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
               .getPage(i + 1)
               .then((page) => {
                 if (cancelled) return;
-                const viewport = page.getViewport({ scale: pdfScale });
+                const dpr = window.devicePixelRatio || 1;
+                // Bake DPR into the viewport so the physical canvas pixels are crisp.
+                // Then CSS size = logical (1x) size. No setTransform needed.
+                const viewport = page.getViewport({ scale: pdfScale * dpr });
                 const wrapper = container.querySelector(`[data-pdf-page="${i + 1}"]`);
                 const canvas = wrapper?.querySelector('canvas');
                 if (!canvas) return;
-                const dpr = window.devicePixelRatio || 1;
-                canvas.width = Math.floor(viewport.width * dpr);
-                canvas.height = Math.floor(viewport.height * dpr);
-                canvas.style.width = `${viewport.width}px`;
-                canvas.style.height = `${viewport.height}px`;
+                // Physical canvas dimensions (DPR-scaled)
+                canvas.width = Math.floor(viewport.width);
+                canvas.height = Math.floor(viewport.height);
+                // CSS display size (logical / 1x)
+                canvas.style.width = `${Math.floor(viewport.width / dpr)}px`;
+                canvas.style.height = `${Math.floor(viewport.height / dpr)}px`;
                 const ctx = canvas.getContext('2d');
                 if (ctx) {
-                  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                  // Pre-fill white: PDFs without an explicit page background leave
+                  // the canvas transparent which appears black in dark mode.
+                  ctx.fillStyle = '#ffffff';
+                  ctx.fillRect(0, 0, canvas.width, canvas.height);
                   const task = page.render({ canvasContext: ctx, viewport });
                   if (task && typeof task.cancel === 'function') pdfRenderTasksRef.current.push(task);
                 }
@@ -1666,7 +1673,7 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
                     >
                           <canvas
                             className="block"
-                            style={drawModeActive ? { pointerEvents: 'none' } : undefined}
+                            style={{ background: '#ffffff', ...(drawModeActive ? { pointerEvents: 'none' } : {}) }}
                           />
                           {highlightDrag && highlightDrag.pageNum === i + 1 && (() => {
                             const minX = Math.min(highlightDrag.startX, highlightDrag.endX);
