@@ -71,6 +71,48 @@ def _maybe_upload_to_s3(opportunity_id: int, category: str, file_path: Path, mim
         logger.warning("S3 upload failed for %s: %s; falling back to local storage", file_path, exc)
         return "local", None
 
+
+def _stream_document(document, file_path: Path, media_type: str, doc_name: str):
+    """Return a streaming response for a document from S3 or a FileResponse for local disk.
+
+    Priority:
+      1. S3 URI stored in document.file_url   → StreamingResponse (proxied through backend)
+      2. Local file at file_path              → FileResponse
+      3. Neither found                        → raises HTTP 404
+    """
+    NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
+    file_url = str(getattr(document, "file_url", "") or "")
+
+    if file_url.startswith("s3://"):
+        try:
+            body = get_s3_object_body(file_url)
+            if body:
+                return StreamingResponse(
+                    body,
+                    media_type=media_type,
+                    headers={
+                        "Content-Disposition": f'inline; filename="{doc_name}"',
+                        **NO_CACHE,
+                    },
+                )
+        except Exception as exc:
+            logger.error("_stream_document: S3 fetch failed for %s: %s", file_url, exc)
+            raise HTTPException(status_code=500, detail="Failed to load document from storage")
+
+    # Fallback: local file
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(
+            path=str(file_path),
+            filename=doc_name,
+            media_type=media_type,
+            headers=NO_CACHE,
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Document not found in storage or on disk: {doc_name}",
+    )
+
 def _get_autofill_llms():
     """Return (primary_llm, fallback_llm) for form autofill; try primary first, then fallback if it fails."""
     global _autofill_extractor
@@ -931,36 +973,22 @@ async def view_document(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """View/download a document from an opportunity"""
+    """View/download a document from an opportunity — streams from S3 or local disk."""
     oid = _parse_positive_int(opportunity_id, "opportunity_id")
     did = _parse_positive_int(document_id, "document_id")
-    # Verify opportunity belongs to user
     opportunity = db.query(Opportunity).filter(
-        Opportunity.id == oid,
-        Opportunity.user_id == current_user.id
+        Opportunity.id == oid, Opportunity.user_id == current_user.id
     ).first()
-    
     if not opportunity:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Opportunity not found"
-        )
-    
-    # Get document
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
     document = db.query(Document).filter(
-        Document.id == did,
-        Document.opportunity_id == oid
+        Document.id == did, Document.opportunity_id == oid
     ).first()
-    
     if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
-    # Determine media type (use plain str for type checker)
-    doc_mime = getattr(document, "mime_type", None)
     doc_ftype = getattr(document, "file_type", None)
+    doc_mime = getattr(document, "mime_type", None)
     media_type = str(doc_mime) if doc_mime else "application/octet-stream"
     if doc_ftype == "pdf":
         media_type = "application/pdf"
@@ -970,44 +998,9 @@ async def view_document(
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     doc_name = getattr(document, "original_file_name", None) or getattr(document, "file_name", None) or ""
-    
-    # If document is in object storage, return a short-lived URL.
-    file_url = getattr(document, "file_url", None)
-    if file_url:
-        if str(file_url).startswith("s3://"):
-            try:
-                body = get_s3_object_body(str(file_url))
-                if body:
-                    return StreamingResponse(
-                        body,
-                        media_type=media_type,
-                        headers={
-                            "Content-Disposition": f'inline; filename="{doc_name}"',
-                            "Cache-Control": "no-store, no-cache, must-revalidate",
-                            "Pragma": "no-cache"
-                        }
-                    )
-            except Exception as e:
-                logger.error("Error proxying S3 object %s: %s", file_url, e)
-                raise HTTPException(status_code=500, detail="Failed to load document from storage")
-        return RedirectResponse(url=str(file_url))
-    
-    # For local files, serve the file (same path resolution as overwrite_document)
     doc_file_path_str = str(getattr(document, "file_path", "") or "")
     file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
-    logger.info("view_document: opp_id=%s doc_id=%s db_path=%r resolved=%s exists=%s", oid, did, doc_file_path_str, file_path, file_path.exists() and file_path.is_file())
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document file not found at path: {doc_file_path_str}"
-        )
-
-    return FileResponse(
-        path=str(file_path),
-        filename=str(doc_name),
-        media_type=media_type,
-        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
-    )
+    return _stream_document(document, file_path, media_type, doc_name)
 
 
 @router.get("/{opportunity_id}/documents/{document_id}/editable-pdf-document")
@@ -1205,22 +1198,16 @@ async def document_pdf_for_editing(
     ).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    doc_file_path_str = str(getattr(document, "file_path", "") or "")
-    file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document file not found at path: {doc_file_path_str}",
-        )
     doc_ftype = getattr(document, "file_type", None)
+    doc_file_path_str = str(getattr(document, "file_path", "") or "")
+
     if doc_ftype == "pdf":
-        return FileResponse(
-            path=str(file_path),
-            media_type="application/pdf",
-            headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
-        )
+        file_path = _resolve_document_file_path(document, doc_file_path_str, oid)
+        doc_name = getattr(document, "original_file_name", None) or getattr(document, "file_name", None) or ""
+        return _stream_document(document, file_path, "application/pdf", doc_name)
+
     if doc_ftype == "word":
-        # Serve the stored PDF created from this Word doc (no re-convert)
+        # Serve the stored PDF converted from this Word doc — check S3 first, then disk
         pdf_doc = (
             db.query(Document)
             .filter(
@@ -1233,20 +1220,13 @@ async def document_pdf_for_editing(
         if not pdf_doc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="No PDF created from this Word document yet. Create one via Convert to PDF or open Edit.",
+                detail="No PDF created from this Word document yet. Use 'Convert to PDF' first.",
             )
         pdf_path_str = str(getattr(pdf_doc, "file_path", "") or "")
         pdf_path = _resolve_document_file_path(pdf_doc, pdf_path_str, oid)
-        if not pdf_path.exists() or not pdf_path.is_file():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Converted PDF file not found. Use Convert to PDF to create it again.",
-            )
-        return FileResponse(
-            path=str(pdf_path),
-            media_type="application/pdf",
-            headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
-        )
+        pdf_name = getattr(pdf_doc, "original_file_name", None) or getattr(pdf_doc, "file_name", None) or ""
+        return _stream_document(pdf_doc, pdf_path, "application/pdf", pdf_name)
+
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="This document type cannot be edited in the PDF editor.",
