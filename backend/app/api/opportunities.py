@@ -4,7 +4,7 @@ Opportunities API endpoints
 import re
 import time
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -51,6 +51,7 @@ from ..services.object_storage import (
     delete_s3_uri,
     parse_s3_uri,
     get_s3_object_body,
+    read_s3_object,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,31 +74,31 @@ def _maybe_upload_to_s3(opportunity_id: int, category: str, file_path: Path, mim
 
 
 def _stream_document(document, file_path: Path, media_type: str, doc_name: str):
-    """Return a streaming response for a document from S3 or a FileResponse for local disk.
+    """Serve a document from S3 (buffered, with Content-Length) or from local disk.
 
     Priority:
-      1. S3 URI stored in document.file_url   → StreamingResponse (proxied through backend)
-      2. Local file at file_path              → FileResponse
-      3. Neither found                        → raises HTTP 404
+      1. S3 URI in document.file_url  → read full object → Response with Content-Length
+      2. Local file at file_path      → FileResponse (also sends Content-Length)
+      3. Neither                      → HTTP 404
 
-    IMPORTANT: botocore StreamingBody.__iter__() splits on newlines which corrupts binary
-    files. We use iter_chunks() to yield raw binary chunks.
+    We read the S3 object fully into memory (not chunked streaming) so that:
+    - Content-Length is set and browsers / pdf.js know the exact payload size
+    - Binary integrity is guaranteed (no chunked-encoding edge cases)
+    - pdf.js canvas renders correctly (it requires the full PDF to be available)
     """
     NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
     file_url = str(getattr(document, "file_url", "") or "")
 
     if file_url.startswith("s3://"):
         try:
-            body = get_s3_object_body(file_url)
-            if body:
-                def _iter_binary_chunks():
-                    for chunk in body.iter_chunks(chunk_size=65536):
-                        yield chunk
-
-                return StreamingResponse(
-                    _iter_binary_chunks(),
+            result = read_s3_object(file_url)
+            if result:
+                data, _s3_ct, content_length = result
+                return Response(
+                    content=data,
                     media_type=media_type,
                     headers={
+                        "Content-Length": str(content_length),
                         "Content-Disposition": f'inline; filename="{doc_name}"',
                         **NO_CACHE,
                     },

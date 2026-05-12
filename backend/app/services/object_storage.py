@@ -116,3 +116,25 @@ def get_s3_object_body(uri: str):
     client = _get_s3_client()
     response = client.get_object(Bucket=bucket, Key=key)
     return response['Body']
+
+
+def read_s3_object(uri: str) -> Optional[tuple]:
+    """Read an entire S3 object into memory.
+
+    Returns a (bytes, content_type, content_length) tuple, or None if the URI
+    is invalid or the object cannot be retrieved.
+
+    For document serving this is the preferred approach over streaming because:
+    - Guarantees complete, untruncated bytes
+    - Allows setting Content-Length so browsers/pdf.js know the exact file size
+    - Eliminates chunked-encoding edge cases that silently corrupt binary rendering
+    """
+    parsed = parse_s3_uri(uri)
+    if not parsed:
+        return None
+    bucket, key = parsed
+    client = _get_s3_client()
+    response = client.get_object(Bucket=bucket, Key=key)
+    content_type: str = response.get("ContentType", "application/octet-stream")
+    data: bytes = response["Body"].read()
+    return data, content_type, len(data)
