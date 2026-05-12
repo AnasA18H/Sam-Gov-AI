@@ -79,6 +79,9 @@ def _stream_document(document, file_path: Path, media_type: str, doc_name: str):
       1. S3 URI stored in document.file_url   → StreamingResponse (proxied through backend)
       2. Local file at file_path              → FileResponse
       3. Neither found                        → raises HTTP 404
+
+    IMPORTANT: botocore StreamingBody.__iter__() splits on newlines which corrupts binary
+    files. We use iter_chunks() to yield raw binary chunks.
     """
     NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
     file_url = str(getattr(document, "file_url", "") or "")
@@ -87,8 +90,12 @@ def _stream_document(document, file_path: Path, media_type: str, doc_name: str):
         try:
             body = get_s3_object_body(file_url)
             if body:
+                def _iter_binary_chunks():
+                    for chunk in body.iter_chunks(chunk_size=65536):
+                        yield chunk
+
                 return StreamingResponse(
-                    body,
+                    _iter_binary_chunks(),
                     media_type=media_type,
                     headers={
                         "Content-Disposition": f'inline; filename="{doc_name}"',

@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     poppler-utils \
     tesseract-ocr \
+    libreoffice-writer \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python dependencies from builder
