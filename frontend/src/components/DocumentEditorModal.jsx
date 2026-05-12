@@ -433,55 +433,63 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
   const showingPreviewPdf = !!(previewPdfBytes && previewPdfBytes.length > 0);
 
   // Render PDF pages to canvases (single scale). Cancel in-flight renders when effect re-runs.
+  // pdfPreviewUrl is included so this re-runs once the scroll container is mounted (it only
+  // renders when pdfPreviewUrl is truthy) and its canvas children are in the DOM.
   useEffect(() => {
     if (!bytesToRender?.length || pdfPageCount < 1 || !pdfScale || pdfScale <= 0) return;
     const isPdf = bytesToRender.length >= 5 && PDF_HEADER_BYTES.every((b, i) => bytesToRender[i] === b);
     if (!isPdf) return;
-    const container = pdfScrollContainerRef.current;
-    if (!container) return;
     let cancelled = false;
     pdfRenderTasksRef.current = [];
-    pdfjsLib
-      .getDocument({ data: bytesToRender.slice(0) })
-      .promise.then((pdf) => {
-        if (cancelled) return;
-        const renderPage = (i) => {
+
+    // Defer one animation frame so React has committed the canvas elements to the DOM
+    // before pdf.js tries to query them via querySelector.
+    let rafId = requestAnimationFrame(() => {
+      if (cancelled) return;
+      const container = pdfScrollContainerRef.current;
+      if (!container) return;
+      pdfjsLib
+        .getDocument({ data: bytesToRender.slice(0) })
+        .promise.then((pdf) => {
           if (cancelled) return;
-          pdf
-            .getPage(i + 1)
-            .then((page) => {
-              if (cancelled) return;
-              const viewport = page.getViewport({ scale: pdfScale });
-              const wrapper = container.querySelector(`[data-pdf-page="${i + 1}"]`);
-              const canvas = wrapper?.querySelector('canvas');
-              if (!canvas) return;
-              const dpr = window.devicePixelRatio || 1;
-              canvas.width = Math.floor(viewport.width * dpr);
-              canvas.height = Math.floor(viewport.height * dpr);
-              canvas.style.width = `${viewport.width}px`;
-              canvas.style.height = `${viewport.height}px`;
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                const task = page.render({ canvasContext: ctx, viewport });
-                if (task && typeof task.cancel === 'function') pdfRenderTasksRef.current.push(task);
-              }
-            })
-            .catch(() => {});
-        };
-        for (let i = 0; i < pdf.numPages; i++) renderPage(i);
-      })
-      .catch(() => {});
+          const renderPage = (i) => {
+            if (cancelled) return;
+            pdf
+              .getPage(i + 1)
+              .then((page) => {
+                if (cancelled) return;
+                const viewport = page.getViewport({ scale: pdfScale });
+                const wrapper = container.querySelector(`[data-pdf-page="${i + 1}"]`);
+                const canvas = wrapper?.querySelector('canvas');
+                if (!canvas) return;
+                const dpr = window.devicePixelRatio || 1;
+                canvas.width = Math.floor(viewport.width * dpr);
+                canvas.height = Math.floor(viewport.height * dpr);
+                canvas.style.width = `${viewport.width}px`;
+                canvas.style.height = `${viewport.height}px`;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                  const task = page.render({ canvasContext: ctx, viewport });
+                  if (task && typeof task.cancel === 'function') pdfRenderTasksRef.current.push(task);
+                }
+              })
+              .catch(() => {});
+          };
+          for (let i = 0; i < pdf.numPages; i++) renderPage(i);
+        })
+        .catch(() => {});
+    });
+
     return () => {
       cancelled = true;
+      cancelAnimationFrame(rafId);
       pdfRenderTasksRef.current.forEach((task) => {
-        try {
-          task.cancel();
-        } catch (_) {}
+        try { task.cancel(); } catch (_) {}
       });
       pdfRenderTasksRef.current = [];
     };
-  }, [bytesToRender, pdfPageCount, pdfScale]);
+  }, [bytesToRender, pdfPageCount, pdfScale, pdfPreviewUrl]);
 
   // IntersectionObserver: update page selector on scroll
   useEffect(() => {
