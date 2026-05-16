@@ -169,12 +169,10 @@ const Signup = () => {
     <div className="min-h-screen w-full flex bg-[#18242b] dark:bg-matte">
       {/* Container with green border - full screen */}
       <div className="w-full h-screen min-h-screen flex border-[7px] border-[#18242b] dark:border-dark-border rounded-[25px] overflow-hidden bg-white dark:bg-dark-elevated shadow-2xl">
-        {/* Left Section - Signup Form (scrollable; native scrollbar hidden, ball indicator shown); form panel = black in dark mode */}
+        {/* Left Section - Signup Form (scrollable) */}
         <div className="w-full lg:w-2/5 flex flex-col min-h-0 relative bg-white dark:bg-black">
         <div
-          ref={scrollRef}
-          onScroll={handleScroll}
-          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-col items-center p-6 sm:p-8"
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar flex flex-col items-center p-6 sm:p-8"
         >
         <div className="absolute top-4 right-4 z-10">
           <ThemeToggle />
@@ -436,28 +434,7 @@ const Signup = () => {
         <div className="flex-1 min-h-[8vh]" aria-hidden="true" />
         </div>
 
-        {/* Custom small scrollbar: short track (96px) + green thumb – clearly visible */}
-        <div
-          ref={scrollbarTrackRef}
-          role="scrollbar"
-          aria-valuenow={Math.round(scrollProgress * 100)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label="Scroll position"
-          className="absolute right-3 top-1/2 -translate-y-1/2 w-2 rounded-full cursor-pointer select-none z-20 relative bg-gray-300 dark:bg-gray-600"
-          style={{ height: CUSTOM_SCROLLBAR_TRACK_HEIGHT }}
-          onClick={handleScrollbarTrackClick}
-        >
-          <div
-            className="absolute left-0 right-0 rounded-full bg-[#14B8A6] dark:bg-teal-dm cursor-grab active:cursor-grabbing transition-none hover:bg-[#0D9488] dark:hover:bg-teal-600 shrink-0"
-            style={{
-              top: `${scrollProgress * (CUSTOM_SCROLLBAR_TRACK_HEIGHT - scrollThumbHeight)}px`,
-              height: scrollThumbHeight,
-              minHeight: 16,
-            }}
-            onMouseDown={handleScrollbarThumbMouseDown}
-          />
-        </div>
+        {/* Custom small scrollbar removed in favor of standard visible scrollbar */}
       </div>
 
       {/* Right Section - Image (background avoids white glare during crossfade; theme switch in sync with 0.4s) */}

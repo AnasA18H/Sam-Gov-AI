@@ -5,15 +5,30 @@
 @layer base {
   html,
   body {
-    /* Hide main page scrollbar everywhere; scroll still works */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: auto;
   }
-  html::-webkit-scrollbar,
-  body::-webkit-scrollbar {
-    display: none;
+  
+  /* Global custom scrollbar for webkit */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
   }
-
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1; /* tailwind slate-300 */
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8; /* tailwind slate-400 */
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: #475569; /* tailwind slate-600 */
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: #64748b; /* tailwind slate-500 */
+  }
   body {
     @apply bg-gray-50 text-gray-900 dark:bg-matte dark:text-white;
   }
@@ -215,13 +230,12 @@
   background: #5EEAD4;
 }
 
-/* Hide scrollbar on any element (scroll still works) */
+/* Allow scrollbar to be visible where scrollbar-hidden was used */
 .scrollbar-hidden {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  scrollbar-width: auto;
 }
 .scrollbar-hidden::-webkit-scrollbar {
-  display: none;
+  display: block;
 }
 
 /* Custom scrollbar for utilities panel */

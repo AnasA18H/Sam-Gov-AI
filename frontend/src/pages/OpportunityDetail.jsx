@@ -961,7 +961,7 @@ const OpportunityDetail = () => {
             <div className={`flex-1 overflow-hidden transition-all duration-300 ease-in-out ${
               sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none absolute inset-0'
             }`}>
-              <div className="px-4 py-5 space-y-6 h-full overflow-y-auto scrollbar-hidden">
+              <div className="px-4 py-5 space-y-6 h-full overflow-y-auto custom-scrollbar">
                 {/* Quick Actions */}
                 <div>
                   <h4 className="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3">Quick Actions</h4>

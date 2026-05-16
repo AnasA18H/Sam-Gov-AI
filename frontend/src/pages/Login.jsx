@@ -92,11 +92,12 @@ const Login = () => {
       {/* Container with green border - full screen */}
       <div className="w-full h-screen min-h-screen flex border-[7px] border-[#18242b] dark:border-dark-border rounded-[25px] overflow-hidden bg-white dark:bg-dark-elevated shadow-2xl">
         {/* Left Section - Login Form */}
-        <div className="w-full lg:w-2/5 flex items-center justify-center p-8 bg-white dark:bg-black relative">
-        <div className="absolute top-4 right-4">
-          <ThemeToggle />
-        </div>
-        <div className="w-full max-w-md space-y-8">
+        <div className="w-full lg:w-2/5 flex flex-col min-h-0 relative bg-white dark:bg-black overflow-y-auto custom-scrollbar">
+          <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-8 w-full min-h-full">
+            <div className="absolute top-4 right-4 z-10">
+              <ThemeToggle />
+            </div>
+            <div className="w-full max-w-md space-y-8 my-auto py-4">
           {/* Logo */}
           <div className="flex items-center space-x-2">
             <div className="flex flex-col space-y-0.5">
@@ -306,6 +307,7 @@ const Login = () => {
           <p className="text-xs text-gray-500 dark:text-gray-200 text-center">
             By sign up you agree to our term and that you have read our data policy
           </p>
+        </div>
         </div>
       </div>
 

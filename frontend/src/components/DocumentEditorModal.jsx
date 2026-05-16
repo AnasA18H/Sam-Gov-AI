@@ -1283,7 +1283,7 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
                       {/* Tooltip panel: positioned next to this button */}
                       {tool.id === 'text' && showFlyout && (
                         <div
-                          className="absolute left-full top-0 ml-3 py-1.5 px-1.5 rounded-lg shadow-lg border border-gray-200/90 dark:border-dark-border bg-white dark:bg-dark-elevated min-w-[136px] max-h-[70vh] overflow-y-auto scrollbar-hidden z-20"
+                          className="absolute left-full top-0 ml-3 py-1.5 px-1.5 rounded-lg shadow-lg border border-gray-200/90 dark:border-dark-border bg-white dark:bg-dark-elevated min-w-[136px] max-h-[70vh] overflow-y-auto custom-scrollbar z-20"
                           onMouseEnter={() => { if (tooltipHideTimeoutRef.current) clearTimeout(tooltipHideTimeoutRef.current); setHoveredMainTool('text'); }}
                           onMouseLeave={() => { tooltipHideTimeoutRef.current = setTimeout(() => setHoveredMainTool(null), 150); }}
                         >
@@ -1339,7 +1339,7 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
                       )}
                       {tool.id === 'draw' && showFlyout && (
                         <div
-                          className="absolute left-full top-0 ml-3 py-1.5 px-1.5 rounded-lg shadow-lg border border-gray-200/90 dark:border-dark-border bg-white dark:bg-dark-elevated min-w-[136px] max-h-[70vh] overflow-y-auto scrollbar-hidden z-20"
+                          className="absolute left-full top-0 ml-3 py-1.5 px-1.5 rounded-lg shadow-lg border border-gray-200/90 dark:border-dark-border bg-white dark:bg-dark-elevated min-w-[136px] max-h-[70vh] overflow-y-auto custom-scrollbar z-20"
                           onMouseEnter={() => { if (tooltipHideTimeoutRef.current) clearTimeout(tooltipHideTimeoutRef.current); setHoveredMainTool('draw'); }}
                           onMouseLeave={() => { tooltipHideTimeoutRef.current = setTimeout(() => setHoveredMainTool(null), 150); }}
                         >
@@ -1396,7 +1396,7 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
                       )}
                       {tool.id === 'signature' && showFlyout && (
                         <div
-                          className="absolute left-full top-0 ml-3 py-1.5 px-1.5 rounded-lg shadow-lg border border-gray-200/90 dark:border-dark-border bg-white dark:bg-dark-elevated gap-1 max-h-[70vh] overflow-y-auto scrollbar-hidden min-w-[120px] z-20"
+                          className="absolute left-full top-0 ml-3 py-1.5 px-1.5 rounded-lg shadow-lg border border-gray-200/90 dark:border-dark-border bg-white dark:bg-dark-elevated gap-1 max-h-[70vh] overflow-y-auto custom-scrollbar min-w-[120px] z-20"
                           onMouseEnter={() => { if (tooltipHideTimeoutRef.current) clearTimeout(tooltipHideTimeoutRef.current); setHoveredMainTool('signature'); }}
                           onMouseLeave={() => { tooltipHideTimeoutRef.current = setTimeout(() => setHoveredMainTool(null), 150); }}
                         >
@@ -1425,7 +1425,7 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
                       )}
                       {tool.id === 'stamp' && showFlyout && (
                         <div
-                          className="absolute left-full top-0 ml-3 py-1.5 px-1.5 rounded-lg shadow-lg border border-gray-200/90 dark:border-dark-border bg-white dark:bg-dark-elevated gap-1 max-h-[70vh] overflow-y-auto scrollbar-hidden min-w-[120px] z-20"
+                          className="absolute left-full top-0 ml-3 py-1.5 px-1.5 rounded-lg shadow-lg border border-gray-200/90 dark:border-dark-border bg-white dark:bg-dark-elevated gap-1 max-h-[70vh] overflow-y-auto custom-scrollbar min-w-[120px] z-20"
                           onMouseEnter={() => { if (tooltipHideTimeoutRef.current) clearTimeout(tooltipHideTimeoutRef.current); setHoveredMainTool('stamp'); }}
                           onMouseLeave={() => { tooltipHideTimeoutRef.current = setTimeout(() => setHoveredMainTool(null), 150); }}
                         >
@@ -1552,7 +1552,7 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
                     <div
                       key={doc?.id}
                       ref={pdfScrollContainerRef}
-                      className="w-full h-full min-h-[50vh] overflow-auto scrollbar-hidden rounded border border-gray-200 dark:border-dark-border flex flex-col items-center gap-2 p-2"
+                      className="w-full h-full min-h-[50vh] overflow-auto custom-scrollbar rounded border border-gray-200 dark:border-dark-border flex flex-col items-center gap-2 p-2"
                       onMouseMove={
                         textBoxModeActive || signaturePlaceModeActive || highlightModeActive || drawModeActive
                           ? (e) => {
@@ -2187,7 +2187,7 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
                         </button>
                       ))}
                     </div>
-                    <div className="flex flex-col flex-1 min-h-0 overflow-auto scrollbar-hidden">
+                    <div className="flex flex-col flex-1 min-h-0 overflow-auto custom-scrollbar">
                       {activeTab === 'form' && (
                         <div className="p-3">
                           <p className="text-xs font-semibold text-gray-600 dark:text-dark-muted uppercase mb-1">Fill from opportunity</p>
@@ -2584,7 +2584,7 @@ export default function DocumentEditorModal({ open, onClose, opportunityId, docu
                           {textAddLog.length > 0 && (
                             <div className="border-t border-gray-200 dark:border-dark-border pt-3 mt-3">
                               <p className="text-xs font-medium text-gray-700 dark:text-gray-200 mb-1.5">Activity log</p>
-                              <ul className="max-h-28 overflow-y-auto scrollbar-hidden space-y-1 text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-dark-hover rounded px-2 py-1.5 border border-gray-100 dark:border-dark-border">
+                              <ul className="max-h-28 overflow-y-auto custom-scrollbar space-y-1 text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-dark-hover rounded px-2 py-1.5 border border-gray-100 dark:border-dark-border">
                                 {textAddLog.map((entry) => (
                                   <li key={entry.id} className="flex gap-2">
                                     <span className="text-gray-400 dark:text-dark-muted shrink-0">{entry.time}</span>
