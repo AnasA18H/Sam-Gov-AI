@@ -38,7 +38,7 @@ ACCESS_TOKEN_EXPIRE = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
 
 def _verification_email_html(code: str) -> str:
     """HTML body for verification email with company branding."""
-    app_name = getattr(settings, "APP_NAME", "Gov OPs AI")
+    app_name = "Gov Ops Ai"
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -72,7 +72,7 @@ def _verification_email_html(code: str) -> str:
         </tr>
         <tr>
           <td style="padding: 16px 32px 24px; border-top: 1px solid #e2e8f0;">
-            <p style="margin: 0; font-size: 12px; color: #94a3b8;">{app_name} — SAM.gov opportunity discovery and analysis</p>
+            <p style="margin: 0; font-size: 12px; color: #94a3b8;">{app_name} — Government Contract opportunity discovery and analysis</p>
           </td>
         </tr>
       </table>
@@ -89,21 +89,23 @@ def _send_verification_email(to_email: str, code: str) -> bool:
         return False
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"{getattr(settings, 'APP_NAME', 'Gov OPs AI')} — Your verification code"
-        msg["From"] = settings.SMTP_USER
+        msg["Subject"] = "Gov Ops Ai - Your verification code"
+        msg["From"] = "Gov Ops Ai <info@govopsai.com>"
         msg["To"] = to_email
         text = (
-            f"Your verification code is: {code}\n\n"
-            "It expires in 15 minutes.\n\n"
-            "If you didn't request this code, you can ignore this email.\n\n"
-            f"— {getattr(settings, 'APP_NAME', 'Gov OPs AI')}"
+            "Gov Ops Ai\n\n"
+            "Verify your email\n\n"
+            "Use this code to sign in or complete your registration:\n"
+            f"{code}\n\n"
+            "This code expires in 15 minutes. If you didn't request it, you can ignore this email.\n\n"
+            "Gov Ops Ai — Government Contract opportunity discovery and analysis"
         )
         msg.attach(MIMEText(text, "plain"))
         msg.attach(MIMEText(_verification_email_html(code), "html"))
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
             server.starttls()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_USER, to_email, msg.as_string())
+            server.sendmail("info@govopsai.com", to_email, msg.as_string())
         return True
     except Exception as e:
         logger.exception("Failed to send verification email: %s", e)
